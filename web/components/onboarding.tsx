@@ -6,20 +6,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { useSession } from "@/components/session-provider";
+import { VoiceControls } from "@/components/voice-controls";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
 interface Turn { role: "user" | "assistant"; text: string }
 
+const INTRO_MESSAGE = "Thanks for joining me to explore your future.";
+const INITIAL_QUESTION = "Which best describes your current situation right now?";
+const INTRO_PROMPT = `${INTRO_MESSAGE} ${INITIAL_QUESTION}`;
+
 export function Onboarding() {
-	const { mode, setProfile } = useSession();
+	const { mode, setProfile, started, onboardingStep, setOnboardingStep } = useSession();
 	const [turns, setTurns] = useState<Turn[]>([]);
 	const [currentInput, setCurrentInput] = useState("");
 	const [readiness, setReadiness] = useState<Readiness | null>(null);
-	const [question, setQuestion] = useState<string>("Which best describes your current situation?");
-	const [step, setStep] = useState<number>(1);
+	const [question, setQuestion] = useState<string>(INITIAL_QUESTION);
+	const [step, setStep] = useState<number>(onboardingStep);
 	const totalSteps = 5; // Q1–Q5 baseline
 	const progress = Math.min(100, Math.round((step / totalSteps) * 100));
+
+	useEffect(() => {
+		setStep(onboardingStep);
+	}, [onboardingStep]);
 
 	const canSubmit = currentInput.trim().length > 0;
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -27,6 +36,11 @@ export function Onboarding() {
 	useEffect(() => {
 		inputRef.current?.focus();
 	}, [question]);
+
+	useEffect(() => {
+		if (!started || turns.length > 0) return;
+		setTurns([{ role: "assistant", text: INTRO_PROMPT }]);
+	}, [started, turns.length]);
 
 	async function handleSubmit() {
 		if (!canSubmit) return;
@@ -45,7 +59,7 @@ export function Onboarding() {
 		setReadiness(data.readiness as Readiness);
 		setQuestion(nextQ);
 		setTurns((prev) => [...prev, { role: "assistant", text: nextQ }]);
-		setStep((s) => Math.min(totalSteps, s + 1));
+		setOnboardingStep((prev) => Math.min(totalSteps, prev + 1));
 		setProfile({ readiness: data.readiness as Readiness });
 	}
 
@@ -72,7 +86,9 @@ export function Onboarding() {
 
 			<Card className="p-4">
 				<div className="space-y-4">
-					<div className="text-sm text-muted-foreground">{mode ? `Mode: ${mode}` : ""}</div>
+					<div className="text-sm text-muted-foreground">
+						{mode ? `Mode: ${mode === "voice" ? "Voice" : "Text"}` : ""}
+					</div>
 					<div className="text-base font-medium">{question}</div>
 					<Input
 						ref={inputRef}
@@ -89,6 +105,10 @@ export function Onboarding() {
 				</div>
 			</Card>
 
+			{mode === "voice" && (
+				<VoiceControls />
+			)}
+
 			<div className="space-y-2">
 				{turns.map((t, idx) => (
 					<div key={idx} className="text-sm text-muted-foreground">
@@ -101,5 +121,3 @@ export function Onboarding() {
 }
 
 export default Onboarding;
-
-

@@ -3,6 +3,10 @@ import OpenAI from "openai";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
+function isReadiness(value: unknown): value is Readiness {
+	return value === "G1" || value === "G2" || value === "G3" || value === "G4";
+}
+
 interface Turn {
 	role: "user" | "assistant";
 	text: string;
@@ -12,6 +16,13 @@ interface OnboardingRequestBody {
 	sessionId?: string;
 	profile?: Record<string, unknown>;
 	turns: Turn[];
+}
+
+interface OnboardingModelResponse {
+	readiness?: Readiness | null;
+	question?: string;
+	rationale?: string;
+	revealDraftCards?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -68,16 +79,19 @@ Return strict JSON with keys: readiness (G1|G2|G3|G4), question (string), ration
 	});
 
 	const content = completion.choices[0]?.message?.content ?? "{}";
-	let parsed: any;
+	let parsed: OnboardingModelResponse;
 	try {
-		parsed = JSON.parse(content);
+		parsed = JSON.parse(content) as OnboardingModelResponse;
 	} catch {
-		parsed = { readiness: null, question: "What matters most to you at work?", rationale: "fallback", revealDraftCards: false };
+		parsed = {
+			readiness: null,
+			question: "What matters most to you at work?",
+			rationale: "fallback",
+			revealDraftCards: false,
+		};
 	}
 
-	const readiness: Readiness = ["G1", "G2", "G3", "G4"].includes(parsed.readiness)
-		? parsed.readiness
-		: "G2";
+	const readiness: Readiness = isReadiness(parsed.readiness) ? parsed.readiness : "G2";
 
 	return NextResponse.json({
 		readiness,
@@ -86,5 +100,3 @@ Return strict JSON with keys: readiness (G1|G2|G3|G4), question (string), ration
 		revealDraftCards: Boolean(parsed.revealDraftCards),
 	});
 }
-
-

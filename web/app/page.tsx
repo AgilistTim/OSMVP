@@ -1,11 +1,13 @@
-import { ModePicker } from "@/components/mode-picker";
+"use client";
+
 import { Onboarding } from "@/components/onboarding";
 import { useSession } from "@/components/session-provider";
+import { WelcomeScreen } from "@/components/welcome-screen";
 
 function Content() {
-  const { mode } = useSession();
-  if (!mode) return <ModePicker />;
-  return <Onboarding />;
+	const { started } = useSession();
+	if (!started) return <WelcomeScreen />;
+	return <Onboarding />;
 }
 
 export default function Home() {
