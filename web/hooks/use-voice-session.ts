@@ -19,6 +19,8 @@ export interface VoiceTranscriptItem {
   id: string;
   text: string;
   createdAt: number;
+  isFinal: boolean;
+  role: "user" | "assistant";
 }
 
 interface VoiceSessionState {
@@ -89,6 +91,99 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
 
       if (!type) return;
 
+      const extractTranscriptId = () =>
+        (event.response_id as string | undefined) ||
+        (event.item_id as string | undefined) ||
+        (typeof event.item === "object" && event.item && "id" in event.item
+          ? (event.item.id as string | undefined)
+          : undefined);
+
+      const coerceTranscriptText = (...candidates: unknown[]) => {
+        for (const candidate of candidates) {
+          if (typeof candidate === "string" && candidate.trim().length > 0) {
+            return candidate;
+          }
+          if (candidate && typeof candidate === "object") {
+            const possibleText =
+              typeof (candidate as { text?: unknown }).text === "string"
+                ? ((candidate as { text: string }).text)
+                : typeof (candidate as { transcript?: unknown }).transcript === "string"
+                ? ((candidate as { transcript: string }).transcript)
+                : undefined;
+            if (possibleText && possibleText.trim().length > 0) {
+              return possibleText;
+            }
+          }
+        }
+        return undefined;
+      };
+
+      const handleTranscriptDelta = (
+        id: string | undefined,
+        delta: string | undefined,
+        role: "user" | "assistant"
+      ) => {
+        if (!id || !delta) {
+          return;
+        }
+        setTranscripts((prev) => {
+          const existingIndex = prev.findIndex((item) => item.id === id);
+          if (existingIndex >= 0) {
+            const existing = prev[existingIndex];
+            const updated: VoiceTranscriptItem = {
+              ...existing,
+              text: `${existing.text}${delta}`,
+              isFinal: false,
+              role: existing.role,
+            };
+            return [
+              updated,
+              ...prev.filter((_, index) => index !== existingIndex),
+            ];
+          }
+
+          return [
+            {
+              id,
+              text: delta,
+              createdAt: Date.now(),
+              isFinal: false,
+              role,
+            },
+            ...prev,
+          ];
+        });
+      };
+
+      const handleTranscriptFinal = (
+        id: string | undefined,
+        transcript: string | undefined,
+        roleHint: "user" | "assistant"
+      ) => {
+        if (!id || !transcript) {
+          return;
+        }
+        setTranscripts((prev) => {
+          const existingIndex = prev.findIndex((item) => item.id === id);
+          const finalItem: VoiceTranscriptItem = {
+            id,
+            text: transcript.trim(),
+            createdAt: Date.now(),
+            isFinal: true,
+            role: existingIndex >= 0 ? prev[existingIndex].role : roleHint,
+          };
+
+          if (existingIndex >= 0) {
+            return [
+              { ...finalItem },
+              ...prev.filter((_, index) => index !== existingIndex),
+            ];
+          }
+
+          return [finalItem, ...prev];
+        });
+      };
+
       switch (type) {
         case "response.created": {
           if (event.response?.id) {
@@ -107,32 +202,31 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           onResponseCompletedRef.current?.();
           break;
         }
-        case "response.audio_transcript.delta": {
-          const text: string | undefined = event.delta;
-          if (text) {
-            setTranscripts((prev) => {
-              const last = prev[0];
-              if (last && last.id === event.response_id) {
-                const updated = { ...last, text: `${last.text}${text}` };
-                return [updated, ...prev.slice(1)];
-              }
-              return prev;
-            });
-          }
+        case "response.audio_transcript.delta":
+        case "response.output_audio_transcript.delta": {
+          const id = extractTranscriptId();
+          const text = coerceTranscriptText(event.delta, event.text, event.transcript);
+          handleTranscriptDelta(id, text, "assistant");
           break;
         }
-        case "response.audio_transcript.done": {
-          const text: string | undefined = event.transcript;
-          if (text && event.response_id) {
-            setTranscripts((prev) => [
-              {
-                id: event.response_id,
-                text,
-                createdAt: Date.now(),
-              },
-              ...prev,
-            ]);
-          }
+        case "response.audio_transcript.done":
+        case "response.output_audio_transcript.done": {
+          const id = extractTranscriptId();
+          const text = coerceTranscriptText(event.transcript, event.text, event.delta);
+          handleTranscriptFinal(id, text?.trim(), "assistant");
+          break;
+        }
+        case "conversation.item.input_audio_transcription.delta": {
+          const id = extractTranscriptId();
+          const text = coerceTranscriptText(event.delta, event.text, event.transcript);
+          handleTranscriptDelta(id, text, "user");
+          break;
+        }
+        case "conversation.item.input_audio_transcription.completed":
+        case "conversation.item.input_audio_transcription.done": {
+          const id = extractTranscriptId();
+          const text = coerceTranscriptText(event.transcript, event.text, event.delta);
+          handleTranscriptFinal(id, text?.trim(), "user");
           break;
         }
         case "error": {

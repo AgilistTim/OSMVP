@@ -9,8 +9,10 @@ type TokenRequestBody = {
 interface OpenAIRealtimeResponse {
   client_secret?: {
     value: string;
-    expires_at: number;
+    expires_at?: number;
   };
+  value?: string;
+  expires_at?: number;
   session?: Record<string, unknown>;
   [key: string]: unknown;
 }
@@ -58,14 +60,11 @@ export async function POST(req: NextRequest) {
       output: {
         voice,
       },
-    },
-    input_audio_transcription: {
-      model: "whisper-1",
-      format: "text",
-    },
-    modalities: ["text", "audio"],
-    metadata: {
-      session_id: sessionId,
+      input: {
+        transcription: {
+          model: "whisper-1",
+        },
+      },
     },
   };
 
@@ -95,6 +94,14 @@ export async function POST(req: NextRequest) {
     }
 
     const data = (await response.json()) as OpenAIRealtimeResponse;
+
+    if (!data.client_secret && data.value) {
+      data.client_secret = {
+        value: data.value,
+        expires_at: typeof data.expires_at === "number" ? data.expires_at : undefined,
+      };
+    }
+
     return NextResponse.json(data);
   } catch (error) {
     return NextResponse.json(

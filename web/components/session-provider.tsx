@@ -11,6 +11,9 @@ export interface Profile {
 	strengths?: string[];
 	constraints?: string[];
 	lastTranscript?: string;
+	lastTranscriptId?: string;
+	lastAssistantTranscript?: string;
+	lastAssistantTranscriptId?: string;
 }
 
 export interface CareerCardCandidate {

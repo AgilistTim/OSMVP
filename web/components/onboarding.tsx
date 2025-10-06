@@ -17,10 +17,12 @@ const INITIAL_QUESTION = "Which best describes your current situation right now?
 const INTRO_PROMPT = `${INTRO_MESSAGE} ${INITIAL_QUESTION}`;
 
 export function Onboarding() {
-	const { mode, setProfile, started, onboardingStep, setOnboardingStep } = useSession();
+	const { mode, profile, setProfile, started, onboardingStep, setOnboardingStep } = useSession();
 	const [turns, setTurns] = useState<Turn[]>([]);
 	const [currentInput, setCurrentInput] = useState("");
 	const [readiness, setReadiness] = useState<Readiness | null>(null);
+	const lastVoiceTranscriptIdRef = useRef<string | undefined>(undefined);
+	const lastAssistantTranscriptIdRef = useRef<string | undefined>(undefined);
 	const [question, setQuestion] = useState<string>(INITIAL_QUESTION);
 	const [step, setStep] = useState<number>(onboardingStep);
 	const totalSteps = 5; // Q1–Q5 baseline
@@ -41,6 +43,37 @@ export function Onboarding() {
 		if (!started || turns.length > 0) return;
 		setTurns([{ role: "assistant", text: INTRO_PROMPT }]);
 	}, [started, turns.length]);
+
+	useEffect(() => {
+		if (mode !== "voice") {
+			return;
+		}
+		const latestVoiceTranscript = profile.lastTranscript?.trim();
+		const latestVoiceTranscriptId = profile.lastTranscriptId;
+		if (!latestVoiceTranscript || !latestVoiceTranscriptId || latestVoiceTranscriptId === lastVoiceTranscriptIdRef.current) {
+			return;
+		}
+		lastVoiceTranscriptIdRef.current = latestVoiceTranscriptId;
+		setTurns((prev) => [...prev, { role: "user", text: latestVoiceTranscript }]);
+	}, [mode, profile.lastTranscript, profile.lastTranscriptId]);
+
+	useEffect(() => {
+		if (mode !== "voice") {
+			return;
+		}
+		const latestAssistantTranscript = profile.lastAssistantTranscript?.trim();
+		const latestAssistantTranscriptId = profile.lastAssistantTranscriptId;
+		if (
+			!latestAssistantTranscript ||
+			!latestAssistantTranscriptId ||
+			latestAssistantTranscriptId === lastAssistantTranscriptIdRef.current
+		) {
+			return;
+		}
+		lastAssistantTranscriptIdRef.current = latestAssistantTranscriptId;
+		setTurns((prev) => [...prev, { role: "assistant", text: latestAssistantTranscript }]);
+		setQuestion(latestAssistantTranscript);
+	}, [mode, profile.lastAssistantTranscript, profile.lastAssistantTranscriptId]);
 
 	async function handleSubmit() {
 		if (!canSubmit) return;
