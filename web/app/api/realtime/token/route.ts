@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSystemPrompt } from "@/lib/system-prompt";
 
 type TokenRequestBody = {
   sessionId?: string;
@@ -48,10 +49,13 @@ export async function POST(req: NextRequest) {
   }
 
   const voice = typeof body.voice === "string" && body.voice.length > 0 ? body.voice : DEFAULT_VOICE;
-  const instructions =
-    typeof body.instructions === "string" && body.instructions.trim().length > 0
-      ? body.instructions.trim()
-      : undefined;
+  let instructions: string | undefined;
+
+  if (typeof body.instructions === "string" && body.instructions.trim().length > 0) {
+    instructions = body.instructions.trim();
+  } else {
+    instructions = await getSystemPrompt();
+  }
 
   const sessionConfig: Record<string, unknown> = {
     type: "realtime",
@@ -70,6 +74,13 @@ export async function POST(req: NextRequest) {
 
   if (instructions) {
     sessionConfig.instructions = instructions;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[realtime-token] issuing session", sessionId, "voice", voice);
+    if (instructions) {
+      console.info("[realtime-token] instructions snippet", instructions.slice(0, 240));
+    }
   }
 
   try {

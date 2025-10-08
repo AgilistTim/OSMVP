@@ -2,20 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-interface VoiceSessionConfig {
+export interface RealtimeSessionConfig {
   sessionId: string;
   instructions?: string;
   voice?: string;
+  enableMicrophone?: boolean;
+  enableAudioOutput?: boolean;
 }
 
-export type VoiceStatus =
+export type RealtimeStatus =
   | "idle"
   | "requesting-token"
   | "connecting"
   | "connected"
   | "error";
 
-export interface VoiceTranscriptItem {
+export interface RealtimeTranscriptItem {
   id: string;
   text: string;
   createdAt: number;
@@ -23,38 +25,47 @@ export interface VoiceTranscriptItem {
   role: "user" | "assistant";
 }
 
-interface VoiceSessionState {
-  status: VoiceStatus;
+export interface RealtimeSessionState {
+  status: RealtimeStatus;
   error?: string;
-  transcripts: VoiceTranscriptItem[];
+  transcripts: RealtimeTranscriptItem[];
   lastLatencyMs?: number;
 }
 
-interface VoiceSessionControls {
-  connect: (config?: Partial<VoiceSessionConfig>) => Promise<void>;
+export interface RealtimeSessionControls {
+  connect: (config?: Partial<RealtimeSessionConfig>) => Promise<void>;
   disconnect: () => Promise<void>;
   sendEvent: (event: unknown) => void;
   setOnResponseCompleted: (handler: (() => void) | null) => void;
+  waitForConversationItem: (id: string) => Promise<void>;
 }
 
-export function useVoiceSession(baseConfig: VoiceSessionConfig): [
-  VoiceSessionState,
-  VoiceSessionControls
+export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
+  RealtimeSessionState,
+  RealtimeSessionControls
 ] {
-  const [status, setStatus] = useState<VoiceStatus>("idle");
-  const [error, setError] = useState<string | undefined>(undefined);
-  const [transcripts, setTranscripts] = useState<VoiceTranscriptItem[]>([]);
-  const [lastLatencyMs, setLastLatencyMs] = useState<number | undefined>(undefined);
+  const [status, setStatus] = useState<RealtimeStatus>("idle");
+  const [error, setError] = useState<string | undefined>();
+  const [transcripts, setTranscripts] = useState<RealtimeTranscriptItem[]>([]);
+  const [lastLatencyMs, setLastLatencyMs] = useState<number | undefined>();
 
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const responseStartTimesRef = useRef<Map<string, number>>(new Map());
   const onResponseCompletedRef = useRef<(() => void) | null>(null);
+  const statusRef = useRef<RealtimeStatus>("idle");
+  const pendingEventsRef = useRef<unknown[]>([]);
+  const pendingItemResolversRef = useRef<
+    Map<string, (status: "added" | "closed") => void>
+  >(new Map());
+
+  const enableMicrophoneDefault = baseConfig.enableMicrophone ?? true;
+  const enableAudioOutputDefault = baseConfig.enableAudioOutput ?? true;
 
   const logEvent = useCallback((name: string, details?: Record<string, unknown>) => {
     if (process.env.NODE_ENV !== "production") {
-      console.info("[voice]", name, details ?? {});
+      console.info("[realtime]", name, details ?? {});
     }
   }, []);
 
@@ -77,6 +88,9 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
     }
 
     responseStartTimesRef.current.clear();
+    pendingEventsRef.current = [];
+    pendingItemResolversRef.current.forEach((resolve) => resolve("closed"));
+    pendingItemResolversRef.current.clear();
   }, []);
 
   const disconnect = useCallback(async () => {
@@ -88,7 +102,6 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
     try {
       const event = JSON.parse(raw.data);
       const type: string | undefined = event.type;
-
       if (!type) return;
 
       const extractTranscriptId = () =>
@@ -104,14 +117,14 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
             return candidate;
           }
           if (candidate && typeof candidate === "object") {
-            const possibleText =
+            const textCandidate =
               typeof (candidate as { text?: unknown }).text === "string"
                 ? ((candidate as { text: string }).text)
                 : typeof (candidate as { transcript?: unknown }).transcript === "string"
                 ? ((candidate as { transcript: string }).transcript)
                 : undefined;
-            if (possibleText && possibleText.trim().length > 0) {
-              return possibleText;
+            if (textCandidate && textCandidate.trim().length > 0) {
+              return textCandidate;
             }
           }
         }
@@ -130,16 +143,13 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           const existingIndex = prev.findIndex((item) => item.id === id);
           if (existingIndex >= 0) {
             const existing = prev[existingIndex];
-            const updated: VoiceTranscriptItem = {
+            const updated: RealtimeTranscriptItem = {
               ...existing,
               text: `${existing.text}${delta}`,
               isFinal: false,
               role: existing.role,
             };
-            return [
-              updated,
-              ...prev.filter((_, index) => index !== existingIndex),
-            ];
+            return [updated, ...prev.filter((_, index) => index !== existingIndex)];
           }
 
           return [
@@ -165,7 +175,7 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
         }
         setTranscripts((prev) => {
           const existingIndex = prev.findIndex((item) => item.id === id);
-          const finalItem: VoiceTranscriptItem = {
+          const finalItem: RealtimeTranscriptItem = {
             id,
             text: transcript.trim(),
             createdAt: Date.now(),
@@ -174,10 +184,7 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           };
 
           if (existingIndex >= 0) {
-            return [
-              { ...finalItem },
-              ...prev.filter((_, index) => index !== existingIndex),
-            ];
+            return [finalItem, ...prev.filter((_, index) => index !== existingIndex)];
           }
 
           return [finalItem, ...prev];
@@ -185,6 +192,15 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
       };
 
       switch (type) {
+        case "conversation.item.added": {
+          const itemId: string | undefined = event.item?.id;
+          if (itemId && pendingItemResolversRef.current.has(itemId)) {
+            const resolver = pendingItemResolversRef.current.get(itemId);
+            resolver?.("added");
+            pendingItemResolversRef.current.delete(itemId);
+          }
+          break;
+        }
         case "response.created": {
           if (event.response?.id) {
             responseStartTimesRef.current.set(event.response.id, Date.now());
@@ -203,14 +219,17 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           break;
         }
         case "response.audio_transcript.delta":
-        case "response.output_audio_transcript.delta": {
+        case "response.output_audio_transcript.delta":
+        case "response.output_text.delta":
+        case "response.delta": {
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.delta, event.text, event.transcript);
           handleTranscriptDelta(id, text, "assistant");
           break;
         }
         case "response.audio_transcript.done":
-        case "response.output_audio_transcript.done": {
+        case "response.output_audio_transcript.done":
+        case "response.output_text.done": {
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.transcript, event.text, event.delta);
           handleTranscriptFinal(id, text?.trim(), "assistant");
@@ -229,10 +248,6 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           handleTranscriptFinal(id, text?.trim(), "user");
           break;
         }
-        case "error": {
-          setError(event.error?.message ?? "Realtime session error");
-          break;
-        }
         default:
           break;
       }
@@ -241,22 +256,49 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
     }
   }, []);
 
-  const sendEvent = useCallback((event: unknown) => {
+  const flushPendingEvents = useCallback(() => {
     const channel = dataChannelRef.current;
-    if (channel?.readyState === "open") {
+    if (!channel || channel.readyState !== "open") {
+      return;
+    }
+
+    for (const event of pendingEventsRef.current) {
       channel.send(JSON.stringify(event));
     }
+    pendingEventsRef.current = [];
   }, []);
 
+  const sendEvent = useCallback(
+    (event: unknown) => {
+      const channel = dataChannelRef.current;
+      if (channel?.readyState === "open") {
+        channel.send(JSON.stringify(event));
+        return;
+      }
+
+      pendingEventsRef.current = [...pendingEventsRef.current, event];
+    },
+    []
+  );
+
   const connect = useCallback(
-    async (overrideConfig?: Partial<VoiceSessionConfig>) => {
-      if (!baseConfig.sessionId && !overrideConfig?.sessionId) {
-        setError("Session ID is required for voice connection");
+    async (overrideConfig?: Partial<RealtimeSessionConfig>) => {
+      const effectiveSessionId = overrideConfig?.sessionId ?? baseConfig.sessionId;
+      if (!effectiveSessionId) {
+        setError("Session ID is required for realtime connection");
         setStatus("error");
         return;
       }
 
       setError(undefined);
+      if (
+        statusRef.current === "requesting-token" ||
+        statusRef.current === "connecting" ||
+        statusRef.current === "connected"
+      ) {
+        return;
+      }
+
       setStatus("requesting-token");
 
       try {
@@ -266,6 +308,7 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
           body: JSON.stringify({
             ...baseConfig,
             ...overrideConfig,
+            sessionId: effectiveSessionId,
           }),
         });
 
@@ -288,22 +331,39 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
         const pc = new RTCPeerConnection();
         peerRef.current = pc;
 
-        const audio = document.createElement("audio");
-        audio.autoplay = true;
-        audioRef.current = audio;
+        const enableAudioOutput =
+          overrideConfig?.enableAudioOutput ?? enableAudioOutputDefault;
+        const enableMicrophone =
+          overrideConfig?.enableMicrophone ?? enableMicrophoneDefault;
 
-        pc.ontrack = (event) => {
-          if (audioRef.current) {
-            audioRef.current.srcObject = event.streams[0];
-          }
-        };
+        const audioDirection = enableMicrophone
+          ? enableAudioOutput
+            ? "sendrecv"
+            : "sendonly"
+          : "recvonly";
+
+        pc.addTransceiver("audio", { direction: audioDirection });
+
+        if (enableAudioOutput) {
+          const audio = document.createElement("audio");
+          audio.autoplay = true;
+          audioRef.current = audio;
+          pc.ontrack = (event) => {
+            if (audioRef.current) {
+              audioRef.current.srcObject = event.streams[0];
+            }
+          };
+        }
 
         const dataChannel = pc.createDataChannel("oai-events");
         dataChannelRef.current = dataChannel;
         dataChannel.addEventListener("message", handleServerEvent);
+        dataChannel.addEventListener("open", flushPendingEvents);
 
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        if (enableMicrophone) {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        }
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -342,7 +402,7 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
         setStatus("connected");
         logEvent("connected");
       } catch (err) {
-        console.error("Voice connection error", err);
+        console.error("Realtime connection error", err);
         let errorMessage = err instanceof Error ? err.message : "Unknown error";
 
         if (err instanceof DOMException && err.name === "NotAllowedError") {
@@ -355,7 +415,7 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
         await cleanup();
       }
     },
-    [baseConfig, cleanup, handleServerEvent, logEvent]
+    [baseConfig, enableAudioOutputDefault, enableMicrophoneDefault, cleanup, handleServerEvent, logEvent]
   );
 
   useEffect(() => {
@@ -364,12 +424,36 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
     };
   }, [cleanup]);
 
-  const state = useMemo<VoiceSessionState>(
+  const state = useMemo<RealtimeSessionState>(
     () => ({ status, error, transcripts, lastLatencyMs }),
     [status, error, transcripts, lastLatencyMs]
   );
 
-  const controls = useMemo<VoiceSessionControls>(
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  const waitForConversationItem = useCallback((id: string): Promise<void> => {
+    if (!id) {
+      return Promise.resolve();
+    }
+
+    if (pendingItemResolversRef.current.has(id)) {
+      pendingItemResolversRef.current.delete(id);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      pendingItemResolversRef.current.set(id, (status) => {
+        if (status === "added") {
+          resolve();
+        } else {
+          reject(new Error("Conversation item was not acknowledged"));
+        }
+      });
+    });
+  }, []);
+
+  const controls = useMemo<RealtimeSessionControls>(
     () => ({
       connect,
       disconnect,
@@ -377,8 +461,9 @@ export function useVoiceSession(baseConfig: VoiceSessionConfig): [
       setOnResponseCompleted: (handler) => {
         onResponseCompletedRef.current = handler;
       },
+      waitForConversationItem,
     }),
-    [connect, disconnect, sendEvent]
+    [connect, disconnect, sendEvent, waitForConversationItem]
   );
 
   return [state, controls];
