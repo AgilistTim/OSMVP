@@ -4,7 +4,15 @@ import React, { createContext, useContext, useMemo, useState, useCallback, useEf
 
 export type SessionMode = "text" | "voice" | null;
 
-export type InsightKind = "interest" | "strength" | "constraint" | "goal" | "value";
+export type InsightKind =
+	| "interest"
+	| "strength"
+	| "constraint"
+	| "goal"
+	| "frustration"
+	| "hope"
+	| "boundary"
+	| "highlight";
 
 export type InsightSource = "user" | "assistant" | "system";
 
@@ -20,23 +28,50 @@ export interface ProfileInsight {
 	updatedAt: number;
 }
 
+export interface MutualMoment {
+	id: string;
+	text: string;
+	createdAt: number;
+	updatedAt: number;
+	source: "assistant";
+}
+
+export interface OnboardingResponse {
+	id: string;
+	questionId: string;
+	question: string;
+	selectedOptionId: string;
+	selectedOptionTitle: string;
+	selectedOptionDescription?: string;
+	freeText?: string;
+	createdAt: number;
+}
+
 export interface ProfileAggregates {
 	interests: string[];
 	strengths: string[];
 	constraints: string[];
 	goals: string[];
-	values: string[];
+	frustrations: string[];
+	hopes: string[];
+	boundaries: string[];
+	highlights: string[];
 }
 
 export interface Profile {
 	readiness?: "G1" | "G2" | "G3" | "G4";
 	demographics?: Record<string, unknown>;
 	insights: ProfileInsight[];
+	onboardingResponses: OnboardingResponse[];
 	interests: string[];
 	strengths: string[];
 	constraints: string[];
 	goals: string[];
-	values: string[];
+	frustrations: string[];
+	hopes: string[];
+	boundaries: string[];
+	highlights: string[];
+	mutualMoments: MutualMoment[];
 	lastTranscript?: string;
 	lastTranscriptId?: string;
 	lastAssistantTranscript?: string;
@@ -50,11 +85,23 @@ export interface CareerCardCandidate {
 	score?: number;
 }
 
+export interface CareerSuggestion {
+	id: string;
+	title: string;
+	summary: string;
+	careerAngles: string[];
+	nextSteps: string[];
+	whyItFits: string[];
+	confidence: "high" | "medium" | "low";
+	score: number;
+}
+
 interface SessionState {
 	mode: SessionMode;
 	profile: Profile;
 	candidates: CareerCardCandidate[];
 	votesByCareerId: Record<string, 1 | -1 | 0>;
+	suggestions: CareerSuggestion[];
 	summary?: string;
 	started: boolean;
 	sessionId: string;
@@ -76,6 +123,8 @@ interface SessionActions {
 			}
 		>
 	) => void;
+	updateProfileInsight: (id: string, updates: Partial<Pick<ProfileInsight, "value" | "kind" | "source">>) => void;
+	removeProfileInsight: (id: string) => void;
 	resetProfile: () => void;
 	setCandidates: (candidates: CareerCardCandidate[]) => void;
 	voteCareer: (careerId: string, value: 1 | -1 | 0) => void;
@@ -83,6 +132,11 @@ interface SessionActions {
 	beginSession: () => void;
 	setVoice: (voice: SessionState["voice"]) => void;
 	setOnboardingStep: (value: number | ((current: number) => number)) => void;
+	addMutualMoment: (text: string) => MutualMoment | null;
+	removeMutualMoment: (id: string) => void;
+	clearMutualMoments: () => void;
+	setSuggestions: (suggestions: CareerSuggestion[]) => void;
+	clearSuggestions: () => void;
 }
 
 const SessionContext = createContext<(SessionState & SessionActions) | null>(null);
@@ -100,6 +154,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [profile, updateProfile] = useState<Profile>(() => createEmptyProfile());
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
 	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>({});
+	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>([]);
 	const [summary, setSummary] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId] = useState(() => crypto.randomUUID());
@@ -112,6 +167,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				...prev,
 				...partial,
 				insights: partial.insights ?? prev.insights,
+				onboardingResponses: partial.onboardingResponses ?? prev.onboardingResponses,
+				mutualMoments: partial.mutualMoments ?? prev.mutualMoments,
 			};
 			return {
 				...merged,
@@ -171,8 +228,98 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		});
 	}, []);
 
+	const updateProfileInsight = useCallback<SessionActions["updateProfileInsight"]>((id, updates) => {
+		updateProfile((prev) => {
+			const nextInsights = prev.insights.map((insight) =>
+				insight.id === id
+					? {
+							...insight,
+							...updates,
+							value:
+								typeof updates.value === "string" && updates.value.trim().length > 0
+									? updates.value.trim()
+									: insight.value,
+							kind: updates.kind ?? insight.kind,
+							source: updates.source ?? insight.source,
+							updatedAt: Date.now(),
+					  }
+					: insight
+			);
+
+			return {
+				...prev,
+				insights: nextInsights,
+				...summariseInsights(nextInsights),
+			};
+		});
+	}, []);
+
+	const removeProfileInsight = useCallback<SessionActions["removeProfileInsight"]>((id) => {
+		updateProfile((prev) => {
+			const nextInsights = prev.insights.filter((insight) => insight.id !== id);
+			return {
+				...prev,
+				insights: nextInsights,
+				...summariseInsights(nextInsights),
+			};
+		});
+	}, []);
+
+	const addMutualMoment = useCallback<SessionActions["addMutualMoment"]>((text) => {
+		const trimmed = text.trim();
+		if (!trimmed) {
+			return null;
+		}
+		const now = Date.now();
+		const moment: MutualMoment = {
+			id: crypto.randomUUID(),
+			text: trimmed,
+			createdAt: now,
+			updatedAt: now,
+			source: "assistant",
+		};
+
+		updateProfile((prev) => {
+			const exists = prev.mutualMoments.some(
+				(item) => item.text.toLowerCase() === trimmed.toLowerCase()
+			);
+			if (exists) {
+				return prev;
+			}
+			return {
+				...prev,
+				mutualMoments: [...prev.mutualMoments, moment],
+			};
+		});
+
+		return moment;
+	}, []);
+
+	const removeMutualMoment = useCallback<SessionActions["removeMutualMoment"]>((id) => {
+		updateProfile((prev) => ({
+			...prev,
+			mutualMoments: prev.mutualMoments.filter((moment) => moment.id !== id),
+		}));
+	}, []);
+
+	const clearMutualMoments = useCallback(() => {
+		updateProfile((prev) => ({
+			...prev,
+			mutualMoments: [],
+		}));
+	}, []);
+
+	const setSuggestions = useCallback<SessionActions["setSuggestions"]>((incoming) => {
+		updateSuggestions(incoming);
+	}, []);
+
+	const clearSuggestions = useCallback(() => {
+		updateSuggestions([]);
+	}, []);
+
 	const resetProfile = useCallback(() => {
 		updateProfile(createEmptyProfile());
+		updateSuggestions([]);
 	}, []);
 
 	const value = useMemo<SessionState & SessionActions>(
@@ -181,6 +328,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			profile,
 			candidates,
 			votesByCareerId,
+			suggestions,
 			summary,
 			started,
 			sessionId,
@@ -189,6 +337,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			setMode: (m) => setMode(m),
 			setProfile,
 			appendProfileInsights,
+			updateProfileInsight,
+			removeProfileInsight,
 			resetProfile,
 			setCandidates,
 			voteCareer: (careerId, value) =>
@@ -200,33 +350,56 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				updateOnboardingStep((prev) =>
 					typeof value === "function" ? (value as (current: number) => number)(prev) : value
 				),
+			addMutualMoment,
+			removeMutualMoment,
+			clearMutualMoments,
+			setSuggestions,
+			clearSuggestions,
 		}),
-		[mode, profile, candidates, votesByCareerId, summary, started, sessionId, voice, onboardingStep, setProfile, appendProfileInsights, resetProfile]
+		[
+			mode,
+			profile,
+			candidates,
+			votesByCareerId,
+			suggestions,
+			summary,
+			started,
+			sessionId,
+			voice,
+			onboardingStep,
+			setProfile,
+			appendProfileInsights,
+			updateProfileInsight,
+			removeProfileInsight,
+			resetProfile,
+			addMutualMoment,
+			removeMutualMoment,
+			clearMutualMoments,
+			setSuggestions,
+			clearSuggestions,
+		]
 	);
 
 	useEffect(() => {
 		if (process.env.NODE_ENV === "production") {
 			return;
 		}
-		// eslint-disable-next-line no-console
 		console.groupCollapsed(`[profile] session ${sessionId}`);
-		// eslint-disable-next-line no-console
 		console.log("Readiness", profile.readiness);
-		// eslint-disable-next-line no-console
 		console.log("Interests", profile.interests);
-		// eslint-disable-next-line no-console
 		console.log("Strengths", profile.strengths);
-		// eslint-disable-next-line no-console
 		console.log("Constraints", profile.constraints);
-		// eslint-disable-next-line no-console
 		console.log("Goals", profile.goals);
-		// eslint-disable-next-line no-console
-		console.log("Values", profile.values);
-		// eslint-disable-next-line no-console
+		console.log("Frustrations", profile.frustrations);
+		console.log("Hopes", profile.hopes);
+		console.log("Boundaries", profile.boundaries);
+		console.log("Highlights", profile.highlights);
+		console.log("Onboarding responses", profile.onboardingResponses);
+		console.log("Mutual moments", profile.mutualMoments);
 		console.log("Insights", profile.insights);
-		// eslint-disable-next-line no-console
+		console.log("Suggestions", suggestions);
 		console.groupEnd();
-	}, [profile, sessionId]);
+	}, [profile, sessionId, suggestions]);
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
@@ -234,11 +407,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 function createEmptyProfile(): Profile {
 	return {
 		insights: [],
+		onboardingResponses: [],
 		interests: [],
 		strengths: [],
 		constraints: [],
 		goals: [],
-		values: [],
+		frustrations: [],
+		hopes: [],
+		boundaries: [],
+		highlights: [],
+		mutualMoments: [],
 	};
 }
 
@@ -247,7 +425,10 @@ function summariseInsights(insights: ProfileInsight[]): ProfileAggregates {
 	const strengths = new Map<string, string>();
 	const constraints = new Map<string, string>();
 	const goals = new Map<string, string>();
-	const values = new Map<string, string>();
+	const frustrations = new Map<string, string>();
+	const hopes = new Map<string, string>();
+	const boundaries = new Map<string, string>();
+	const highlights = new Map<string, string>();
 
 	insights.forEach((insight) => {
 		const key = insight.value.toLowerCase();
@@ -259,13 +440,21 @@ function summariseInsights(insights: ProfileInsight[]): ProfileAggregates {
 				strengths.set(key, insight.value);
 				break;
 			case "constraint":
+			case "boundary":
 				constraints.set(key, insight.value);
+				boundaries.set(key, insight.value);
 				break;
 			case "goal":
 				goals.set(key, insight.value);
 				break;
-			case "value":
-				values.set(key, insight.value);
+			case "frustration":
+				frustrations.set(key, insight.value);
+				break;
+			case "hope":
+				hopes.set(key, insight.value);
+				break;
+			case "highlight":
+				highlights.set(key, insight.value);
 				break;
 			default:
 				break;
@@ -277,6 +466,9 @@ function summariseInsights(insights: ProfileInsight[]): ProfileAggregates {
 		strengths: Array.from(strengths.values()),
 		constraints: Array.from(constraints.values()),
 		goals: Array.from(goals.values()),
-		values: Array.from(values.values()),
+		frustrations: Array.from(frustrations.values()),
+		hopes: Array.from(hopes.values()),
+		boundaries: Array.from(boundaries.values()),
+		highlights: Array.from(highlights.values()),
 	};
 }

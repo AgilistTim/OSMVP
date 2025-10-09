@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSystemPrompt } from "@/lib/system-prompt";
 
-type InsightKind = "interest" | "strength" | "constraint" | "goal" | "value";
+type InsightKind =
+  | "interest"
+  | "strength"
+  | "constraint"
+  | "goal"
+  | "frustration"
+  | "hope"
+  | "boundary"
+  | "highlight";
 
 type InsightConfidence = "low" | "medium" | "high";
 
@@ -60,13 +68,14 @@ export async function POST(req: NextRequest) {
   const system = `${basePrompt ? `${basePrompt}\n\n` : ""}You are analysing the conversation to extract structured career profile insights.
 
 Return strictly formatted JSON with:
-- insights: array of objects { kind (interest|strength|constraint|goal|value), value, confidence (optional low|medium|high), evidence (optional short paraphrase), source (optional assistant|user|system) }
+- insights: array of objects { kind (interest|strength|constraint|goal|frustration|hope|boundary|highlight), value, confidence (optional low|medium|high), evidence (optional short paraphrase), source (optional assistant|user|system) }
 - summary: optional short (<= 2 sentences) recap of the new information learned in this turn.
 - readiness: one of G1, G2, G3, G4 reflecting the user's current career readiness based on the full conversation so far.
 
 Guidelines:
 - Only add NEW insights that are not already present in this list: ${existingSummary}.
-- Make each insight specific and actionable (e.g. "enjoys collaborative world-building survival games" rather than "likes games").
+- Capture the user's actual wording wherever possible (e.g. "obsessed with all-night beat-making" instead of "music production interest").
+- Make each insight specific and actionable.
 - Base evidence on the provided conversation turns. If a fact is inferred, note the reasoning in the evidence field.
 - If no new insights are present, return an empty array.
 - Maintain a supportive coaching interpretation in the summary.`;

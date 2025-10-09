@@ -18,22 +18,15 @@ const VALUE_POINTS = [
 ];
 
 const HOW_IT_WORKS = [
-	"Share a few interests, experiences, and constraints",
-	"See draft career cards appear after the first couple of questions",
+	"Answer five quick onboarding prompts to capture where you are today",
+	"See draft career cards appear once we’ve got the basics down",
 	"Vote on what resonates and unlock a Matches Report you can share",
 ];
 
 export function WelcomeScreen() {
-	const { mode, setMode, beginSession } = useSession();
-
-	function handleModeSelect(nextMode: "text" | "voice") {
-		setMode(nextMode);
-	}
+	const { beginSession } = useSession();
 
 	function handleStart() {
-		if (!mode) {
-			setMode("text");
-		}
 		beginSession();
 	}
 
@@ -96,44 +89,18 @@ export function WelcomeScreen() {
 			</Card>
 
 			<section className="rounded-2xl border bg-muted/40 p-5">
-				<span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-					Choose how to chat
-				</span>
-				<div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-					<button
-						type="button"
-						onClick={() => handleModeSelect("text")}
-						className={`rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
-							mode === "text"
-								? "border-primary bg-primary/10 text-primary"
-								: "border-border bg-background hover:border-primary/60"
-						}`}
-					>
-						<span className="block font-semibold">Text chat</span>
-						<span className="mt-1 block text-xs text-muted-foreground">
-							Type responses at your own pace.
-						</span>
-					</button>
-					<button
-						type="button"
-						onClick={() => handleModeSelect("voice")}
-						className={`rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
-							mode === "voice"
-								? "border-primary bg-primary/10 text-primary"
-								: "border-border bg-background hover:border-primary/60"
-						}`}
-					>
-						<span className="block font-semibold">Voice guide</span>
-						<span className="mt-1 block text-xs text-muted-foreground">
-							Speak your answers and let us transcribe.
-						</span>
-					</button>
+				<div className="space-y-3">
+					<span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+						What happens first
+					</span>
+					<p className="text-sm text-muted-foreground">
+						We’ll begin with a short onboarding sequence so your guide understands your
+						interests, confidence, and any early actions you’ve taken. Once complete, you’ll
+						choose whether to keep going in text or voice.
+					</p>
 				</div>
-				<p className="mt-3 text-xs text-muted-foreground">
-					You can switch modes later inside the conversation.
-				</p>
 				<Button size="lg" className="mt-6 w-full" onClick={handleStart}>
-					Get started
+					Start the onboarding
 				</Button>
 			</section>
 		</div>

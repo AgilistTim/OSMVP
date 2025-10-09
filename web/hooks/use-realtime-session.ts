@@ -101,8 +101,24 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const handleServerEvent = useCallback((raw: MessageEvent<string>) => {
     try {
       const event = JSON.parse(raw.data);
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[realtime:event]", event);
+      }
       const type: string | undefined = event.type;
       if (!type) return;
+
+      const resolvePendingItem = (potentialId: unknown): boolean => {
+        if (typeof potentialId !== "string" || potentialId.length === 0) {
+          return false;
+        }
+        if (!pendingItemResolversRef.current.has(potentialId)) {
+          return false;
+        }
+        const resolver = pendingItemResolversRef.current.get(potentialId);
+        resolver?.("added");
+        pendingItemResolversRef.current.delete(potentialId);
+        return true;
+      };
 
       const extractTranscriptId = () =>
         (event.response_id as string | undefined) ||
@@ -191,13 +207,53 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         });
       };
 
+      const maybeResolveWithItem = (item: Record<string, unknown> | undefined) => {
+        if (!item) return;
+        const attemptedIds: Array<unknown> = [
+          item["id"],
+          item["client_id"],
+          item["clientId"],
+          item["request_id"],
+          item["requestId"],
+        ];
+        const metadata = item["metadata"];
+        if (metadata && typeof metadata === "object") {
+          const metaRecord = metadata as Record<string, unknown>;
+          attemptedIds.push(
+            metaRecord["client_id"],
+            metaRecord["clientId"],
+            metaRecord["client_item_id"],
+            metaRecord["clientItemId"],
+            metaRecord["pending_item_id"],
+            metaRecord["pendingItemId"]
+          );
+        }
+        for (const candidate of attemptedIds) {
+          if (resolvePendingItem(candidate)) {
+            return;
+          }
+        }
+      };
+
       switch (type) {
-        case "conversation.item.added": {
+        case "conversation.item.added":
+        case "conversation.item.created":
+        case "conversation.item.completed": {
           const itemId: string | undefined = event.item?.id;
-          if (itemId && pendingItemResolversRef.current.has(itemId)) {
-            const resolver = pendingItemResolversRef.current.get(itemId);
-            resolver?.("added");
-            pendingItemResolversRef.current.delete(itemId);
+          if (
+            !resolvePendingItem(itemId) &&
+            !resolvePendingItem((event as { client_id?: string }).client_id)
+          ) {
+            maybeResolveWithItem(
+              typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
+            );
+          }
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[realtime:item-resolved]", {
+              type,
+              itemId,
+              hasClientId: Boolean((event as { client_id?: string }).client_id),
+            });
           }
           break;
         }
@@ -233,6 +289,20 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.transcript, event.text, event.delta);
           handleTranscriptFinal(id, text?.trim(), "assistant");
+          if (
+            !resolvePendingItem(id) &&
+            !resolvePendingItem((event as { client_id?: string }).client_id)
+          ) {
+            maybeResolveWithItem(
+              typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
+            );
+          }
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[realtime:assistant-final]", {
+              id,
+              clientId: (event as { client_id?: string }).client_id,
+            });
+          }
           break;
         }
         case "conversation.item.input_audio_transcription.delta": {
@@ -246,6 +316,20 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.transcript, event.text, event.delta);
           handleTranscriptFinal(id, text?.trim(), "user");
+          if (
+            !resolvePendingItem(id) &&
+            !resolvePendingItem((event as { client_id?: string }).client_id)
+          ) {
+            maybeResolveWithItem(
+              typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
+            );
+          }
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[realtime:user-final]", {
+              id,
+              clientId: (event as { client_id?: string }).client_id,
+            });
+          }
           break;
         }
         default:
@@ -263,6 +347,9 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
 
     for (const event of pendingEventsRef.current) {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[realtime:flush-event]", { event });
+      }
       channel.send(JSON.stringify(event));
     }
     pendingEventsRef.current = [];
@@ -272,10 +359,16 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     (event: unknown) => {
       const channel = dataChannelRef.current;
       if (channel?.readyState === "open") {
+        if (process.env.NODE_ENV !== "production") {
+          console.info("[realtime:send-event]", { event });
+        }
         channel.send(JSON.stringify(event));
         return;
       }
 
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[realtime:queue-event]", { event });
+      }
       pendingEventsRef.current = [...pendingEventsRef.current, event];
     },
     []
@@ -443,10 +536,19 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
 
     return new Promise<void>((resolve, reject) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.info("[realtime:wait-register]", { id });
+      }
       pendingItemResolversRef.current.set(id, (status) => {
         if (status === "added") {
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[realtime:wait-resolved]", { id });
+          }
           resolve();
         } else {
+          if (process.env.NODE_ENV !== "production") {
+            console.warn("[realtime:wait-rejected]", { id });
+          }
           reject(new Error("Conversation item was not acknowledged"));
         }
       });
