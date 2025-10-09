@@ -127,7 +127,7 @@ interface SessionActions {
 	removeProfileInsight: (id: string) => void;
 	resetProfile: () => void;
 	setCandidates: (candidates: CareerCardCandidate[]) => void;
-	voteCareer: (careerId: string, value: 1 | -1 | 0) => void;
+	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
 	setSummary: (summary: string) => void;
 	beginSession: () => void;
 	setVoice: (voice: SessionState["voice"]) => void;
@@ -150,16 +150,32 @@ export function useSession(): SessionState & SessionActions {
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-	const [mode, setMode] = useState<SessionMode>(null);
+	const [mode, setModeState] = useState<SessionMode>(null);
 	const [profile, updateProfile] = useState<Profile>(() => createEmptyProfile());
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
 	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>({});
 	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>([]);
-	const [summary, setSummary] = useState<string | undefined>(undefined);
+	const [summary, setSummaryState] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
-	const [sessionId] = useState(() => crypto.randomUUID());
-	const [voice, setVoice] = useState<SessionState["voice"]>({ status: "idle" });
+	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle" });
 	const [onboardingStep, updateOnboardingStep] = useState<number>(0);
+
+	const setVoice = useCallback(
+		(nextVoice: SessionState["voice"]) => {
+			setVoiceState((prev) => {
+				if (
+					prev.status === nextVoice.status &&
+					prev.error === nextVoice.error &&
+					prev.lastLatencyMs === nextVoice.lastLatencyMs
+				) {
+					return prev;
+				}
+				return nextVoice;
+			});
+		},
+		[setVoiceState]
+	);
 
 	const setProfile = useCallback((partial: Partial<Profile>) => {
 		updateProfile((prev) => {
@@ -318,9 +334,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	const resetProfile = useCallback(() => {
-		updateProfile(createEmptyProfile());
+		setProfile(createEmptyProfile());
+		setCandidates([]);
+		setVotes({});
 		updateSuggestions([]);
-	}, []);
+		setSummaryState(undefined);
+		updateOnboardingStep(0);
+			setVoiceState({ status: "idle" });
+	}, [
+		setProfile,
+		setCandidates,
+		setVotes,
+		updateSuggestions,
+		setSummaryState,
+		updateOnboardingStep,
+		setVoiceState,
+	]);
+
+	const beginSession = useCallback(() => {
+		setSessionId(crypto.randomUUID());
+		resetProfile();
+		setModeState(null);
+		setStarted(true);
+	}, [resetProfile, setModeState, setSessionId, setStarted]);
 
 	const value = useMemo<SessionState & SessionActions>(
 		() => ({
@@ -334,7 +370,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			sessionId,
 			voice,
 			onboardingStep,
-			setMode: (m) => setMode(m),
+			setMode: (m) => setModeState(m),
 			setProfile,
 			appendProfileInsights,
 			updateProfileInsight,
@@ -342,9 +378,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			resetProfile,
 			setCandidates,
 			voteCareer: (careerId, value) =>
-				setVotes((prev) => ({ ...prev, [careerId]: value })),
-			setSummary: (s) => setSummary(s),
-			beginSession: () => setStarted(true),
+				setVotes((prev) => {
+					if (value === null) {
+						const updated = { ...prev };
+						delete updated[careerId];
+						return updated;
+					}
+					return { ...prev, [careerId]: value };
+				}),
+			setSummary: (s) => setSummaryState(s),
+			beginSession,
 			setVoice,
 			setOnboardingStep: (value) =>
 				updateOnboardingStep((prev) =>
@@ -372,11 +415,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			updateProfileInsight,
 			removeProfileInsight,
 			resetProfile,
+			beginSession,
 			addMutualMoment,
 			removeMutualMoment,
 			clearMutualMoments,
 			setSuggestions,
 			clearSuggestions,
+			setModeState,
+			setCandidates,
+			setSummaryState,
+			setVoice,
+			setVotes,
+			updateOnboardingStep,
 		]
 	);
 

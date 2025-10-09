@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { matchCareerVibes } from "@/lib/vibe-matcher";
+import { personaliseSuggestions } from "@/lib/personalise-suggestions";
 import type { MatchCareerVibesInput } from "@/lib/vibe-matcher";
 
 export async function POST(req: NextRequest) {
@@ -25,7 +26,15 @@ export async function POST(req: NextRequest) {
 			limit: typeof body.limit === "number" ? body.limit : undefined,
 		});
 
-		return NextResponse.json({ suggestions });
+		const personalised = await personaliseSuggestions({
+			suggestions,
+			insights: insights.map((item) => ({
+				kind: item.kind,
+				value: item.value,
+			})),
+		});
+
+		return NextResponse.json({ suggestions: personalised });
 	} catch (error) {
 		console.error("Failed to build suggestions", error);
 		return NextResponse.json(

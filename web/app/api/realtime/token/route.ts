@@ -19,7 +19,8 @@ interface OpenAIRealtimeResponse {
 }
 
 const REALTIME_MODEL = "gpt-realtime";
-const DEFAULT_VOICE = process.env.REALTIME_DEFAULT_VOICE ?? "coral";
+// Default to a voice with a natural British delivery; override via REALTIME_DEFAULT_VOICE if needed.
+const DEFAULT_VOICE = process.env.REALTIME_DEFAULT_VOICE ?? "verse";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;

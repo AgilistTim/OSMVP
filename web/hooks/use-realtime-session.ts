@@ -40,6 +40,8 @@ export interface RealtimeSessionControls {
   waitForConversationItem: (id: string) => Promise<void>;
 }
 
+const VERBOSE_REALTIME_LOGS = process.env.NEXT_PUBLIC_REALTIME_VERBOSE === "1";
+
 export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   RealtimeSessionState,
   RealtimeSessionControls
@@ -64,7 +66,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const enableAudioOutputDefault = baseConfig.enableAudioOutput ?? true;
 
   const logEvent = useCallback((name: string, details?: Record<string, unknown>) => {
-    if (process.env.NODE_ENV !== "production") {
+    if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
       console.info("[realtime]", name, details ?? {});
     }
   }, []);
@@ -101,10 +103,15 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const handleServerEvent = useCallback((raw: MessageEvent<string>) => {
     try {
       const event = JSON.parse(raw.data);
-      if (process.env.NODE_ENV !== "production") {
+      const type: string | undefined = event.type;
+
+      if (
+        process.env.NODE_ENV !== "production" &&
+        (VERBOSE_REALTIME_LOGS || !type || !type.includes("delta"))
+      ) {
         console.info("[realtime:event]", event);
       }
-      const type: string | undefined = event.type;
+
       if (!type) return;
 
       const resolvePendingItem = (potentialId: unknown): boolean => {
@@ -248,7 +255,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
             );
           }
-          if (process.env.NODE_ENV !== "production") {
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.info("[realtime:item-resolved]", {
               type,
               itemId,
@@ -297,7 +304,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
             );
           }
-          if (process.env.NODE_ENV !== "production") {
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.info("[realtime:assistant-final]", {
               id,
               clientId: (event as { client_id?: string }).client_id,
@@ -324,7 +331,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
             );
           }
-          if (process.env.NODE_ENV !== "production") {
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.info("[realtime:user-final]", {
               id,
               clientId: (event as { client_id?: string }).client_id,
@@ -347,7 +354,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
 
     for (const event of pendingEventsRef.current) {
-      if (process.env.NODE_ENV !== "production") {
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
         console.info("[realtime:flush-event]", { event });
       }
       channel.send(JSON.stringify(event));
@@ -359,14 +366,14 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     (event: unknown) => {
       const channel = dataChannelRef.current;
       if (channel?.readyState === "open") {
-        if (process.env.NODE_ENV !== "production") {
-          console.info("[realtime:send-event]", { event });
-        }
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+        console.info("[realtime:send-event]", { event });
+      }
         channel.send(JSON.stringify(event));
         return;
       }
 
-      if (process.env.NODE_ENV !== "production") {
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
         console.info("[realtime:queue-event]", { event });
       }
       pendingEventsRef.current = [...pendingEventsRef.current, event];
@@ -508,7 +515,15 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         await cleanup();
       }
     },
-    [baseConfig, enableAudioOutputDefault, enableMicrophoneDefault, cleanup, handleServerEvent, logEvent]
+    [
+      baseConfig,
+      enableAudioOutputDefault,
+      enableMicrophoneDefault,
+      cleanup,
+      handleServerEvent,
+      logEvent,
+      flushPendingEvents,
+    ]
   );
 
   useEffect(() => {
@@ -536,17 +551,17 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
 
     return new Promise<void>((resolve, reject) => {
-      if (process.env.NODE_ENV !== "production") {
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
         console.info("[realtime:wait-register]", { id });
       }
       pendingItemResolversRef.current.set(id, (status) => {
         if (status === "added") {
-          if (process.env.NODE_ENV !== "production") {
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.info("[realtime:wait-resolved]", { id });
           }
           resolve();
         } else {
-          if (process.env.NODE_ENV !== "production") {
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.warn("[realtime:wait-rejected]", { id });
           }
           reject(new Error("Conversation item was not acknowledged"));

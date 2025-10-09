@@ -58,7 +58,8 @@ export function Onboarding() {
 	const lastInsightsTurnCountRef = useRef<number>(0);
 	const initialResponseRequestedRef = useRef<boolean>(false);
 	const previousModeRef = useRef<typeof mode>(mode);
-	const suggestionsRequestedRef = useRef<boolean>(false);
+	const suggestionsFetchInFlightRef = useRef<boolean>(false);
+	const suggestionsLastInsightCountRef = useRef<number>(0);
 
 	const [realtimeState, realtimeControls] = useRealtimeSession({
 		sessionId,
@@ -364,15 +365,18 @@ export function Onboarding() {
 	}, [profile.readiness, readiness]);
 
 	useEffect(() => {
+		if (profile.insights.length === 0) {
+			suggestionsLastInsightCountRef.current = 0;
+		}
+	}, [profile.insights.length]);
+
+	useEffect(() => {
 		if (suggestions.length === 0) {
-			suggestionsRequestedRef.current = false;
+			suggestionsLastInsightCountRef.current = 0;
 		}
 	}, [suggestions.length]);
 
 	useEffect(() => {
-		if (suggestions.length > 0 || suggestionsRequestedRef.current) {
-			return;
-		}
 		if (userTurnsCount < 3) {
 			return;
 		}
@@ -383,7 +387,17 @@ export function Onboarding() {
 			return;
 		}
 
-		suggestionsRequestedRef.current = true;
+		const insightCount = profile.insights.length;
+		const lastCount = suggestionsLastInsightCountRef.current;
+		const shouldFetch =
+			!suggestionsFetchInFlightRef.current &&
+			(suggestions.length === 0 || insightCount > lastCount);
+
+		if (!shouldFetch) {
+			return;
+		}
+
+		suggestionsFetchInFlightRef.current = true;
 		void (async () => {
 			try {
 				const response = await fetch("/api/suggestions", {
@@ -431,16 +445,19 @@ export function Onboarding() {
 								confidence: item.confidence ?? "medium",
 								score: item.score ?? 0,
 							}))
+							.sort((a, b) => b.score - a.score)
 					);
+					suggestionsLastInsightCountRef.current = insightCount;
 				}
 			} catch (error) {
 				console.error("Failed to load suggestions", error);
-				suggestionsRequestedRef.current = false;
+			} finally {
+				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
 	}, [profile.insights, setSuggestions, suggestions.length, userTurnsCount]);
 
-	useEffect(() => {
+useEffect(() => {
 		if (!mode) {
 			setMode("text");
 		}
@@ -494,34 +511,41 @@ export function Onboarding() {
 
 			{mode === "voice" && <VoiceControls state={realtimeState} controls={realtimeControls} />}
 
-			<div
-				ref={transcriptContainerRef}
-				className="max-h-80 overflow-y-auto space-y-3 rounded-lg border border-border bg-muted/20 p-4"
-			>
-				{turns.map((turn, index) => {
-					const isUser = turn.role === "user";
-					return (
-						<div
-							key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-							className={cn("flex", isUser ? "justify-end" : "justify-start")}
-						>
+			{mode === "voice" ? (
+				<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+					We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us
+					know if something sounds off.
+				</div>
+			) : (
+				<div
+					ref={transcriptContainerRef}
+					className="max-h-80 overflow-y-auto space-y-3 rounded-lg border border-border bg-muted/20 p-4"
+				>
+					{turns.map((turn, index) => {
+						const isUser = turn.role === "user";
+						return (
 							<div
-								className={cn(
-									"max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-line",
-									isUser
-										? "bg-primary text-primary-foreground"
-										: "bg-card text-card-foreground border border-border"
-								)}
+								key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+								className={cn("flex", isUser ? "justify-end" : "justify-start")}
 							>
-								<div className="text-xs font-semibold uppercase tracking-wide opacity-80">
-									{isUser ? "You" : "Guide"}
+								<div
+									className={cn(
+										"max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-line",
+										isUser
+											? "bg-primary text-primary-foreground"
+											: "bg-card text-card-foreground border border-border"
+									)}
+								>
+									<div className="text-xs font-semibold uppercase tracking-wide opacity-80">
+										{isUser ? "You" : "Guide"}
+									</div>
+									<div className="mt-1 leading-relaxed">{turn.text}</div>
 								</div>
-								<div className="mt-1 leading-relaxed">{turn.text}</div>
 							</div>
-						</div>
-					);
-				})}
-			</div>
+						);
+					})}
+				</div>
+			)}
 			{suggestions.length > 0 ? (
 				<SuggestionCards suggestions={suggestions} />
 			) : null}

@@ -11,14 +11,16 @@ describe("system prompt", () => {
 		expect(prompt).toBeDefined();
 		const content = prompt ?? "";
 
-		expect(content).toContain("# Off-Script Guide — System Prompt");
-		expect(content).toContain("## Who You Are");
-		expect(content).toContain("## Core Principles");
-		expect(content).toContain("## Conversation Flow");
-		expect(content).toContain("## Suggestion Style");
+		expect(content).toContain("# Off-Script Conversational AI Agent System Prompt");
+		expect(content).toContain("## Core Identity & Mission");
+		expect(content).toContain("## Critical Communication Principles");
+		expect(content).toContain("## Conversation Flow Guidelines");
+		expect(content).toContain("## Transition to Exploration Suggestions");
+		expect(content).toContain("## Presenting Opportunities");
+		expect(content).toContain("## Language & Tone Guidelines");
 		expect(content).toContain("## Boundaries & Safety");
 		expect(content).toContain("## Memory & Summaries");
-		expect(content).toContain("## Tone Checklist (Hard Stops)");
+		expect(content).toContain("## Success Indicators");
 	});
 
 	it("emphasises mutual exchange and transparency", async () => {
