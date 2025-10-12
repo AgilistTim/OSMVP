@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Bookmark, MessageCircle, XIcon } from "lucide-react";
+import { Bookmark, MessageCircle, Sparkles, XIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +23,13 @@ interface SuggestionCardsProps {
 
 type ReactionValue = 1 | 0 | -1;
 
-const PEEK_LABELS = ["Sounds fun", "Worth a peek", "Pass for now"];
+const CONFIDENCE_LABELS: Record<CareerSuggestion["confidence"], string> = {
+	high: "Feels like you",
+	medium: "Worth exploring",
+	low: "Loose spark",
+};
+
+const FALLBACK_BADGES = ["Worth exploring", "Fresh spark", "Another angle"];
 
 const REACTION_CHOICES: Array<{
 	label: string;
@@ -93,8 +99,10 @@ export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
 			<div className="grid gap-3 sm:grid-cols-2">
 				{suggestions.map((suggestion, index) => {
 					const currentVote = votesByCareerId[suggestion.id];
-					const peekLabel = PEEK_LABELS[index] ?? "Worth a peek";
+					const peekLabel =
+						CONFIDENCE_LABELS[suggestion.confidence] ?? FALLBACK_BADGES[index] ?? "Worth exploring";
 					const headline = suggestion.whyItFits[0] ?? suggestion.summary;
+					const neighborPreview = suggestion.neighborTerritories[0];
 
 					return (
 						<Card
@@ -114,6 +122,12 @@ export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
 								<p className="rounded-lg bg-muted/60 p-3 text-sm leading-relaxed text-muted-foreground">
 									{headline}
 								</p>
+							) : null}
+							{neighborPreview ? (
+								<div className="flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-secondary-foreground/80">
+									<Sparkles className="size-4 text-secondary-foreground" aria-hidden />
+									<span>{neighborPreview}</span>
+								</div>
 							) : null}
 							<div className="flex flex-wrap gap-2">
 								{REACTION_CHOICES.map((choice) => {
@@ -200,6 +214,23 @@ export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
 											<li key={`${activeSuggestion.id}-angle-${index}`} className="flex items-start gap-2">
 												<span className="mt-1 size-1.5 rounded-full bg-primary" aria-hidden />
 												<span>{angle}</span>
+											</li>
+										))}
+									</ul>
+								</section>
+							) : null}
+							{activeSuggestion.neighborTerritories.length > 0 ? (
+								<section className="space-y-2">
+									<h5 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+										Also nearby
+									</h5>
+									<ul className="flex flex-wrap gap-2">
+										{activeSuggestion.neighborTerritories.map((neighbor, index) => (
+											<li
+												key={`${activeSuggestion.id}-neighbor-${index}`}
+												className="rounded-full border border-border/60 bg-muted/60 px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground"
+											>
+												{neighbor}
 											</li>
 										))}
 									</ul>

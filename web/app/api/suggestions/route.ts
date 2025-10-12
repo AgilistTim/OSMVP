@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { matchCareerVibes } from "@/lib/vibe-matcher";
-import { personaliseSuggestions } from "@/lib/personalise-suggestions";
-import type { MatchCareerVibesInput } from "@/lib/vibe-matcher";
+import { generateDynamicSuggestions } from "@/lib/dynamic-suggestions";
+import type { InsightKind } from "@/components/session-provider";
 
 export async function POST(req: NextRequest) {
 	try {
 		const body = (await req.json()) as {
 			insights?: Array<{ kind?: string; value?: string }>;
 			limit?: number;
+			votes?: Record<string, number>;
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -18,23 +18,32 @@ export async function POST(req: NextRequest) {
 					)
 			: [];
 
-		const suggestions = matchCareerVibes({
+		const votes: Record<string, 1 | 0 | -1> = {};
+		if (body.votes && typeof body.votes === "object") {
+			for (const [key, value] of Object.entries(body.votes)) {
+				if (value === 1 || value === 0 || value === -1) {
+					votes[key] = value;
+				}
+			}
+		}
+
+		const dynamic = await generateDynamicSuggestions({
 			insights: insights.map((item) => ({
-				kind: item.kind as MatchCareerVibesInput["insights"][number]["kind"],
+				kind: item.kind as InsightKind,
 				value: item.value,
 			})),
+			votes,
 			limit: typeof body.limit === "number" ? body.limit : undefined,
 		});
 
-		const personalised = await personaliseSuggestions({
-			suggestions,
-			insights: insights.map((item) => ({
-				kind: item.kind,
-				value: item.value,
-			})),
-		});
+		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {
+			console.warn("[suggestions] dynamic generator returned no cards", {
+				insightCount: insights.length,
+				voteCount: Object.keys(votes).length,
+			});
+		}
 
-		return NextResponse.json({ suggestions: personalised });
+		return NextResponse.json({ suggestions: dynamic });
 	} catch (error) {
 		console.error("Failed to build suggestions", error);
 		return NextResponse.json(

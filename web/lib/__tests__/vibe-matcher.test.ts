@@ -14,6 +14,7 @@ describe("matchCareerVibes", () => {
 		expect(suggestions[0]?.careerAngles).toContain(
 			"Gameplay tools designer – prototype mechanics, balance systems, and document player impact."
 		);
+		expect(suggestions[0]?.neighborTerritories?.length).toBeGreaterThan(0);
 	});
 
 	it("matches AI ethics navigator when conversation centres on automation bias", () => {
@@ -22,10 +23,13 @@ describe("matchCareerVibes", () => {
 				{ kind: "interest", value: "AI ethics and automation impact on jobs" },
 				{ kind: "goal", value: "help people understand AI bias" },
 			],
+			votes: { "ai-ethics-navigator": 1 },
 		});
 
 		expect(suggestions[0]?.id).toBe("ai-ethics-navigator");
 		expect(suggestions[0]?.whyItFits.some((reason) => reason.includes("bias"))).toBe(true);
+		expect(suggestions[0]?.neighborTerritories).toContain("Product sense translator for AI features");
+		expect(suggestions[0]?.whyItFits.some((reason) => reason.includes("already saved"))).toBe(true);
 	});
 
 	it("ignores loose matches when there is only a single vague keyword", () => {
@@ -39,5 +43,17 @@ describe("matchCareerVibes", () => {
 	it("falls back when no insights provided", () => {
 		const suggestions = matchCareerVibes({ insights: [] });
 		expect(suggestions).toHaveLength(0);
+	});
+
+	it("honours downvotes when recomputing matches", () => {
+		const suggestions = matchCareerVibes({
+			insights: [
+				{ kind: "interest", value: "community events and hosting" },
+				{ kind: "strength", value: "collaborative hype friend" },
+			],
+			votes: { "community-hype-captain": -1 },
+		});
+
+		expect(suggestions.find((item) => item.id === "community-hype-captain")).toBeUndefined();
 	});
 });

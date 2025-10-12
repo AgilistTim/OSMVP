@@ -12,6 +12,7 @@ interface PersonalisedSuggestionPayload {
 	careerAngles?: string[];
 	nextSteps?: string[];
 	whyItFits?: string[];
+	neighbors?: string[];
 }
 
 const MAX_ITEMS = 3;
@@ -46,6 +47,7 @@ export async function personaliseSuggestions({
 			whyItFits: suggestion.whyItFits,
 			careerAngles: suggestion.careerAngles,
 			nextSteps: suggestion.nextSteps,
+			neighbors: suggestion.neighborTerritories,
 		}));
 
 		const systemPrompt = [
@@ -54,6 +56,7 @@ export async function personaliseSuggestions({
 			"Do not invent unrelated jobs or experiments—tie everything back to the provided insights or explicitly say it's a general option.",
 			"Respect the existing tone: informal, encouraging, practical.",
 			"Keep lists short (max three items) and concrete.",
+			"Suggest 1-3 neighboring territories that feel like adjacent experiments, phrased as short tags.",
 		].join(" ");
 
 		const userContent = JSON.stringify({
@@ -70,7 +73,7 @@ export async function personaliseSuggestions({
 				{
 					role: "user",
 					content:
-						"Return JSON with `cards` array. Each item must include id, summary (<=160 chars), careerAngles (max 3), nextSteps (max 3) all grounded in the insights. Use insights verbatim where possible.",
+						"Return JSON with `cards` array. Each item must include id, summary (<=160 chars), careerAngles (max 3), nextSteps (max 3), neighbors (max 3 tags) all grounded in the insights. Use insights verbatim where possible.",
 				},
 				{ role: "user", content: userContent },
 			],
@@ -100,6 +103,10 @@ export async function personaliseSuggestions({
 					Array.isArray(override.nextSteps) && override.nextSteps.length > 0
 						? override.nextSteps.slice(0, MAX_ITEMS).map((item) => item.trim()).filter(Boolean)
 						: suggestion.nextSteps,
+				neighborTerritories:
+					Array.isArray(override.neighbors) && override.neighbors.length > 0
+						? override.neighbors.slice(0, MAX_ITEMS).map((item) => item.trim()).filter(Boolean)
+						: suggestion.neighborTerritories,
 			};
 		});
 

@@ -33,6 +33,7 @@ interface VibeDefinition {
 	strengthSignals?: KeywordDefinition[];
 	careerAngles: string[];
 	nextSteps: string[];
+	neighbors?: string[];
 }
 
 export interface VibeSuggestion {
@@ -44,6 +45,7 @@ export interface VibeSuggestion {
 	whyItFits: string[];
 	confidence: "high" | "medium" | "low";
 	score: number;
+	neighborTerritories: string[];
 }
 
 export interface MatchCareerVibesInput {
@@ -52,6 +54,7 @@ export interface MatchCareerVibesInput {
 		value: string;
 	}>;
 	limit?: number;
+	votes?: Record<string, 1 | 0 | -1>;
 }
 
 const VIBE_DEFINITIONS: VibeDefinition[] = [
@@ -83,6 +86,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Join an AI ethics or accessibility meetup and note the questions people are asking.",
 			"Shadow a product or policy team shipping AI features and map where human review fits.",
 		],
+		neighbors: [
+			"Product sense translator for AI features",
+			"Community educator helping teams adopt AI responsibly",
+		],
 	},
 	{
 		id: "gameplay-systems-tinkerer",
@@ -111,6 +118,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Ship a micro-mod with a change log explaining what you tweaked and why.",
 			"Write up a short post on what you learnt running your server (medium, itch devlog, or Discord).",
 			"Shadow or interview someone who designs Minecraft marketplace content or Roblox experiences.",
+		],
+		neighbors: [
+			"Live ops experimentation for collaborative games",
+			"Prototyping assistant tools that speed up modders",
 		],
 	},
 	{
@@ -141,6 +152,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Map out a mock calendar for a community you care about, noting hooks and collabs.",
 			"Chat with someone running Discords or local events about what their day-to-day looks like.",
 		],
+		neighbors: [
+			"Creator partnership wrangler",
+			"Pop-up events producer",
+		],
 	},
 	{
 		id: "creative-tech-storyteller",
@@ -169,6 +184,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Turn one of your experiments into a 60-second breakdown (what, how, why).",
 			"Join a game-jam or creative sprint weekend and document your process.",
 			"Reach out to a creative technologist or content producer with two questions about their workflow.",
+		],
+		neighbors: [
+			"Interactive storytelling for brands",
+			"Short-form content studio collaborator",
 		],
 	},
 	{
@@ -200,6 +219,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Record a clip of your most chaotic creature moment and talk through what made it interesting.",
 			"Chat with a systems or AI designer about how they iterate on creature abilities and balance.",
 		],
+		neighbors: [
+			"Simulation design for emerging worlds",
+			"Creature animation TD roles",
+		],
 	},
 	{
 		id: "speculative-world-narrator",
@@ -229,6 +252,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Create a moodboard or collage for your favourite imagined world and share it with friends.",
 			"Join a speculative design or writing community and lurk on how they workshop ideas.",
 		],
+		neighbors: [
+			"Scenario planning sprints with product teams",
+			"Worldbuilding labs for indie games",
+		],
 	},
 	{
 		id: "impact-builder",
@@ -256,6 +283,10 @@ const VIBE_DEFINITIONS: VibeDefinition[] = [
 			"Keep a frustration log for a week and pick one to prototype a fix for.",
 			"Interview someone tackling a similar issue and compare what tools they use.",
 			"Join a local or online crew working on the same theme to see the roles in action.",
+		],
+		neighbors: [
+			"Service design for community initiatives",
+			"Grassroots accelerator projects",
 		],
 	},
 ];
@@ -285,11 +316,33 @@ export function matchCareerVibes(input: MatchCareerVibesInput): VibeSuggestion[]
 		lower: insight.value.toLowerCase(),
 	}));
 
+	const votes = input.votes ?? {};
+	const likedIds = new Set<string>();
+	const dislikedIds = new Set<string>();
+	Object.entries(votes).forEach(([id, value]) => {
+		if (value === 1) likedIds.add(id);
+		if (value === -1) dislikedIds.add(id);
+	});
+
+	const definitionById = new Map(VIBE_DEFINITIONS.map((def) => [def.id, def]));
+
+	const likedNeighborTerms = new Set<string>();
+	likedIds.forEach((id) => {
+		const def = definitionById.get(id);
+		if (!def?.neighbors) return;
+		def.neighbors.forEach((neighbor) => likedNeighborTerms.add(neighbor.toLowerCase()));
+	});
+
 	const scored: VibeSuggestion[] = [];
 
 	for (const vibe of VIBE_DEFINITIONS) {
+		if (dislikedIds.has(vibe.id)) {
+			continue;
+		}
+
 		let score = 0;
 		const reasons: string[] = [];
+		const isLiked = likedIds.has(vibe.id);
 
 		for (const insight of lowerCaseInsights) {
 			for (const keyword of vibe.keywords) {
@@ -319,12 +372,27 @@ export function matchCareerVibes(input: MatchCareerVibesInput): VibeSuggestion[]
 			}
 		}
 
+		if (isLiked) {
+			score += 2;
+			reasons.push("You already saved this lane, keeping it front and centre.");
+		}
+
+		if (vibe.neighbors && vibe.neighbors.length > 0) {
+			const neighborHit = vibe.neighbors.find((neighbor) =>
+				likedNeighborTerms.has(neighbor.toLowerCase())
+			);
+			if (neighborHit) {
+				score += 1.5;
+				reasons.push(`Connects with "${neighborHit}", which you’re already exploring.`);
+			}
+		}
+
 		if (score <= 0) {
 			continue;
 		}
 
 		const distinctReasons = Array.from(new Set(reasons));
-		if (score < 3 || distinctReasons.length < 2) {
+		if (!isLiked && (score < 3 || distinctReasons.length < 2)) {
 			continue;
 		}
 
@@ -338,6 +406,7 @@ export function matchCareerVibes(input: MatchCareerVibesInput): VibeSuggestion[]
 			whyItFits: distinctReasons,
 			confidence,
 			score,
+			neighborTerritories: vibe.neighbors ?? [],
 		});
 	}
 

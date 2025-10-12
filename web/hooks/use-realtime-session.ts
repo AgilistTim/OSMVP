@@ -105,10 +105,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
       const event = JSON.parse(raw.data);
       const type: string | undefined = event.type;
 
-      if (
-        process.env.NODE_ENV !== "production" &&
-        (VERBOSE_REALTIME_LOGS || !type || !type.includes("delta"))
-      ) {
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
         console.info("[realtime:event]", event);
       }
 

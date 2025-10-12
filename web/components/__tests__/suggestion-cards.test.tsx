@@ -23,6 +23,7 @@ const SUGGESTIONS = [
 		],
 		confidence: "high" as const,
 		score: 5,
+		neighborTerritories: ["Product sense translator for AI features"],
 	},
 ];
 
@@ -92,6 +93,9 @@ describe("SuggestionCards", () => {
 	});
 	const reasons = await screen.findAllByText(/You mentioned wanting to explain AI bias/i);
 	expect(reasons[0]).toBeInTheDocument();
+	expect(
+		screen.getAllByText(/Product sense translator for AI features/i).length
+	).toBeGreaterThan(0);
 
 	await user.click(screen.getByRole("button", { name: /^Close$/i }));
 	await waitFor(() => {

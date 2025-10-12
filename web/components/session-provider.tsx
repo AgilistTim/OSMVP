@@ -94,6 +94,7 @@ export interface CareerSuggestion {
 	whyItFits: string[];
 	confidence: "high" | "medium" | "low";
 	score: number;
+	neighborTerritories: string[];
 }
 
 interface SessionState {

@@ -111,6 +111,7 @@ describe("SessionProvider conversational state", () => {
 					whyItFits: ["You mentioned modding with friends, which lines up with gameplay prototyping."],
 					confidence: "high",
 					score: 4,
+					neighborTerritories: ["Live ops experimentation for collaborative games"],
 				},
 			]);
 		});

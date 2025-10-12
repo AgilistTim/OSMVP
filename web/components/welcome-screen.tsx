@@ -1,109 +1,148 @@
 "use client";
 
-import { Check, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
+import { useMemo } from "react";
 import { useSession } from "@/components/session-provider";
 
-const VALUE_POINTS = [
-	"Personalised conversation that adapts to your career readiness (G1–G4)",
-	"Draft career matches surfaced mid-chat with quick reactions",
-	"Shareable Matches Report capturing strengths, themes, and next steps",
+const VALUE_CARDS = [
+	{
+		title: "A conversation that doesn't suck",
+		text: "No corporate BS or weird assessment questions. Just a chat about what you're working on and where you want to go with it.",
+	},
+	{
+		title: "Stuff you can actually try",
+		text: "Get specific next steps, people to check out, and projects to experiment with - not just generic career descriptions.",
+	},
+	{
+		title: "Something to share with the important people",
+		text: "A dynamic page that captures your exploration journey. Share it with parents, teachers, or mentors to have better conversations about your future.",
+	},
+	{
+		title: "Your journey evolves with you",
+		text: "Update your exploration as you try new things and figure out what works. This isn't a one-and-done assessment.",
+	},
 ];
 
-const HOW_IT_WORKS = [
-	"Answer five quick onboarding prompts to capture where you are today",
-	"See draft career cards appear once we’ve got the basics down",
-	"Vote on what resonates and unlock a Matches Report you can share",
+const HOW_STEPS = [
+	{
+		step: "1",
+		title: "Chat about what you're up to",
+		text: "What's been keeping you busy? What are you working on that you actually care about? We'll chat about your current interests and what draws you to them.",
+	},
+	{
+		step: "2",
+		title: "Explore what's possible",
+		text: "Based on what you've shared, we'll suggest areas you might want to explore. See how your interests could translate into different paths - including ones you probably haven't thought of.",
+	},
+	{
+		step: "3",
+		title: "Get your roadmap",
+		text: "We'll create a personalized page with your exploration summary, next steps to try, and questions to discuss with people in your life. You can share it and update it as you learn more about yourself.",
+	},
 ];
 
 export function WelcomeScreen() {
 	const { beginSession } = useSession();
+
+	const heroCards = useMemo(
+		() => [
+			{
+				title: "Real Talk",
+				text: "You steer the chat. We just keep the momentum.",
+			},
+			{
+				title: "Next Steps",
+				text: "Every suggestion comes with tiny experiments you can run this week.",
+			},
+		],
+		[]
+	);
 
 	function handleStart() {
 		beginSession();
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
-			<section className="space-y-3">
-				<span className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-					Career exploration
-				</span>
-				<h1 className="text-3xl font-semibold leading-tight sm:text-4xl">
-					Finding your future starts here
-				</h1>
-				<p className="text-base text-muted-foreground sm:text-lg">
-					Answer a handful of guided prompts and we’ll surface curated career ideas,
-					make sense of your strengths, and publish a Matches Report you can share.
-				</p>
-			</section>
-
-			<Card className="gap-0">
-				<CardHeader className="pb-3">
-				<CardTitle className="flex items-center gap-2 text-base font-semibold">
-					<Sparkles className="size-4 text-primary" aria-hidden />
-						What you’ll unlock
-					</CardTitle>
-					<CardDescription>
-						A conversational guide designed for early career exploration.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-2">
-					<ul className="space-y-2 text-sm text-foreground">
-						{VALUE_POINTS.map((point) => (
-							<li key={point} className="flex items-start gap-2">
-								<Check className="mt-0.5 size-4 text-primary" aria-hidden />
-								<span>{point}</span>
-							</li>
-						))}
-					</ul>
-				</CardContent>
-			</Card>
-
-			<Card className="gap-0">
-				<CardHeader className="pb-3">
-					<CardTitle className="text-base font-semibold">How it works</CardTitle>
-					<CardDescription>
-						We tailor every question, then capture a profile that powers your report.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<ol className="space-y-2 text-sm text-muted-foreground">
-						{HOW_IT_WORKS.map((step, index) => (
-							<li key={step} className="flex items-start gap-3">
-								<span className="mt-0.5 size-6 rounded-full bg-primary/10 text-center text-xs font-semibold leading-6 text-primary">
-									{index + 1}
-								</span>
-								<span>{step}</span>
-							</li>
-						))}
-					</ol>
-				</CardContent>
-			</Card>
-
-			<section className="rounded-2xl border bg-muted/40 p-5">
-				<div className="space-y-3">
-					<span className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						What happens first
-					</span>
-					<p className="text-sm text-muted-foreground">
-						We’ll begin with a short onboarding sequence so your guide understands your
-						interests, confidence, and any early actions you’ve taken. Once complete, you’ll
-						choose whether to keep going in text or voice.
-					</p>
+		<main className="landing-page" role="main">
+			<section className="hero-section" aria-labelledby="landing-hero-title">
+				<div className="hero-content">
+					<span className="hero-kicker">Build your own path</span>
+					<h1 id="landing-hero-title" className="hero-title">
+						Figure out what you actually want to do
+					</h1>
+					<p className="hero-subtitle">Skip the career quizzes and personality tests.</p>
+						<p className="hero-body">
+							{
+								"Have a real conversation about what you're into, what you're good at, and where you might want to take it. Get a personalized roadmap you can actually use."
+							}
+						</p>
 				</div>
-				<Button size="lg" className="mt-6 w-full" onClick={handleStart}>
-					Start the onboarding
-				</Button>
+				<div className="hero-visual" aria-hidden="true">
+					<div className="hero-card-stack">
+						{heroCards.map((card) => (
+							<div key={card.title} className="hero-card">
+								<p className="hero-card-title">{card.title}</p>
+								<p className="hero-card-text">{card.text}</p>
+							</div>
+						))}
+					</div>
+				</div>
 			</section>
-		</div>
+
+			<section className="value-props" aria-labelledby="landing-value-title">
+				<h2 id="landing-value-title" className="section-header">
+					What You Get:
+				</h2>
+				{VALUE_CARDS.map((card) => (
+					<article key={card.title} className="value-card">
+						<h3 className="value-card-title">{card.title}</h3>
+						<p className="value-card-text">{card.text}</p>
+					</article>
+				))}
+			</section>
+
+			<section className="how-it-works" aria-labelledby="landing-how-title">
+				<div className="how-grid">
+					<header>
+						<h2 id="landing-how-title" className="section-header">
+							How It Actually Works:
+						</h2>
+						<p className="value-card-text">We start where you are, not where we think you should be.</p>
+					</header>
+					{HOW_STEPS.map((step) => (
+						<article key={step.step} className="how-step step-card" data-step={step.step}>
+							<div className="how-step-number" aria-hidden="true">
+								{step.step}
+							</div>
+							<h3 className="how-step-title">{step.title}</h3>
+							<p className="how-step-text">{step.text}</p>
+						</article>
+					))}
+				</div>
+			</section>
+
+			<section className="cta-section" aria-labelledby="landing-cta-title">
+				<h2 id="landing-cta-title" className="cta-title">
+					Ready to start?
+				</h2>
+				<p className="cta-text">
+					No signup required. No email collection. Just start the conversation.
+				</p>
+				<p className="cta-text">
+					{
+						"We'll begin by chatting about what you're currently into and what you're trying to figure out. Takes about 15-30 minutes, and you can always come back to continue later."
+					}
+				</p>
+				<button type="button" className="primary-button primary-cta-button" onClick={handleStart}>
+					Start YOUR discussion
+				</button>
+			</section>
+
+			<div className="sticky-cta" role="complementary" aria-label="Start your Off-script discussion">
+				<button type="button" className="primary-button primary-cta-button sticky-cta-button" onClick={handleStart}>
+					Start YOUR discussion
+				</button>
+			</div>
+		</main>
 	);
 }
 

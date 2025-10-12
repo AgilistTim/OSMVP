@@ -40,6 +40,7 @@ export function Onboarding() {
 		setOnboardingStep,
 		suggestions,
 		setSuggestions,
+		votesByCareerId,
 		sessionId,
 	} = useSession();
 
@@ -71,6 +72,30 @@ export function Onboarding() {
 		() => turns.filter((turn) => turn.role === "user").length,
 		[turns]
 	);
+
+	const suggestionGuidance = useMemo(() => {
+		if (suggestions.length === 0) {
+			return null;
+		}
+		const formatted = suggestions
+			.map((suggestion, index) => {
+				const parts: string[] = [
+					`${index + 1}. ${suggestion.title}: ${suggestion.summary}`,
+				];
+				if (suggestion.whyItFits.length > 0) {
+					parts.push(`Why it fits: ${suggestion.whyItFits.join("; ")}`);
+				}
+				if (suggestion.nextSteps.length > 0) {
+					parts.push(`Tiny experiments: ${suggestion.nextSteps.join("; ")}`);
+				}
+				if (suggestion.neighborTerritories.length > 0) {
+					parts.push(`Nearby vibes: ${suggestion.neighborTerritories.join(", ")}`);
+				}
+				return parts.join("\n");
+			})
+			.join("\n\n");
+		return `Suggestion cards currently pinned:\n${formatted}\nReference them casually by title when it helps the user connect dots.`;
+	}, [suggestions]);
 
 	const progress = useMemo(() => {
 		if (userTurnsCount === 0) return 20;
@@ -218,11 +243,16 @@ export function Onboarding() {
 				console.error("Failed to confirm conversation item", err);
 			}
 
+			const responsePayload: Record<string, unknown> = {
+				output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
+			};
+			if (suggestionGuidance) {
+				responsePayload.instructions = suggestionGuidance;
+			}
+
 			realtimeControls.sendEvent({
 				type: "response.create",
-				response: {
-					output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
-				},
+				response: responsePayload,
 			});
 
 			if (!acknowledged) {
@@ -235,6 +265,7 @@ export function Onboarding() {
 			ensureRealtimeConnected,
 			mode,
 			realtimeControls,
+			suggestionGuidance,
 			setProfile,
 			turns,
 		]
@@ -259,16 +290,20 @@ export function Onboarding() {
 
 		initialResponseRequestedRef.current = true;
 
-		void (async () => {
-			await ensureRealtimeConnected();
-			realtimeControls.sendEvent({
-				type: "response.create",
-				response: {
-					output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
-				},
-			});
-		})();
-	}, [ensureRealtimeConnected, mode, realtimeControls, started, turns.length]);
+	void (async () => {
+		await ensureRealtimeConnected();
+		const responsePayload: Record<string, unknown> = {
+			output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
+		};
+		if (suggestionGuidance) {
+			responsePayload.instructions = suggestionGuidance;
+		}
+		realtimeControls.sendEvent({
+			type: "response.create",
+			response: responsePayload,
+		});
+	})();
+}, [ensureRealtimeConnected, mode, realtimeControls, started, suggestionGuidance, turns.length]);
 
 	useEffect(() => {
 		if (!transcriptContainerRef.current) return;
@@ -409,6 +444,7 @@ export function Onboarding() {
 							value: insight.value,
 						})),
 						limit: 3,
+						votes: votesByCareerId,
 					}),
 				});
 				if (!response.ok) {
@@ -424,6 +460,7 @@ export function Onboarding() {
 						whyItFits?: string[];
 						confidence?: "high" | "medium" | "low";
 						score?: number;
+						neighborTerritories?: string[];
 					}>;
 				};
 				if (Array.isArray(data.suggestions)) {
@@ -444,6 +481,7 @@ export function Onboarding() {
 								whyItFits: item.whyItFits ?? [],
 								confidence: item.confidence ?? "medium",
 								score: item.score ?? 0,
+								neighborTerritories: item.neighborTerritories ?? [],
 							}))
 							.sort((a, b) => b.score - a.score)
 					);
@@ -455,7 +493,7 @@ export function Onboarding() {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [profile.insights, setSuggestions, suggestions.length, userTurnsCount]);
+	}, [profile.insights, setSuggestions, suggestions.length, userTurnsCount, votesByCareerId]);
 
 useEffect(() => {
 		if (!mode) {
