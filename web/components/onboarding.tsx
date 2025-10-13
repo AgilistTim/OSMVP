@@ -1,15 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
 import { useRealtimeSession } from "@/hooks/use-realtime-session";
 import { SuggestionCards } from "@/components/suggestion-cards";
+import { ArrowUpRight } from "lucide-react";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
@@ -24,6 +25,42 @@ function looksLikeMutualMoment(text: string): boolean {
 	const trimmed = text.trim();
 	if (trimmed.length < 18) return false;
 	return MUTUAL_EXPRESSION_REGEX.test(trimmed.toLowerCase());
+}
+
+function classifyMessageLength(text: string): { lengthClass: "short" | "medium" | "long" | "very-long"; isLongText: boolean } {
+	const length = text.trim().length;
+	if (length > 500) {
+		return { lengthClass: "very-long", isLongText: true };
+	}
+	if (length > 200) {
+		return { lengthClass: "long", isLongText: true };
+	}
+	if (length > 50) {
+		return { lengthClass: "medium", isLongText: false };
+	}
+	return { lengthClass: "short", isLongText: false };
+}
+
+function renderMessageContent(text: string) {
+	const trimmed = text.trim();
+	if (!trimmed) {
+		return <p>&nbsp;</p>;
+	}
+
+	const paragraphs = trimmed.split(/\n{2,}/);
+	return paragraphs.map((paragraph, index) => {
+		const lines = paragraph.split(/\n/);
+		return (
+			<p key={`para-${index}`}>
+				{lines.map((line, lineIndex) => (
+					<Fragment key={`line-${lineIndex}`}>
+						{line}
+						{lineIndex < lines.length - 1 ? <br /> : null}
+					</Fragment>
+				))}
+			</p>
+		);
+	});
 }
 
 export function Onboarding() {
@@ -50,7 +87,7 @@ export function Onboarding() {
 	const [readiness, setReadiness] = useState<Readiness | null>(profile.readiness ?? null);
 
 	const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
-	const inputRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<HTMLTextAreaElement>(null);
 
 	const lastUserTranscriptIdRef = useRef<string | undefined>(undefined);
 	const lastUserTranscriptTextRef = useRef<string | undefined>(undefined);
@@ -306,12 +343,15 @@ export function Onboarding() {
 }, [ensureRealtimeConnected, mode, realtimeControls, started, suggestionGuidance, turns.length]);
 
 	useEffect(() => {
-		if (!transcriptContainerRef.current) return;
-		transcriptContainerRef.current.scrollTo({
-			top: transcriptContainerRef.current.scrollHeight,
-			behavior: "smooth",
+		if (mode !== "text" || !transcriptContainerRef.current) return;
+		const container = transcriptContainerRef.current;
+		requestAnimationFrame(() => {
+			container.scrollTo({
+				top: container.scrollHeight,
+				behavior: "smooth",
+			});
 		});
-	}, [turns.length]);
+	}, [mode, turns.length, displayedQuestion]);
 
 	useEffect(() => {
 		setVoice({
@@ -341,13 +381,13 @@ export function Onboarding() {
 		lastUserTranscriptIdRef.current = latestUser.id;
 		lastUserTranscriptTextRef.current = latestUser.text;
 		setProfile({ lastTranscript: latestUser.text, lastTranscriptId: latestUser.id });
-		setTurns((prev) => {
-			const newTurn: Turn = { role: "user", text: latestUser.text };
-			const next = [...prev, newTurn];
-			void deriveInsights(next);
-			return next;
-		});
-	}, [deriveInsights, mode, realtimeState.transcripts, setProfile]);
+			setTurns((prev) => {
+				const newTurn: Turn = { role: "user", text: latestUser.text };
+				const next = [...prev, newTurn];
+				void deriveInsights(next);
+				return next;
+			});
+		}, [deriveInsights, mode, realtimeState.transcripts, setProfile]);
 
 	useEffect(() => {
 		const latestAssistant = realtimeState.transcripts.find(
@@ -364,18 +404,18 @@ export function Onboarding() {
 
 		lastAssistantTranscriptIdRef.current = latestAssistant.id;
 		lastAssistantTranscriptTextRef.current = latestAssistant.text;
-	const assistantText = latestAssistant.text;
-	const shouldAddMutual = looksLikeMutualMoment(assistantText);
-	setProfile({
-		lastAssistantTranscript: assistantText,
-		lastAssistantTranscriptId: latestAssistant.id,
-	});
-	setQuestion(assistantText);
-	setTurns((prev) => [...prev, { role: "assistant", text: assistantText }]);
-	if (shouldAddMutual) {
-		addMutualMoment(assistantText);
-	}
-}, [addMutualMoment, realtimeState.transcripts, setProfile]);
+		const assistantText = latestAssistant.text;
+		const shouldAddMutual = looksLikeMutualMoment(assistantText);
+		setProfile({
+			lastAssistantTranscript: assistantText,
+			lastAssistantTranscriptId: latestAssistant.id,
+		});
+		setQuestion(assistantText);
+		setTurns((prev) => [...prev, { role: "assistant", text: assistantText }]);
+		if (shouldAddMutual) {
+			addMutualMoment(assistantText);
+		}
+	}, [addMutualMoment, realtimeState.transcripts, setProfile]);
 
 	useEffect(() => {
 		if (previousModeRef.current && mode && previousModeRef.current !== mode) {
@@ -384,10 +424,20 @@ export function Onboarding() {
 		previousModeRef.current = mode;
 	}, [mode, realtimeControls]);
 
+useEffect(() => {
+	if (mode !== "text") return;
+	inputRef.current?.focus();
+}, [mode, question]);
+
 	useEffect(() => {
-		if (mode !== "text") return;
-		inputRef.current?.focus();
-	}, [mode, question]);
+		if (!inputRef.current) {
+			return;
+		}
+		const element = inputRef.current;
+		element.style.height = "auto";
+		const nextHeight = Math.min(element.scrollHeight, 180);
+		element.style.height = `${nextHeight}px`;
+	}, [currentInput, mode]);
 
 	useEffect(() => {
 		setOnboardingStep(Math.min(5, Math.max(1, userTurnsCount + 1)));
@@ -495,95 +545,155 @@ export function Onboarding() {
 		})();
 	}, [profile.insights, setSuggestions, suggestions.length, userTurnsCount, votesByCareerId]);
 
-useEffect(() => {
+	useEffect(() => {
 		if (!mode) {
 			setMode("text");
 		}
 	}, [mode, setMode]);
 
-	return (
-		<div className="w-full max-w-xl mx-auto flex flex-col gap-4">
-			<div className="flex items-center justify-between">
-				<h2 className="text-lg font-medium">{header}</h2>
-				<span className="text-sm text-muted-foreground">{progress}%</span>
-			</div>
-			<Progress value={progress} />
+	const isVoice = mode === "voice";
 
-			<Card className="p-4 space-y-4">
-				<div className="flex items-center justify-between text-sm text-muted-foreground">
-					<span>{mode ? `Mode: ${mode === "voice" ? "Voice" : "Text"}` : ""}</span>
-					{mode === "voice" ? (
-						<Button variant="link" className="px-0 text-sm" onClick={() => setMode("text")}>
+	return (
+		<div className="chat-app-shell">
+			<header className="chat-header">
+				<div className="flex items-center justify-between">
+					<h2 className="text-lg font-medium">{header}</h2>
+					<span className="text-sm text-muted-foreground">{progress}%</span>
+				</div>
+				<Progress value={progress} />
+			</header>
+
+			{isVoice ? (
+				<Card className="voice-mode-panel">
+					<div className="flex items-center justify-end">
+						<Button
+							variant="default"
+							size="lg"
+							className="chat-mode-button"
+							onClick={() => setMode("text")}
+						>
 							Switch to text
 						</Button>
-					) : (
-						<Button variant="link" className="px-0 text-sm" onClick={() => setMode("voice")}>
-							Switch to voice
-						</Button>
-					)}
-				</div>
-				<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
-				<Input
-					ref={inputRef}
-					placeholder={
-						mode === "voice"
-							? "Text entry is disabled while voice is active"
-							: "Type something you’re into or curious about"
-					}
-					value={currentInput}
-					onChange={(event) => setCurrentInput(event.target.value)}
-					onKeyDown={(event) => event.key === "Enter" && handleSubmit()}
-					disabled={mode === "voice"}
-				/>
-				<div className="flex justify-end">
-					<Button onClick={handleSubmit} disabled={!canSubmitText}>
-						Send
-					</Button>
-				</div>
-				{mode === "voice" ? (
+					</div>
+					<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
 					<p className="text-sm text-muted-foreground">
 						Answer out loud, or switch to text if you’d rather type this turn.
 					</p>
-				) : null}
-			</Card>
+				</Card>
+			) : (
+				<main className="chat-panel">
+					<div className="chat-toolbar">
+						<Button
+							variant="default"
+							size="lg"
+							className="chat-mode-button"
+							onClick={() => setMode("voice")}
+						>
+							Switch to voice
+						</Button>
+					</div>
+					<div ref={transcriptContainerRef} className="chat-messages">
+						{turns.length === 0 ? (
+							(() => {
+								const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
+								return (
+									<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
+										<div className="message-label">GUIDE</div>
+										<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
+											{renderMessageContent(displayedQuestion)}
+										</div>
+									</div>
+								);
+							})()
+						) : (
+							turns.map((turn, index) => {
+								const isUser = turn.role === "user";
+								const { lengthClass, isLongText } = classifyMessageLength(turn.text);
+								const messageClasses = cn(
+									"message",
+									isUser ? "user-message" : "ai-message",
+									isLongText ? "long-text" : ""
+								);
+								const contentClasses = cn(
+									"message-content",
+									lengthClass,
+									isLongText ? "long-text" : ""
+								);
 
-			{mode === "voice" && <VoiceControls state={realtimeState} controls={realtimeControls} />}
+								return (
+									<div
+										key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+										className={messageClasses}
+									>
+										<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
+										<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
+									</div>
+								);
+							})
+						)}
+					</div>
+					<div className="chat-input-panel">
+						<div className="message-input-wrapper">
+							<Textarea
+								ref={inputRef}
+								placeholder="Type something you’re into or curious about"
+								value={currentInput}
+								onChange={(event) => setCurrentInput(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										handleSubmit();
+									}
+								}}
+								className="message-input"
+								rows={1}
+								style={{ maxHeight: 180 }}
+							/>
+							<Button
+								type="button"
+								variant="default"
+								size="icon"
+								className="send-button"
+								onClick={handleSubmit}
+								disabled={!canSubmitText}
+								aria-label="Send message"
+							>
+								<ArrowUpRight aria-hidden />
+							</Button>
+						</div>
+						<div className="chat-input-meta">
+							<span
+								className={cn(
+									"char-counter",
+									currentInput.length > 100 ? "char-counter-visible" : "",
+									currentInput.length > 500
+										? "char-counter-highlight"
+										: currentInput.length > 200
+											? "char-counter-accent"
+										: ""
+								)}
+								aria-live="polite"
+							>
+								{currentInput.length > 100
+									? currentInput.length > 500
+										? `${currentInput.length} characters (long message)`
+										: `${currentInput.length} characters`
+									: "\u00A0"}
+							</span>
+						</div>
+					</div>
+				</main>
+			)}
 
-			{mode === "voice" ? (
+			{isVoice && <VoiceControls state={realtimeState} controls={realtimeControls} />}
+
+			{isVoice ? (
 				<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
 					We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us
 					know if something sounds off.
 				</div>
-			) : (
-				<div
-					ref={transcriptContainerRef}
-					className="max-h-80 overflow-y-auto space-y-3 rounded-lg border border-border bg-muted/20 p-4"
-				>
-					{turns.map((turn, index) => {
-						const isUser = turn.role === "user";
-						return (
-							<div
-								key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-								className={cn("flex", isUser ? "justify-end" : "justify-start")}
-							>
-								<div
-									className={cn(
-										"max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-line",
-										isUser
-											? "bg-primary text-primary-foreground"
-											: "bg-card text-card-foreground border border-border"
-									)}
-								>
-									<div className="text-xs font-semibold uppercase tracking-wide opacity-80">
-										{isUser ? "You" : "Guide"}
-									</div>
-									<div className="mt-1 leading-relaxed">{turn.text}</div>
-								</div>
-							</div>
-						);
-					})}
-				</div>
-			)}
+			) : null}
+
 			{suggestions.length > 0 ? (
 				<SuggestionCards suggestions={suggestions} />
 			) : null}
