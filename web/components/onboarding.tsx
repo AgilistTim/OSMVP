@@ -102,6 +102,7 @@ export function Onboarding() {
 	const previousModeRef = useRef<typeof mode>(mode);
 	const suggestionsFetchInFlightRef = useRef<boolean>(false);
 	const suggestionsLastInsightCountRef = useRef<number>(0);
+	const lastScrolledTurnCountRef = useRef<number>(0);
 
 	const [realtimeState, realtimeControls] = useRealtimeSession({
 		sessionId,
@@ -380,16 +381,19 @@ export function Onboarding() {
 	})();
 }, [ensureRealtimeConnected, mode, realtimeControls, started, suggestionGuidance, turns.length]);
 
-	useEffect(() => {
-		if (mode !== "text" || !transcriptContainerRef.current) return;
-		const container = transcriptContainerRef.current;
-		requestAnimationFrame(() => {
-			container.scrollTo({
-				top: container.scrollHeight,
-				behavior: "smooth",
-			});
+useEffect(() => {
+	const container = transcriptContainerRef.current;
+	if (!container) return;
+	const turnCount = turns.length;
+	const shouldAnimate = turnCount > lastScrolledTurnCountRef.current;
+	requestAnimationFrame(() => {
+		container.scrollTo({
+			top: container.scrollHeight,
+			behavior: shouldAnimate ? "smooth" : "auto",
 		});
-	}, [mode, turns.length, displayedQuestion, pendingSuggestions.length]);
+	});
+	lastScrolledTurnCountRef.current = turnCount;
+}, [mode, turns.length, displayedQuestion, pendingSuggestions.length]);
 
 	useEffect(() => {
 		setVoice({
@@ -657,7 +661,8 @@ useEffect(() => {
 				</Card>
 			) : (
 				<main className="chat-panel">
-					<div ref={transcriptContainerRef} className="chat-messages">
+					<div className="chat-track">
+						<div ref={transcriptContainerRef} className="chat-messages">
 						{turns.length === 0 ? (
 							(() => {
 								const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
@@ -709,13 +714,13 @@ useEffect(() => {
 								</div>
 							</div>
 						) : null}
-					</div>
-					<div className="chat-input-panel">
-						<div className="message-input-wrapper">
-							<Textarea
-								ref={inputRef}
-								placeholder="Type something you’re into or curious about"
-								value={currentInput}
+						</div>
+						<div className="chat-input-panel">
+							<div className="message-input-wrapper">
+								<Textarea
+									ref={inputRef}
+									placeholder="Type something you’re into or curious about"
+									value={currentInput}
 								onChange={(event) => setCurrentInput(event.target.value)}
 								onKeyDown={(event) => {
 									if (event.key === "Enter" && !event.shiftKey) {
@@ -758,6 +763,7 @@ useEffect(() => {
 										: `${currentInput.length} characters`
 									: "\u00A0"}
 							</span>
+						</div>
 						</div>
 					</div>
 				</main>
