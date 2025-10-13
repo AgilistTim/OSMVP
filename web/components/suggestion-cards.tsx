@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bookmark, MessageCircle, Sparkles, XIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,16 @@ import { cn } from "@/lib/utils";
 import type { CareerSuggestion } from "@/components/session-provider";
 import { useSession } from "@/components/session-provider";
 
+type CardVariant = "panel" | "inline";
+
 interface SuggestionCardsProps {
 	suggestions: CareerSuggestion[];
+	variant?: CardVariant;
+	title?: string;
+	description?: string;
+	showHeader?: boolean;
+	emptyState?: React.ReactNode;
+	className?: string;
 }
 
 type ReactionValue = 1 | 0 | -1;
@@ -57,9 +65,92 @@ const REACTION_CHOICES: Array<{
 	},
 ];
 
-export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
+type InlineCardState = "idle" | "entering" | "exiting";
+
+interface DisplayCard {
+	suggestion: CareerSuggestion;
+	state: InlineCardState;
+}
+
+const ENTER_ANIMATION_MS = 220;
+const EXIT_ANIMATION_MS = 420;
+
+export function SuggestionCards({
+	suggestions,
+	variant = "panel",
+	title,
+	description,
+	showHeader,
+	emptyState = null,
+	className,
+}: SuggestionCardsProps) {
 	const { voteCareer, votesByCareerId } = useSession();
 	const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(null);
+	const [displayCards, setDisplayCards] = useState<DisplayCard[]>(
+		suggestions.map((suggestion) => ({ suggestion, state: "idle" }))
+	);
+
+	const isInline = variant === "inline";
+	const shouldShowHeader = showHeader ?? variant !== "inline";
+
+	useEffect(() => {
+		if (!isInline) {
+			setDisplayCards(suggestions.map((suggestion) => ({ suggestion, state: "idle" })));
+			return;
+		}
+
+		setDisplayCards((previous) => {
+			const previousMap = new Map(previous.map((item) => [item.suggestion.id, item]));
+			const nextIds = new Set(suggestions.map((item) => item.id));
+
+			const nextCards: DisplayCard[] = suggestions.map((suggestion) => {
+				const existing = previousMap.get(suggestion.id);
+				if (existing) {
+					return { suggestion, state: existing.state === "exiting" ? "exiting" : "idle" };
+				}
+				return { suggestion, state: "entering" };
+			});
+
+			previous.forEach((item) => {
+				if (!nextIds.has(item.suggestion.id)) {
+					nextCards.push(
+						item.state === "exiting"
+							? item
+							: {
+									suggestion: item.suggestion,
+									state: "exiting",
+								}
+					);
+				}
+			});
+
+			return nextCards;
+		});
+	}, [suggestions, isInline]);
+
+	useEffect(() => {
+		if (!isInline) return;
+		if (!displayCards.some((card) => card.state === "entering")) return;
+		const timeout = window.setTimeout(() => {
+			setDisplayCards((prev) =>
+				prev.map((card) => (card.state === "entering" ? { ...card, state: "idle" } : card))
+			);
+		}, ENTER_ANIMATION_MS);
+		return () => window.clearTimeout(timeout);
+	}, [displayCards, isInline]);
+
+	useEffect(() => {
+		if (!isInline) return;
+		if (!displayCards.some((card) => card.state === "exiting")) return;
+		const timeout = window.setTimeout(() => {
+			setDisplayCards((prev) => prev.filter((card) => card.state !== "exiting"));
+		}, EXIT_ANIMATION_MS);
+		return () => window.clearTimeout(timeout);
+	}, [displayCards, isInline]);
+
+	const cardsToRender = isInline
+		? displayCards
+		: suggestions.map((suggestion) => ({ suggestion, state: "idle" as InlineCardState }));
 
 	const activeSuggestion = useMemo(
 		() => suggestions.find((suggestion) => suggestion.id === activeSuggestionId) ?? null,
@@ -88,83 +179,118 @@ export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
 		}
 	}, []);
 
-	return (
-		<section className="space-y-3">
-			<header className="space-y-1.5">
-				<h3 className="text-base font-semibold">Ideas people like you run with</h3>
-				<p className="text-sm text-muted-foreground">
-					React fast, dive deeper when something sparks. You’re in control the whole time.
-				</p>
-			</header>
-			<div className="grid gap-3 sm:grid-cols-2">
-				{suggestions.map((suggestion, index) => {
-					const currentVote = votesByCareerId[suggestion.id];
-					const peekLabel =
-						CONFIDENCE_LABELS[suggestion.confidence] ?? FALLBACK_BADGES[index] ?? "Worth exploring";
-					const headline = suggestion.whyItFits[0] ?? suggestion.summary;
-					const neighborPreview = suggestion.neighborTerritories[0];
+	const resolvedTitle =
+		title ?? (variant === "panel" ? "Ideas people like you run with" : "Fresh sparks waiting for you");
+	const resolvedDescription =
+		description ??
+		(variant === "panel"
+			? "React fast, dive deeper when something sparks. You’re in control the whole time."
+			: undefined);
 
-					return (
-						<Card
-							key={suggestion.id}
-							className="flex flex-col gap-3 rounded-2xl border-border/60 bg-card/60 p-4 shadow-sm transition hover:shadow-md"
-						>
-							<div className="flex items-start justify-between gap-3">
-								<div className="space-y-1">
-									<Badge variant="secondary" className="text-xs tracking-wide">
-										{peekLabel}
-									</Badge>
-									<h4 className="text-lg font-semibold leading-tight">{suggestion.title}</h4>
-								</div>
-							</div>
-							<p className="text-sm leading-relaxed text-muted-foreground">{suggestion.summary}</p>
-							{headline ? (
-								<p className="rounded-lg bg-muted/60 p-3 text-sm leading-relaxed text-muted-foreground">
-									{headline}
-								</p>
-							) : null}
-							{neighborPreview ? (
-								<div className="flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-secondary-foreground/80">
-									<Sparkles className="size-4 text-secondary-foreground" aria-hidden />
-									<span>{neighborPreview}</span>
-								</div>
-							) : null}
-							<div className="flex flex-wrap gap-2">
-								{REACTION_CHOICES.map((choice) => {
-									const Icon = choice.icon;
-									const isActive = currentVote === choice.value;
-									return (
-										<Button
-											key={`${suggestion.id}-${choice.label}`}
-											variant={isActive ? "default" : "outline"}
-											size="sm"
-											className={cn(
-												"flex-1 min-w-[96px] justify-center gap-1 text-sm",
-												isActive ? "border-transparent" : "border-border/60"
-											)}
-											onClick={() => handleReaction(suggestion.id, choice.value)}
-											title={choice.description}
-											type="button"
-											aria-pressed={isActive}
-										>
-											<Icon className="size-4" aria-hidden />
-											{choice.label}
-										</Button>
-									);
-								})}
-							</div>
-							<Button
-								variant="ghost"
-								size="sm"
-								className="self-start px-0 text-sm font-medium"
-								onClick={() => handleOpenDetails(suggestion.id)}
-								type="button"
-							>
-								See details
-							</Button>
-						</Card>
-					);
-				})}
+	return (
+		<section
+			className={cn(
+				"suggestion-cards-root",
+				isInline ? "suggestion-cards-inline" : "suggestion-cards-panel",
+				className
+			)}
+			aria-label="Career ideas you can explore"
+		>
+			{shouldShowHeader ? (
+				<header className="space-y-1.5">
+					<h3 className="text-base font-semibold">{resolvedTitle}</h3>
+					{resolvedDescription ? (
+						<p className="text-sm text-muted-foreground">{resolvedDescription}</p>
+					) : null}
+				</header>
+			) : null}
+			<div
+				className={cn(
+					"suggestion-carousel",
+					isInline ? "suggestion-carousel-inline" : "suggestion-carousel-panel"
+				)}
+			>
+				<div className="suggestion-track">
+					{cardsToRender.length === 0 ? (
+						emptyState ? (
+							<div className="w-full py-6 text-center text-sm text-muted-foreground">{emptyState}</div>
+						) : null
+					) : (
+						cardsToRender.map(({ suggestion, state }, index) => {
+							const currentVote = votesByCareerId[suggestion.id];
+							const peekLabel =
+								CONFIDENCE_LABELS[suggestion.confidence] ?? FALLBACK_BADGES[index] ?? "Worth exploring";
+							const headline = suggestion.whyItFits[0] ?? suggestion.summary;
+							const neighborPreview = suggestion.neighborTerritories[0];
+
+							return (
+								<Card
+									key={suggestion.id}
+									className={cn(
+										"suggestion-card group flex flex-col gap-3 rounded-2xl border-border/60 bg-card/70 p-4 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-within:-translate-y-1 focus-within:shadow-lg",
+										isInline ? "backdrop-blur-sm" : "bg-card/60",
+										state === "entering" ? "suggestion-card-enter" : "",
+										state === "exiting" ? "suggestion-card-exit" : ""
+									)}
+								>
+									<div className="flex items-start justify-between gap-3">
+										<div className="space-y-1">
+											<Badge variant="secondary" className="text-xs tracking-wide">
+												{peekLabel}
+											</Badge>
+											<h4 className="text-lg font-semibold leading-tight">{suggestion.title}</h4>
+										</div>
+									</div>
+									<p className="text-sm leading-relaxed text-muted-foreground">{suggestion.summary}</p>
+									{headline ? (
+										<p className="rounded-lg bg-muted/60 p-3 text-sm leading-relaxed text-muted-foreground">
+											{headline}
+										</p>
+									) : null}
+									{neighborPreview ? (
+										<div className="flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-secondary-foreground/80">
+											<Sparkles className="size-4 text-secondary-foreground" aria-hidden />
+											<span>{neighborPreview}</span>
+										</div>
+									) : null}
+									<div className="flex flex-wrap gap-2">
+										{REACTION_CHOICES.map((choice) => {
+											const Icon = choice.icon;
+											const isActive = currentVote === choice.value;
+											return (
+												<Button
+													key={`${suggestion.id}-${choice.label}`}
+													variant={isActive ? "default" : "outline"}
+													size="sm"
+													className={cn(
+														"flex-1 min-w-[96px] justify-center gap-1 text-sm",
+														isActive ? "border-transparent" : "border-border/60"
+													)}
+													onClick={() => handleReaction(suggestion.id, choice.value)}
+													title={choice.description}
+													type="button"
+													aria-pressed={isActive}
+												>
+													<Icon className="size-4" aria-hidden />
+													{choice.label}
+												</Button>
+											);
+										})}
+									</div>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="self-start px-0 text-sm font-medium"
+										onClick={() => handleOpenDetails(suggestion.id)}
+										type="button"
+									>
+										See details
+									</Button>
+								</Card>
+							);
+						})
+					)}
+				</div>
 			</div>
 
 			<Drawer open={Boolean(activeSuggestion)} onOpenChange={handleDrawerChange}>
@@ -176,8 +302,8 @@ export function SuggestionCards({ suggestions }: SuggestionCardsProps) {
 									{activeSuggestion.confidence === "high"
 										? "Solid match"
 										: activeSuggestion.confidence === "low"
-										? "Loose spark"
-										: "Worth exploring"}
+											? "Loose spark"
+											: "Worth exploring"}
 								</Badge>
 								<DrawerTitle className="text-left text-2xl font-semibold leading-tight">
 									{activeSuggestion.title}

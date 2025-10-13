@@ -7,10 +7,12 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
+import type { CareerSuggestion } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
 import { useRealtimeSession } from "@/hooks/use-realtime-session";
 import { SuggestionCards } from "@/components/suggestion-cards";
-import { ArrowUpRight } from "lucide-react";
+import { SuggestionBasket } from "@/components/suggestion-basket";
+import { ArrowUpRight, Archive } from "lucide-react";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
@@ -77,6 +79,7 @@ export function Onboarding() {
 		setOnboardingStep,
 		suggestions,
 		setSuggestions,
+		voteCareer,
 		votesByCareerId,
 		sessionId,
 	} = useSession();
@@ -85,6 +88,7 @@ export function Onboarding() {
 	const [question, setQuestion] = useState<string>("");
 	const [currentInput, setCurrentInput] = useState<string>("");
 	const [readiness, setReadiness] = useState<Readiness | null>(profile.readiness ?? null);
+	const [isBasketOpen, setIsBasketOpen] = useState<boolean>(false);
 
 	const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -138,6 +142,40 @@ export function Onboarding() {
 		if (userTurnsCount === 0) return 20;
 		return Math.min(100, 20 + userTurnsCount * 15);
 	}, [userTurnsCount]);
+
+	const suggestionGroups = useMemo(() => {
+		const pending: CareerSuggestion[] = [];
+		const saved: CareerSuggestion[] = [];
+		const maybePile: CareerSuggestion[] = [];
+		const skipped: CareerSuggestion[] = [];
+
+		for (const suggestion of suggestions) {
+			const vote = votesByCareerId[suggestion.id];
+			if (vote === 1) {
+				saved.push(suggestion);
+			} else if (vote === 0) {
+				maybePile.push(suggestion);
+			} else if (vote === -1) {
+				skipped.push(suggestion);
+			} else {
+				pending.push(suggestion);
+			}
+		}
+
+		return { pending, saved, maybe: maybePile, skipped };
+	}, [suggestions, votesByCareerId]);
+
+	const pendingSuggestions = suggestionGroups.pending;
+	const savedSuggestions = suggestionGroups.saved;
+	const maybeSuggestions = suggestionGroups.maybe;
+	const skippedSuggestions = suggestionGroups.skipped;
+
+	const handleClearSkipped = useCallback(() => {
+		if (skippedSuggestions.length === 0) return;
+		skippedSuggestions.forEach((item) => {
+			voteCareer(item.id, null);
+		});
+	}, [skippedSuggestions, voteCareer]);
 
 	const header = useMemo(() => {
 		if (!readiness) {
@@ -351,7 +389,7 @@ export function Onboarding() {
 				behavior: "smooth",
 			});
 		});
-	}, [mode, turns.length, displayedQuestion]);
+	}, [mode, turns.length, displayedQuestion, pendingSuggestions.length]);
 
 	useEffect(() => {
 		setVoice({
@@ -513,9 +551,8 @@ useEffect(() => {
 						neighborTerritories?: string[];
 					}>;
 				};
-				if (Array.isArray(data.suggestions)) {
-					setSuggestions(
-						data.suggestions
+					if (Array.isArray(data.suggestions)) {
+						const normalized = data.suggestions
 							.filter(
 								(item) =>
 									typeof item?.id === "string" &&
@@ -533,17 +570,24 @@ useEffect(() => {
 								score: item.score ?? 0,
 								neighborTerritories: item.neighborTerritories ?? [],
 							}))
-							.sort((a, b) => b.score - a.score)
-					);
-					suggestionsLastInsightCountRef.current = insightCount;
-				}
+							.sort((a, b) => b.score - a.score);
+
+						const incomingIds = new Set(normalized.map((item) => item.id));
+						const merged = [
+							...normalized,
+							...suggestions.filter((existing) => !incomingIds.has(existing.id)),
+						];
+
+						setSuggestions(merged);
+						suggestionsLastInsightCountRef.current = insightCount;
+					}
 			} catch (error) {
 				console.error("Failed to load suggestions", error);
 			} finally {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [profile.insights, setSuggestions, suggestions.length, userTurnsCount, votesByCareerId]);
+	}, [profile.insights, setSuggestions, suggestions, userTurnsCount, votesByCareerId]);
 
 	useEffect(() => {
 		if (!mode) {
@@ -552,15 +596,46 @@ useEffect(() => {
 	}, [mode, setMode]);
 
 	const isVoice = mode === "voice";
-
+	const showProgressBar = progress < 100;
+	const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
 	return (
 		<div className="chat-app-shell">
 			<header className="chat-header">
-				<div className="flex items-center justify-between">
-					<h2 className="text-lg font-medium">{header}</h2>
-					<span className="text-sm text-muted-foreground">{progress}%</span>
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-[200px] flex-1 space-y-2">
+						<div className="flex items-center justify-between gap-3">
+							<h2 className="text-lg font-medium">{header}</h2>
+							<span className="text-sm text-muted-foreground">{progress}%</span>
+						</div>
+						{showProgressBar ? <Progress value={progress} /> : null}
+					</div>
+					<div className="flex flex-wrap items-center justify-end gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="idea-basket-trigger inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
+							onClick={() => setIsBasketOpen(true)}
+							aria-label="Open idea stash"
+						>
+							<Archive className="size-3.5" aria-hidden />
+							<span>Idea stash</span>
+							<span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">
+								{totalBasketCount}
+							</span>
+						</Button>
+						{!isVoice ? (
+							<Button
+								variant="default"
+								size="lg"
+								className="chat-mode-button"
+								onClick={() => setMode("voice")}
+							>
+								Switch to voice
+							</Button>
+						) : null}
+					</div>
 				</div>
-				<Progress value={progress} />
 			</header>
 
 			{isVoice ? (
@@ -582,16 +657,6 @@ useEffect(() => {
 				</Card>
 			) : (
 				<main className="chat-panel">
-					<div className="chat-toolbar">
-						<Button
-							variant="default"
-							size="lg"
-							className="chat-mode-button"
-							onClick={() => setMode("voice")}
-						>
-							Switch to voice
-						</Button>
-					</div>
 					<div ref={transcriptContainerRef} className="chat-messages">
 						{turns.length === 0 ? (
 							(() => {
@@ -631,6 +696,19 @@ useEffect(() => {
 								);
 							})
 						)}
+						{pendingSuggestions.length > 0 ? (
+							<div className="message ai-message suggestion-message">
+								<div className="message-label">CARDS</div>
+								<div className="message-content">
+									<SuggestionCards
+										suggestions={pendingSuggestions}
+										variant="inline"
+										showHeader={false}
+										emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
+									/>
+								</div>
+							</div>
+						) : null}
 					</div>
 					<div className="chat-input-panel">
 						<div className="message-input-wrapper">
@@ -688,15 +766,30 @@ useEffect(() => {
 			{isVoice && <VoiceControls state={realtimeState} controls={realtimeControls} />}
 
 			{isVoice ? (
-				<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-					We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us
-					know if something sounds off.
-				</div>
+				<>
+					<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+						We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us
+						know if something sounds off.
+					</div>
+					{pendingSuggestions.length > 0 ? (
+						<SuggestionCards
+							suggestions={pendingSuggestions}
+							variant="panel"
+							title="Ideas to react to"
+							description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
+						/>
+					) : null}
+				</>
 			) : null}
 
-			{suggestions.length > 0 ? (
-				<SuggestionCards suggestions={suggestions} />
-			) : null}
+			<SuggestionBasket
+				open={isBasketOpen}
+				onOpenChange={setIsBasketOpen}
+				saved={savedSuggestions}
+				maybe={maybeSuggestions}
+				skipped={skippedSuggestions}
+				onClearSkipped={handleClearSkipped}
+			/>
 		</div>
 	);
 }
