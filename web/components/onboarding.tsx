@@ -701,7 +701,14 @@ useEffect(() => {
 								);
 							})
 						)}
-						{pendingSuggestions.length > 0 ? (
+					{pendingSuggestions.length > 0 ? (
+						<>
+							<div className="message ai-message suggestion-preface">
+								<div className="message-label">GUIDE</div>
+								<div className="message-content suggestion-preface-content">
+									That triggers some thoughts — do any of these look like your sort of thing?
+								</div>
+							</div>
 							<div className="message ai-message suggestion-message">
 								<div className="message-label">CARDS</div>
 								<div className="message-content">
@@ -713,9 +720,10 @@ useEffect(() => {
 									/>
 								</div>
 							</div>
-						) : null}
-						</div>
-						<div className="chat-input-panel">
+						</>
+					) : null}
+				</div>
+				<div className="chat-input-panel">
 							<div className="message-input-wrapper">
 								<Textarea
 									ref={inputRef}

@@ -649,6 +649,15 @@
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
 }
 
+
+.message.suggestion-preface .message-content {
+  background-color: rgba(255, 255, 255, 0.92);
+  border-radius: clamp(18px, 3vw, 26px);
+  color: var(--off-black);
+  font-weight: 500;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.08);
+}
+
 .message.suggestion-message {
   max-width: 100%;
   width: 100%;
@@ -774,7 +783,7 @@
 }
 
 .suggestion-card-exit {
-  animation: suggestionCardExit 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: suggestionCardExit 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   pointer-events: none;
 }
 
