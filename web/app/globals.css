@@ -201,7 +201,6 @@
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  transform: rotate(-2deg);
   margin-bottom: 24px;
 }
 
@@ -225,9 +224,26 @@
 .hero-body {
   font-size: 18px;
   font-weight: 400;
-  line-height: 1.5;
+  line-height: 1.7;
   color: var(--off-black);
-  max-width: 520px;
+  max-width: 560px;
+}
+
+.hero-actions {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
+.hero-cta {
+  padding-inline: 32px;
+}
+
+.hero-actions-note {
+  font-size: 14px;
+  opacity: 0.75;
 }
 
 .hero-visual {
@@ -243,7 +259,6 @@
   gap: 16px;
   width: 100%;
   max-width: 320px;
-  transform: rotate(-2deg);
 }
 
 .hero-card {
@@ -251,11 +266,9 @@
   border-radius: 24px;
   padding: 24px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-  transform: rotate(1.5deg);
 }
 
 .hero-card:nth-child(2) {
-  transform: rotate(-1deg);
   background: var(--off-mint);
 }
 
@@ -269,6 +282,91 @@
   font-size: 16px;
   color: var(--off-black);
   opacity: 0.85;
+}
+
+.mission-reels {
+  margin-block: clamp(48px, 8vw, 96px);
+  display: grid;
+  gap: clamp(24px, 5vw, 40px);
+}
+
+.mission-reels-header {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.mission-reels-grid {
+  display: grid;
+  gap: clamp(20px, 4vw, 32px);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: stretch;
+}
+
+.video-bubble {
+  --bubble-bg: var(--off-mint);
+  --bubble-shadow: rgba(0, 0, 0, 0.08);
+  position: relative;
+  display: grid;
+  gap: 16px;
+  padding: clamp(20px, 3vw, 28px);
+  background: var(--bubble-bg);
+  border-radius: 24px;
+  color: var(--off-black);
+  box-shadow: 0 20px 36px var(--bubble-shadow);
+}
+
+.video-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -18px;
+  left: clamp(36px, 8vw, 64px);
+  width: 28px;
+  height: 28px;
+  background: var(--bubble-bg);
+  clip-path: polygon(0 0, 50% 100%, 100% 0);
+  box-shadow: 0 20px 36px var(--bubble-shadow);
+  border-radius: 0 0 6px 6px;
+}
+
+.video-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.video-frame video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.video-bubble-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.video-bubble-text {
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.video-bubble-coral {
+  --bubble-bg: var(--off-coral);
+  --bubble-shadow: rgba(253, 192, 168, 0.45);
+}
+
+.video-bubble-mint {
+  --bubble-bg: var(--off-mint);
+  --bubble-shadow: rgba(216, 253, 240, 0.4);
+}
+
+.video-bubble-blue {
+  --bubble-bg: var(--off-blue);
+  --bubble-shadow: rgba(140, 201, 255, 0.4);
 }
 
 .value-props {
@@ -289,30 +387,25 @@
   padding: 24px;
   margin: 16px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: rotate(0deg);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
 .value-card:hover {
-  transform: rotate(0deg) scale(1.02);
+  transform: scale(1.02);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
 }
 
 .value-card:nth-child(1) {
   --card-bg: var(--off-mint);
-  transform: rotate(-1.5deg);
 }
 .value-card:nth-child(2) {
   --card-bg: var(--off-coral);
-  transform: rotate(2deg);
 }
 .value-card:nth-child(3) {
   --card-bg: var(--off-blue);
-  transform: rotate(-1deg);
 }
 .value-card:nth-child(4) {
   --card-bg: var(--off-lavender);
-  transform: rotate(1.5deg);
 }
 
 .value-card-title {
@@ -357,20 +450,11 @@
   border-radius: 24px;
   padding: 24px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-  transform: rotate(0deg);
   transition: transform 0.3s ease;
 }
 
-.step-card:nth-of-type(odd) {
-  transform: rotate(-0.5deg);
-}
-
-.step-card:nth-of-type(even) {
-  transform: rotate(0.5deg);
-}
-
 .step-card:hover {
-  transform: rotate(0deg) scale(1.02);
+  transform: scale(1.02);
 }
 
 .how-step-number {
@@ -384,7 +468,6 @@
   font-weight: 700;
   font-size: 20px;
   margin-bottom: 16px;
-  transform: rotate(-4deg);
 }
 
 .how-step-title {
@@ -439,12 +522,11 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   transition: all 0.3s ease;
-  transform: rotate(-1deg);
 }
 
 .primary-button:hover {
   background-color: #333333;
-  transform: rotate(0deg) scale(1.05);
+  transform: scale(1.05);
 }
 
 .primary-button:focus-visible {
@@ -478,11 +560,10 @@
 
 .sticky-cta-button {
   width: 100%;
-  transform: rotate(-1deg);
 }
 
 .sticky-cta-button:hover {
-  transform: rotate(0deg) scale(1.05);
+  transform: scale(1.05);
 }
 
 .sticky-cta-button:focus-visible {
@@ -570,6 +651,30 @@
 
 .voice-mode-panel {
   flex-shrink: 0;
+}
+
+.voice-mode-stack {
+  display: grid;
+  gap: clamp(16px, 4vw, 28px);
+}
+
+.voice-suggestions {
+  display: grid;
+  gap: clamp(16px, 3vw, 24px);
+  overflow: visible;
+}
+
+.voice-suggestions .suggestion-carousel {
+  overflow-x: auto;
+  padding-bottom: clamp(12px, 3vw, 18px);
+}
+
+.voice-suggestions .suggestion-track {
+  padding-bottom: 4px;
+}
+
+.voice-suggestions .suggestion-card {
+  min-height: 100%;
 }
 
 
@@ -1173,34 +1278,9 @@
     opacity: 0.6;
   }
 
-  .hero-card-stack {
-    transform: rotate(-1deg);
-  }
-
   .value-card {
     margin: 12px 0;
     padding: 20px;
-  }
-
-  .value-card:nth-child(1) {
-    transform: rotate(-0.75deg);
-  }
-  .value-card:nth-child(2) {
-    transform: rotate(1deg);
-  }
-  .value-card:nth-child(3) {
-    transform: rotate(-0.5deg);
-  }
-  .value-card:nth-child(4) {
-    transform: rotate(0.75deg);
-  }
-
-  .step-card:nth-of-type(odd) {
-    transform: rotate(-0.25deg);
-  }
-
-  .step-card:nth-of-type(even) {
-    transform: rotate(0.25deg);
   }
 
   .how-it-works {

@@ -642,24 +642,42 @@ useEffect(() => {
 				</div>
 			</header>
 
-			{isVoice ? (
-				<Card className="voice-mode-panel">
-					<div className="flex items-center justify-end">
-						<Button
-							variant="default"
-							size="lg"
-							className="chat-mode-button"
-							onClick={() => setMode("text")}
-						>
-							Switch to text
-						</Button>
+	{isVoice ? (
+		<div className="voice-mode-stack">
+			<Card className="voice-mode-panel">
+				<div className="flex items-center justify-end">
+					<Button
+						variant="default"
+						size="lg"
+						className="chat-mode-button"
+						onClick={() => setMode("text")}
+					>
+						Switch to text
+					</Button>
+				</div>
+				<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
+				<p className="text-sm text-muted-foreground">
+					Answer out loud, or switch to text if you’d rather type this turn.
+				</p>
+			</Card>
+			{pendingSuggestions.length > 0 ? (
+				<section className="voice-suggestions" aria-label="Suggested directions">
+					<div className="message ai-message suggestion-preface">
+						<div className="message-label">GUIDE</div>
+						<div className="message-content suggestion-preface-content">
+							That triggers some thoughts — do any of these look like your sort of thing?
+						</div>
 					</div>
-					<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
-					<p className="text-sm text-muted-foreground">
-						Answer out loud, or switch to text if you’d rather type this turn.
-					</p>
-				</Card>
-			) : (
+					<SuggestionCards
+						suggestions={pendingSuggestions}
+						variant="panel"
+						title="Ideas to react to"
+						description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
+					/>
+				</section>
+			) : null}
+		</div>
+	) : (
 				<main className="chat-panel">
 					<div className="chat-track">
 						<div ref={transcriptContainerRef} className="chat-messages">
@@ -777,24 +795,13 @@ useEffect(() => {
 				</main>
 			)}
 
-			{isVoice && <VoiceControls state={realtimeState} controls={realtimeControls} />}
+	{isVoice && <VoiceControls state={realtimeState} controls={realtimeControls} />}
 
-			{isVoice ? (
-				<>
-					<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-						We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us
-						know if something sounds off.
-					</div>
-					{pendingSuggestions.length > 0 ? (
-						<SuggestionCards
-							suggestions={pendingSuggestions}
-							variant="panel"
-							title="Ideas to react to"
-							description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
-						/>
-					) : null}
-				</>
-			) : null}
+	{isVoice ? (
+		<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+			We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds off.
+		</div>
+	) : null}
 
 			<SuggestionBasket
 				open={isBasketOpen}

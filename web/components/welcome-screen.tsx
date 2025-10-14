@@ -5,38 +5,59 @@ import { useSession } from "@/components/session-provider";
 
 const VALUE_CARDS = [
 	{
-		title: "A conversation that doesn't suck",
-		text: "No corporate BS or weird assessment questions. Just a chat about what you're working on and where you want to go with it.",
+		title: "Name the mission",
+		text: "Surface the problems, people, or causes you actually want to back – not just the subjects on your timetable.",
 	},
 	{
-		title: "Stuff you can actually try",
-		text: "Get specific next steps, people to check out, and projects to experiment with - not just generic career descriptions.",
+		title: "Translate your worth",
+		text: "Turn projects, side hustles, and everyday wins into proof of what you can deliver next.",
 	},
 	{
-		title: "Something to share with the important people",
-		text: "A dynamic page that captures your exploration journey. Share it with parents, teachers, or mentors to have better conversations about your future.",
+		title: "Co-pilot with your people",
+		text: "Share a living mission page with parents, mentors, or supporters so everyone pulls in the same direction.",
 	},
 	{
-		title: "Your journey evolves with you",
-		text: "Update your exploration as you try new things and figure out what works. This isn't a one-and-done assessment.",
+		title: "Experiment on purpose",
+		text: "Keep running low-stakes experiments, capture what you learn, and adjust your roadmap without starting again.",
 	},
 ];
 
 const HOW_STEPS = [
 	{
 		step: "1",
-		title: "Chat about what you're up to",
-		text: "What's been keeping you busy? What are you working on that you actually care about? We'll chat about your current interests and what draws you to them.",
+		title: "Start with your world",
+		text: "We talk about the projects, people, and playlists you’re already obsessed with so we’re designing from energy, not emptiness.",
 	},
 	{
 		step: "2",
-		title: "Explore what's possible",
-		text: "Based on what you've shared, we'll suggest areas you might want to explore. See how your interests could translate into different paths - including ones you probably haven't thought of.",
+		title: "Map possibility spaces",
+		text: "We connect your mission to creators, founders, and communities rewriting the rules – plus small actions you can try this week.",
 	},
 	{
 		step: "3",
-		title: "Get your roadmap",
-		text: "We'll create a personalized page with your exploration summary, next steps to try, and questions to discuss with people in your life. You can share it and update it as you learn more about yourself.",
+		title: "Build your Offscript playbook",
+		text: "Collect insights, next experiments, and talking points in a page you can share with the people backing you.",
+	},
+];
+
+const VIDEO_FEATURES = [
+	{
+		title: "Launchpad energy",
+		text: "Clips from OFFSCRIPT sessions – where founders and creators light up the room and remind you to stay curious.",
+		src: "/videos/AdobeStock_779518867.mov",
+		accent: "coral",
+	},
+	{
+		title: "Learning out loud",
+		text: "Stories of young adults testing ideas in public and learning faster by sharing the mess.",
+		src: "/videos/AdobeStock_1555953349.mov",
+		accent: "mint",
+	},
+	{
+		title: "Creativity is a muscle",
+		text: "A reminder that experimentation beats perfection – straight from the OFFSCRIPT crew.",
+		src: "/videos/AdobeStock_239572930.mov",
+		accent: "blue",
 	},
 ];
 
@@ -46,12 +67,12 @@ export function WelcomeScreen() {
 	const heroCards = useMemo(
 		() => [
 			{
-				title: "Real Talk",
-				text: "You steer the chat. We just keep the momentum.",
+				title: "Mission > job title",
+				text: "Figure out the change you care about before you worry about the role.",
 			},
 			{
-				title: "Next Steps",
-				text: "Every suggestion comes with tiny experiments you can run this week.",
+				title: "Allies included",
+				text: "Keep friends, parents, and mentors aligned with a living mission page.",
 			},
 		],
 		[]
@@ -64,18 +85,24 @@ export function WelcomeScreen() {
 	return (
 		<main className="landing-page" role="main">
 			<section className="hero-section" aria-labelledby="landing-hero-title">
-				<div className="hero-content">
-					<span className="hero-kicker">Build your own path</span>
-					<h1 id="landing-hero-title" className="hero-title">
-						Figure out what you actually want to do
-					</h1>
-					<p className="hero-subtitle">Skip the career quizzes and personality tests.</p>
-						<p className="hero-body">
-							{
-								"Have a real conversation about what you're into, what you're good at, and where you might want to take it. Get a personalized roadmap you can actually use."
-							}
-						</p>
+			<div className="hero-content">
+				<span className="hero-kicker">Offscript Generation</span>
+				<h1 id="landing-hero-title" className="hero-title">
+					Write the mission you want to work on
+				</h1>
+				<p className="hero-subtitle">
+					We’re the personal mission co-pilot spun out from the OFFSCRIPT summit crew.
+				</p>
+				<p className="hero-body">
+					Recognise your worth, name the problems you actually care about, and test bespoke routes that fit you— not someone else’s playbook.
+				</p>
+				<div className="hero-actions">
+					<button type="button" className="primary-button hero-cta" onClick={handleStart}>
+						Start the chat
+					</button>
+					<p className="hero-actions-note">No sign-up. 15 minutes to grab your first experiments.</p>
 				</div>
+			</div>
 				<div className="hero-visual" aria-hidden="true">
 					<div className="hero-card-stack">
 						{heroCards.map((card) => (
@@ -86,9 +113,34 @@ export function WelcomeScreen() {
 						))}
 					</div>
 				</div>
-			</section>
+		</section>
 
-			<section className="value-props" aria-labelledby="landing-value-title">
+		<section className="mission-reels" aria-labelledby="mission-reels-title">
+			<header className="mission-reels-header">
+				<h2 id="mission-reels-title" className="section-header">
+					Offscript Generation in motion
+				</h2>
+				<p className="value-card-text">
+					Short clips from our parent summit show the energy, honesty, and experimentation you’ll tap into here.
+				</p>
+			</header>
+			<div className="mission-reels-grid">
+				{VIDEO_FEATURES.map((feature) => (
+					<article key={feature.title} className={`video-bubble video-bubble-${feature.accent}`}>
+						<div className="video-frame">
+							<video controls playsInline preload="metadata" autoPlay muted loop>
+								<source src={feature.src} type="video/quicktime" />
+								Your browser does not support the video tag.
+							</video>
+						</div>
+						<h3 className="video-bubble-title">{feature.title}</h3>
+						<p className="video-bubble-text">{feature.text}</p>
+					</article>
+				))}
+			</div>
+		</section>
+
+		<section className="value-props" aria-labelledby="landing-value-title">
 				<h2 id="landing-value-title" className="section-header">
 					What You Get:
 				</h2>
