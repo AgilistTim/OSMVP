@@ -20,7 +20,7 @@ export function VoiceControls({ state, controls }: VoiceControlsProps) {
       case "connecting":
         return "Connecting…";
       case "connected":
-        return "Listening";
+        return state.microphone === "paused" ? "Paused — we’re not listening right now." : "Listening";
       case "error":
         return state.error ?? "Connection error";
       default:
@@ -28,10 +28,13 @@ export function VoiceControls({ state, controls }: VoiceControlsProps) {
     }
   })();
 
+  const canPause = state.status === "connected" && state.microphone === "active";
+  const canResume = state.status === "connected" && state.microphone === "paused";
+
   return (
     <Card className="p-4 space-y-4">
       <div className="text-sm text-muted-foreground">{statusMessage}</div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           variant={state.status === "connected" ? "secondary" : "default"}
           onClick={() => controls.connect()}
@@ -39,10 +42,22 @@ export function VoiceControls({ state, controls }: VoiceControlsProps) {
         >
           {state.status === "connected" ? "Reconnect" : "Start Voice"}
         </Button>
+        <Button
+          variant="outline"
+          onClick={() => (canPause ? controls.pauseMicrophone() : controls.resumeMicrophone())}
+          disabled={!canPause && !canResume}
+        >
+          {state.microphone === "paused" ? "Resume listening" : "Pause listening"}
+        </Button>
         <Button variant="outline" onClick={() => controls.disconnect()}>
           Stop
         </Button>
       </div>
+      {state.microphone === "paused" ? (
+        <div className="text-xs font-medium text-muted-foreground">
+          While paused, we’re not recording. Resume when you want to keep chatting.
+        </div>
+      ) : null}
       {state.lastLatencyMs !== undefined && (
         <div className="text-xs text-muted-foreground">
           Last response latency: {state.lastLatencyMs} ms

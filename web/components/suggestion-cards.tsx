@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bookmark, MessageCircle, Sparkles, XIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,11 @@ interface SuggestionCardsProps {
 	showHeader?: boolean;
 	emptyState?: React.ReactNode;
 	className?: string;
+	onReaction?: (payload: {
+		suggestion: CareerSuggestion;
+		previousValue: ReactionValue | null | undefined;
+		nextValue: ReactionValue | null;
+	}) => void;
 }
 
 type ReactionValue = 1 | 0 | -1;
@@ -83,8 +88,14 @@ export function SuggestionCards({
 	showHeader,
 	emptyState = null,
 	className,
+	onReaction,
 }: SuggestionCardsProps) {
 	const { voteCareer, votesByCareerId } = useSession();
+	const carouselRef = useRef<HTMLDivElement | null>(null);
+	const [carouselFade, setCarouselFade] = useState<{ showStart: boolean; showEnd: boolean }>({
+		showStart: false,
+		showEnd: false,
+	});
 	const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(null);
 	const [displayCards, setDisplayCards] = useState<DisplayCard[]>(
 		suggestions.map((suggestion) => ({ suggestion, state: "idle" }))
@@ -140,6 +151,57 @@ export function SuggestionCards({
 	}, [displayCards, isInline]);
 
 	useEffect(() => {
+		const container = carouselRef.current;
+		if (!container) {
+			return;
+		}
+
+		let rafId: number | null = null;
+
+		const computeFadeState = () => {
+			rafId = null;
+			const { scrollLeft, scrollWidth, clientWidth } = container;
+			const overflow = scrollWidth - clientWidth > 8;
+			if (!overflow) {
+				setCarouselFade((prev) => (prev.showStart || prev.showEnd ? { showStart: false, showEnd: false } : prev));
+				return;
+			}
+			const maxScroll = scrollWidth - clientWidth;
+			const atStart = scrollLeft <= 4;
+			const atEnd = scrollLeft >= maxScroll - 4;
+			setCarouselFade((prev) => {
+				const next = { showStart: !atStart, showEnd: !atEnd };
+				if (prev.showStart === next.showStart && prev.showEnd === next.showEnd) {
+					return prev;
+				}
+				return next;
+			});
+		};
+
+		const scheduleUpdate = () => {
+			if (rafId !== null) return;
+			rafId = window.requestAnimationFrame(computeFadeState);
+		};
+
+		scheduleUpdate();
+		container.addEventListener("scroll", scheduleUpdate, { passive: true });
+
+		let resizeObserver: ResizeObserver | null = null;
+		if (typeof ResizeObserver === "function") {
+			resizeObserver = new ResizeObserver(() => scheduleUpdate());
+			resizeObserver.observe(container);
+		}
+
+		return () => {
+			container.removeEventListener("scroll", scheduleUpdate);
+			if (rafId !== null) {
+				window.cancelAnimationFrame(rafId);
+			}
+			resizeObserver?.disconnect();
+		};
+	}, [suggestions, isInline]);
+
+	useEffect(() => {
 		if (!isInline) return;
 		if (!displayCards.some((card) => card.state === "exiting")) return;
 		const timeout = window.setTimeout(() => {
@@ -158,15 +220,26 @@ export function SuggestionCards({
 	);
 
 	const handleReaction = useCallback(
-		(suggestionId: string, nextValue: ReactionValue) => {
+		(suggestion: CareerSuggestion, nextValue: ReactionValue) => {
+			const suggestionId = suggestion.id;
 			const current = votesByCareerId[suggestionId];
 			if (current === nextValue) {
 				voteCareer(suggestionId, null);
+				onReaction?.({
+					suggestion,
+					previousValue: current ?? null,
+					nextValue: null,
+				});
 			} else {
 				voteCareer(suggestionId, nextValue);
+				onReaction?.({
+					suggestion,
+					previousValue: current ?? null,
+					nextValue,
+				});
 			}
 		},
-		[voteCareer, votesByCareerId]
+		[onReaction, voteCareer, votesByCareerId]
 	);
 
 	const handleOpenDetails = useCallback((suggestionId: string) => {
@@ -205,9 +278,12 @@ export function SuggestionCards({
 				</header>
 			) : null}
 			<div
+				ref={carouselRef}
 				className={cn(
 					"suggestion-carousel",
-					isInline ? "suggestion-carousel-inline" : "suggestion-carousel-panel"
+					isInline ? "suggestion-carousel-inline" : "suggestion-carousel-panel",
+					carouselFade.showStart ? "suggestion-carousel-fade-start" : "",
+					carouselFade.showEnd ? "suggestion-carousel-fade-end" : ""
 				)}
 			>
 				<div className="suggestion-track">
@@ -220,7 +296,7 @@ export function SuggestionCards({
 							const currentVote = votesByCareerId[suggestion.id];
 							const peekLabel =
 								CONFIDENCE_LABELS[suggestion.confidence] ?? FALLBACK_BADGES[index] ?? "Worth exploring";
-							const headline = suggestion.whyItFits[0] ?? suggestion.summary;
+							const topReasons = suggestion.whyItFits.slice(0, 2);
 							const neighborPreview = suggestion.neighborTerritories[0];
 
 							return (
@@ -233,19 +309,19 @@ export function SuggestionCards({
 										state === "exiting" ? "suggestion-card-exit" : ""
 									)}
 								>
-									<div className="flex items-start justify-between gap-3">
-										<div className="space-y-1">
-											<Badge variant="secondary" className="text-xs tracking-wide">
-												{peekLabel}
-											</Badge>
-											<h4 className="text-lg font-semibold leading-tight">{suggestion.title}</h4>
-										</div>
+									<div className="suggestion-card-header">
+										<Badge variant="secondary" className="suggestion-card-kicker">
+											{peekLabel}
+										</Badge>
+										<h4 className="suggestion-card-title">{suggestion.title}</h4>
 									</div>
-									<p className="text-sm leading-relaxed text-muted-foreground">{suggestion.summary}</p>
-									{headline ? (
-										<p className="rounded-lg bg-muted/60 p-3 text-sm leading-relaxed text-muted-foreground">
-											{headline}
-										</p>
+									<p className="suggestion-card-summary">{suggestion.summary}</p>
+									{topReasons.length > 0 ? (
+										<ul className="suggestion-card-reasons" aria-label="Why it fits you">
+											{topReasons.map((reason, reasonIndex) => (
+												<li key={`${suggestion.id}-reason-${reasonIndex}`}>{reason}</li>
+											))}
+										</ul>
 									) : null}
 									{neighborPreview ? (
 										<div className="flex items-center gap-2 rounded-lg bg-secondary/20 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-secondary-foreground/80">
@@ -253,39 +329,41 @@ export function SuggestionCards({
 											<span>{neighborPreview}</span>
 										</div>
 									) : null}
-									<div className="flex flex-wrap gap-2">
-										{REACTION_CHOICES.map((choice) => {
-											const Icon = choice.icon;
-											const isActive = currentVote === choice.value;
-											return (
-												<Button
-													key={`${suggestion.id}-${choice.label}`}
-													variant={isActive ? "default" : "outline"}
-													size="sm"
-													className={cn(
-														"flex-1 min-w-[96px] justify-center gap-1 text-sm",
-														isActive ? "border-transparent" : "border-border/60"
-													)}
-													onClick={() => handleReaction(suggestion.id, choice.value)}
-													title={choice.description}
-													type="button"
-													aria-pressed={isActive}
-												>
-													<Icon className="size-4" aria-hidden />
-													{choice.label}
-												</Button>
-											);
-										})}
+									<div className="suggestion-card-footer">
+										<div className="suggestion-card-actions">
+											{REACTION_CHOICES.map((choice) => {
+												const Icon = choice.icon;
+												const isActive = currentVote === choice.value;
+												return (
+													<Button
+														key={`${suggestion.id}-${choice.label}`}
+														variant={isActive ? "default" : "outline"}
+														size="sm"
+														className={cn(
+															"justify-center gap-1 text-sm",
+															isActive ? "border-transparent" : "border-border/60"
+														)}
+														onClick={() => handleReaction(suggestion, choice.value)}
+														title={choice.description}
+														type="button"
+														aria-pressed={isActive}
+													>
+														<Icon className="size-4" aria-hidden />
+														{choice.label}
+													</Button>
+												);
+											})}
+										</div>
+										<Button
+											variant="ghost"
+											size="sm"
+											className="suggestion-card-details"
+											onClick={() => handleOpenDetails(suggestion.id)}
+											type="button"
+										>
+											See details
+										</Button>
 									</div>
-									<Button
-										variant="ghost"
-										size="sm"
-										className="self-start px-0 text-sm font-medium"
-										onClick={() => handleOpenDetails(suggestion.id)}
-										type="button"
-									>
-										See details
-									</Button>
 								</Card>
 							);
 						})
@@ -294,8 +372,8 @@ export function SuggestionCards({
 			</div>
 
 			<Drawer open={Boolean(activeSuggestion)} onOpenChange={handleDrawerChange}>
-				<DrawerContent className="gap-0 rounded-t-3xl border border-border bg-background/95 shadow-xl">
-					<DrawerHeader className="space-y-2">
+				<DrawerContent className="suggestion-detail-drawer gap-0 rounded-t-3xl border border-border bg-background/95 shadow-xl">
+					<DrawerHeader className="suggestion-detail-header space-y-2">
 						{activeSuggestion ? (
 							<>
 								<Badge variant="secondary" className="w-fit text-xs uppercase tracking-[0.12em]">
@@ -315,7 +393,7 @@ export function SuggestionCards({
 						) : null}
 					</DrawerHeader>
 					{activeSuggestion ? (
-						<div className="space-y-6 px-4 pb-4">
+						<div className="suggestion-detail-scroll space-y-6">
 							{activeSuggestion.whyItFits.length > 0 ? (
 								<section className="space-y-2">
 									<h5 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -379,7 +457,7 @@ export function SuggestionCards({
 							) : null}
 						</div>
 					) : null}
-					<DrawerFooter className="border-t border-border bg-muted/40">
+					<DrawerFooter className="suggestion-detail-footer border-t border-border bg-muted/40">
 						{activeSuggestion ? (
 							<div className="flex flex-wrap items-center gap-2">
 								{REACTION_CHOICES.map((choice) => {
@@ -392,7 +470,7 @@ export function SuggestionCards({
 											variant={isActive ? "default" : "outline"}
 											size="sm"
 											className={cn("flex-1 min-w-[96px] justify-center gap-1 text-sm", isActive ? "border-transparent" : "")}
-											onClick={() => handleReaction(activeSuggestion.id, choice.value)}
+											onClick={() => handleReaction(activeSuggestion, choice.value)}
 											type="button"
 											aria-pressed={isActive}
 										>

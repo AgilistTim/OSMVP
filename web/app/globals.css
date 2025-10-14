@@ -803,11 +803,12 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity;
-  padding: 8px 4px 16px;
+  padding: 8px 4px 20px;
   margin: 0 -4px;
   touch-action: pan-x;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  scroll-padding: 0 clamp(12px, 4vw, 24px);
 }
 
 .suggestion-carousel::-webkit-scrollbar {
@@ -826,27 +827,63 @@
 .suggestion-carousel::after {
   content: "";
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  width: clamp(48px, 10vw, 96px);
+  height: 100%;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent 0%, transparent calc(100% - clamp(48px, 10vw, 96px)), rgba(255, 255, 255, 0.9) 100%);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.75) 60%, rgba(255, 255, 255, 0.95) 100%);
   mix-blend-mode: normal;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
 .suggestion-carousel-inline::after {
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0) calc(100% - clamp(48px, 10vw, 96px)),
+    rgba(255, 255, 255, 0.75) 60%,
     var(--off-white) 100%
   );
+}
+
+.suggestion-carousel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: clamp(32px, 8vw, 72px);
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.75) 50%, rgba(255, 255, 255, 0) 100%);
+  mix-blend-mode: normal;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.suggestion-carousel-inline::before {
+  background: linear-gradient(
+    90deg,
+    var(--off-white) 0%,
+    rgba(255, 255, 255, 0.75) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.suggestion-carousel-fade-end::after {
+  opacity: 1;
+}
+
+.suggestion-carousel-fade-start::before {
+  opacity: 1;
 }
 
 .dark .suggestion-carousel::after {
   background: linear-gradient(
     90deg,
     rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0) calc(100% - clamp(48px, 10vw, 96px)),
-    rgba(20, 20, 20, 0.85) 100%
+    rgba(12, 12, 12, 0.7) 60%,
+    rgba(0, 0, 0, 0.9) 100%
   );
 }
 
@@ -854,8 +891,26 @@
   background: linear-gradient(
     90deg,
     rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0) calc(100% - clamp(48px, 10vw, 96px)),
-    rgba(20, 20, 20, 0.85) 100%
+    rgba(0, 0, 0, 0.7) 60%,
+    rgba(20, 20, 20, 0.9) 100%
+  );
+}
+
+.dark .suggestion-carousel::before {
+  background: linear-gradient(
+    90deg,
+    rgba(20, 20, 20, 0.9) 0%,
+    rgba(0, 0, 0, 0.65) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.dark .suggestion-carousel-inline::before {
+  background: linear-gradient(
+    90deg,
+    rgba(20, 20, 20, 0.9) 0%,
+    rgba(0, 0, 0, 0.65) 55%,
+    rgba(0, 0, 0, 0) 100%
   );
 }
 
@@ -864,6 +919,7 @@
   align-items: stretch;
   gap: var(--suggestion-card-gap);
   padding-right: clamp(40px, 10vw, 96px);
+  padding-bottom: 12px;
   min-height: 100%;
 }
 
@@ -908,8 +964,131 @@
   border-color: rgba(129, 240, 140, 0.5);
 }
 
+.suggestion-card-header {
+  display: grid;
+  gap: 6px;
+}
+
+.suggestion-card-kicker {
+  width: fit-content;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.suggestion-card-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.suggestion-card-summary {
+  font-size: 0.95rem;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.suggestion-card-reasons {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.04);
+  font-size: 0.9rem;
+  color: var(--off-black);
+  line-height: 1.4;
+}
+
+.dark .suggestion-card-reasons {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.suggestion-card-reasons li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.suggestion-card-reasons li::before {
+  content: "•";
+  color: var(--primary);
+  font-weight: 700;
+  margin-top: -1px;
+}
+
+.suggestion-card-footer {
+  margin-top: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.suggestion-card-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.suggestion-card-details {
+  justify-self: flex-start;
+  padding-left: 0;
+}
+
+.dark .suggestion-card-details {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .suggestion-card .message-label {
   display: none;
+}
+
+.suggestion-detail-drawer {
+  display: flex;
+  flex-direction: column;
+  max-height: min(92dvh, 720px);
+  overflow: hidden;
+}
+
+.suggestion-detail-header {
+  flex-shrink: 0;
+  padding-inline: clamp(16px, 4vw, 28px);
+  padding-top: clamp(18px, 4vw, 28px);
+  padding-bottom: clamp(12px, 3vw, 20px);
+}
+
+.suggestion-detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-inline: clamp(16px, 4vw, 28px);
+  padding-bottom: clamp(18px, 4vw, 28px);
+  margin: 0;
+  scroll-padding-bottom: clamp(24px, 5vw, 36px);
+  overscroll-behavior: contain;
+}
+
+.suggestion-detail-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.suggestion-detail-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+
+.dark .suggestion-detail-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.suggestion-detail-footer {
+  flex-shrink: 0;
+  padding-inline: clamp(16px, 4vw, 28px);
+  padding-top: clamp(12px, 3vw, 18px);
+  padding-bottom: clamp(18px, 4vw, 26px);
+  backdrop-filter: blur(6px);
 }
 
 .idea-basket-drawer {

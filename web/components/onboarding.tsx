@@ -29,6 +29,29 @@ function looksLikeMutualMoment(text: string): boolean {
 	return MUTUAL_EXPRESSION_REGEX.test(trimmed.toLowerCase());
 }
 
+const REACTION_RETENTION_MS = 2 * 60 * 1000;
+
+type ReactionSnapshot = {
+	id: string;
+	title: string;
+	value: 1 | 0 | -1;
+	timestamp: number;
+};
+
+function formatList(items: string[]): string {
+	if (items.length === 0) {
+		return "";
+	}
+	if (items.length === 1) {
+		return items[0];
+	}
+	if (items.length === 2) {
+		return `${items[0]} and ${items[1]}`;
+	}
+	const head = items.slice(0, -1).join(", ");
+	return `${head}, and ${items.at(-1)}`;
+}
+
 function classifyMessageLength(text: string): { lengthClass: "short" | "medium" | "long" | "very-long"; isLongText: boolean } {
 	const length = text.trim().length;
 	if (length > 500) {
@@ -89,6 +112,7 @@ export function Onboarding() {
 	const [currentInput, setCurrentInput] = useState<string>("");
 	const [readiness, setReadiness] = useState<Readiness | null>(profile.readiness ?? null);
 	const [isBasketOpen, setIsBasketOpen] = useState<boolean>(false);
+	const [recentReactions, setRecentReactions] = useState<ReactionSnapshot[]>([]);
 
 	const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -121,9 +145,7 @@ export function Onboarding() {
 		}
 		const formatted = suggestions
 			.map((suggestion, index) => {
-				const parts: string[] = [
-					`${index + 1}. ${suggestion.title}: ${suggestion.summary}`,
-				];
+				const parts: string[] = [`${index + 1}. ${suggestion.title}: ${suggestion.summary}`];
 				if (suggestion.whyItFits.length > 0) {
 					parts.push(`Why it fits: ${suggestion.whyItFits.join("; ")}`);
 				}
@@ -136,8 +158,78 @@ export function Onboarding() {
 				return parts.join("\n");
 			})
 			.join("\n\n");
-		return `Suggestion cards currently pinned:\n${formatted}\nReference them casually by title when it helps the user connect dots.`;
-	}, [suggestions]);
+
+		const guidanceLines = [
+			"Suggestion cards currently pinned:",
+			formatted,
+			"Reference them casually by title when it helps the user connect dots.",
+		];
+
+		if (recentReactions.length > 0) {
+			const now = Date.now();
+			const freshReactions = recentReactions.filter((reaction) => now - reaction.timestamp <= REACTION_RETENTION_MS);
+			if (freshReactions.length > 0) {
+				const savedTitles = freshReactions.filter((reaction) => reaction.value === 1).map((reaction) => reaction.title);
+				const maybeTitles = freshReactions.filter((reaction) => reaction.value === 0).map((reaction) => reaction.title);
+				const skippedTitles = freshReactions.filter((reaction) => reaction.value === -1).map((reaction) => reaction.title);
+
+				const reactionParts: string[] = [];
+				if (savedTitles.length > 0) {
+					reactionParts.push(`saved ${formatList(savedTitles)}`);
+				}
+				if (maybeTitles.length > 0) {
+					reactionParts.push(`parked ${formatList(maybeTitles)} as a maybe`);
+				}
+				if (skippedTitles.length > 0) {
+					reactionParts.push(`passed on ${formatList(skippedTitles)}`);
+				}
+
+				if (reactionParts.length > 0) {
+					guidanceLines.push(
+						`They just ${reactionParts.join("; ")}. Mirror this back naturally so they feel heard.`
+					);
+				}
+				if (skippedTitles.length > 0) {
+					const savedClause = savedTitles.length > 0 ? `saved ${formatList(savedTitles)} and ` : "";
+					const skipPrompt = formatList(skippedTitles);
+					guidanceLines.push(
+						`Follow up with a gentle question about what didn’t quite land with ${skipPrompt} and what would make it feel closer to their mission. Feel free to say something like “I see you ${savedClause}passed on ${skipPrompt}. What isn’t quite right about ${skipPrompt}?”`
+					);
+				}
+			}
+		}
+
+		return guidanceLines.join("\n");
+	}, [recentReactions, suggestions]);
+
+	const handleSuggestionReaction = useCallback(
+		({
+			suggestion,
+			nextValue,
+		}: {
+			suggestion: CareerSuggestion;
+			nextValue: 1 | 0 | -1 | null;
+			previousValue?: 1 | 0 | -1 | null;
+		}) => {
+			const now = Date.now();
+			setRecentReactions((prev) => {
+				const filtered = prev.filter(
+					(item) => item.id !== suggestion.id && now - item.timestamp <= REACTION_RETENTION_MS
+				);
+				if (nextValue === null) {
+					return filtered;
+				}
+				const nextSnapshot: ReactionSnapshot = {
+					id: suggestion.id,
+					title: suggestion.title,
+					value: nextValue,
+					timestamp: now,
+				};
+				return [nextSnapshot, ...filtered].slice(0, 6);
+			});
+		},
+		[]
+	);
 
 	const progress = useMemo(() => {
 		if (userTurnsCount === 0) return 20;
@@ -400,8 +492,9 @@ useEffect(() => {
 			status: realtimeState.status,
 			error: realtimeState.error,
 			lastLatencyMs: realtimeState.lastLatencyMs,
+			microphone: realtimeState.microphone,
 		});
-	}, [realtimeState.status, realtimeState.error, realtimeState.lastLatencyMs, setVoice]);
+	}, [realtimeState.error, realtimeState.lastLatencyMs, realtimeState.microphone, realtimeState.status, setVoice]);
 
 	useEffect(() => {
 		if (mode !== "voice") {
@@ -673,6 +766,7 @@ useEffect(() => {
 						variant="panel"
 						title="Ideas to react to"
 						description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
+						onReaction={handleSuggestionReaction}
 					/>
 				</section>
 			) : null}
@@ -735,6 +829,7 @@ useEffect(() => {
 										variant="inline"
 										showHeader={false}
 										emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
+										onReaction={handleSuggestionReaction}
 									/>
 								</div>
 							</div>
@@ -810,6 +905,7 @@ useEffect(() => {
 				maybe={maybeSuggestions}
 				skipped={skippedSuggestions}
 				onClearSkipped={handleClearSkipped}
+				onCardReact={handleSuggestionReaction}
 			/>
 		</div>
 	);

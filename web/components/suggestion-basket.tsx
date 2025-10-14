@@ -22,6 +22,11 @@ interface SuggestionBasketProps {
 	maybe: CareerSuggestion[];
 	skipped: CareerSuggestion[];
 	onClearSkipped?: () => void;
+	onCardReact?: (payload: {
+		suggestion: CareerSuggestion;
+		previousValue: 1 | 0 | -1 | null | undefined;
+		nextValue: 1 | 0 | -1 | null;
+	}) => void;
 }
 
 export function SuggestionBasket({
@@ -31,6 +36,7 @@ export function SuggestionBasket({
 	maybe,
 	skipped,
 	onClearSkipped,
+	onCardReact,
 }: SuggestionBasketProps) {
 	const hasContent = saved.length + maybe.length + skipped.length > 0;
 
@@ -92,6 +98,7 @@ export function SuggestionBasket({
 										showHeader={false}
 										emptyState={<span className="text-muted-foreground">Nothing here yet.</span>}
 										className="idea-basket-section"
+										onReaction={onCardReact}
 									/>
 								) : (
 									<p className="rounded-2xl border border-dashed border-border/60 bg-muted/50 p-4 text-sm text-muted-foreground">

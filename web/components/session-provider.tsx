@@ -110,6 +110,7 @@ interface SessionState {
 		status: "idle" | "requesting-token" | "connecting" | "connected" | "error";
 		error?: string;
 		lastLatencyMs?: number;
+		microphone: "inactive" | "active" | "paused";
 	};
 	onboardingStep: number;
 }
@@ -159,7 +160,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
-	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle" });
+	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle", microphone: "inactive" });
 	const [onboardingStep, updateOnboardingStep] = useState<number>(0);
 
 	const setVoice = useCallback(
@@ -168,7 +169,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				if (
 					prev.status === nextVoice.status &&
 					prev.error === nextVoice.error &&
-					prev.lastLatencyMs === nextVoice.lastLatencyMs
+					prev.lastLatencyMs === nextVoice.lastLatencyMs &&
+					prev.microphone === nextVoice.microphone
 				) {
 					return prev;
 				}
@@ -341,7 +343,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		updateSuggestions([]);
 		setSummaryState(undefined);
 		updateOnboardingStep(0);
-			setVoiceState({ status: "idle" });
+		setVoiceState({ status: "idle", microphone: "inactive" });
 	}, [
 		setProfile,
 		setCandidates,

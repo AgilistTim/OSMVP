@@ -17,6 +17,8 @@ export type RealtimeStatus =
   | "connected"
   | "error";
 
+type MicrophoneState = "inactive" | "active" | "paused";
+
 export interface RealtimeTranscriptItem {
   id: string;
   text: string;
@@ -30,6 +32,7 @@ export interface RealtimeSessionState {
   error?: string;
   transcripts: RealtimeTranscriptItem[];
   lastLatencyMs?: number;
+  microphone: MicrophoneState;
 }
 
 export interface RealtimeSessionControls {
@@ -38,6 +41,8 @@ export interface RealtimeSessionControls {
   sendEvent: (event: unknown) => void;
   setOnResponseCompleted: (handler: (() => void) | null) => void;
   waitForConversationItem: (id: string) => Promise<void>;
+  pauseMicrophone: () => void;
+  resumeMicrophone: () => void;
 }
 
 const VERBOSE_REALTIME_LOGS = process.env.NEXT_PUBLIC_REALTIME_VERBOSE === "1";
@@ -50,10 +55,12 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const [error, setError] = useState<string | undefined>();
   const [transcripts, setTranscripts] = useState<RealtimeTranscriptItem[]>([]);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | undefined>();
+  const [microphoneState, setMicrophoneState] = useState<MicrophoneState>("inactive");
 
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
   const responseStartTimesRef = useRef<Map<string, number>>(new Map());
   const onResponseCompletedRef = useRef<(() => void) | null>(null);
   const statusRef = useRef<RealtimeStatus>("idle");
@@ -89,10 +96,18 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
       audioRef.current = null;
     }
 
+    if (microphoneStreamRef.current) {
+      microphoneStreamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
+      microphoneStreamRef.current = null;
+    }
+
     responseStartTimesRef.current.clear();
     pendingEventsRef.current = [];
     pendingItemResolversRef.current.forEach((resolve) => resolve("closed"));
     pendingItemResolversRef.current.clear();
+    setMicrophoneState("inactive");
   }, []);
 
   const disconnect = useCallback(async () => {
@@ -380,6 +395,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
 
   const connect = useCallback(
     async (overrideConfig?: Partial<RealtimeSessionConfig>) => {
+      setMicrophoneState("inactive");
       const effectiveSessionId = overrideConfig?.sessionId ?? baseConfig.sessionId;
       if (!effectiveSessionId) {
         setError("Session ID is required for realtime connection");
@@ -460,6 +476,13 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         if (enableMicrophone) {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+          microphoneStreamRef.current = stream;
+          stream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
+          setMicrophoneState("active");
+        } else {
+          setMicrophoneState("inactive");
         }
 
         const offer = await pc.createOffer();
@@ -530,8 +553,8 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   }, [cleanup]);
 
   const state = useMemo<RealtimeSessionState>(
-    () => ({ status, error, transcripts, lastLatencyMs }),
-    [status, error, transcripts, lastLatencyMs]
+    () => ({ status, error, transcripts, lastLatencyMs, microphone: microphoneState }),
+    [status, error, transcripts, lastLatencyMs, microphoneState]
   );
 
   useEffect(() => {
@@ -567,6 +590,29 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     });
   }, []);
 
+  const pauseMicrophone = useCallback(() => {
+    const stream = microphoneStreamRef.current;
+    if (!stream) {
+      setMicrophoneState("inactive");
+      return;
+    }
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    setMicrophoneState("paused");
+  }, []);
+
+  const resumeMicrophone = useCallback(() => {
+    const stream = microphoneStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    setMicrophoneState("active");
+  }, []);
+
   const controls = useMemo<RealtimeSessionControls>(
     () => ({
       connect,
@@ -576,8 +622,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         onResponseCompletedRef.current = handler;
       },
       waitForConversationItem,
+      pauseMicrophone,
+      resumeMicrophone,
     }),
-    [connect, disconnect, sendEvent, waitForConversationItem]
+    [connect, disconnect, pauseMicrophone, resumeMicrophone, sendEvent, waitForConversationItem]
   );
 
   return [state, controls];
