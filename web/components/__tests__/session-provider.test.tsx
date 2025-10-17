@@ -101,20 +101,21 @@ describe("SessionProvider conversational state", () => {
 		const { result } = renderHook(() => useSession(), { wrapper });
 
 		act(() => {
-			result.current.setSuggestions([
-				{
-					id: "gameplay-systems-tinkerer",
-					title: "Gameplay Systems Tinkerer",
-					summary: "Turning mod nights into real-world game systems experience.",
-					careerAngles: ["Gameplay tools designer – prototype mechanics, balance systems, and document player impact."],
-					nextSteps: ["Ship a micro-mod with a change log explaining what you tweaked and why."],
-					whyItFits: ["You mentioned modding with friends, which lines up with gameplay prototyping."],
-					confidence: "high",
-					score: 4,
-					neighborTerritories: ["Live ops experimentation for collaborative games"],
-				},
-			]);
-		});
+		result.current.setSuggestions([
+			{
+				id: "gameplay-systems-tinkerer",
+				title: "Gameplay Systems Tinkerer",
+				summary: "Turning mod nights into real-world game systems experience.",
+				careerAngles: ["Gameplay tools designer – prototype mechanics, balance systems, and document player impact."],
+				nextSteps: ["Ship a micro-mod with a change log explaining what you tweaked and why."],
+				whyItFits: ["You mentioned modding with friends, which lines up with gameplay prototyping."],
+				confidence: "high",
+				score: 4,
+				neighborTerritories: ["Live ops experimentation for collaborative games"],
+				distance: "core",
+			},
+		]);
+	});
 
 		expect(result.current.suggestions).toHaveLength(1);
 		expect(result.current.suggestions[0]?.id).toBe("gameplay-systems-tinkerer");

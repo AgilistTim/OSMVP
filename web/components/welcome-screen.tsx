@@ -40,24 +40,36 @@ const HOW_STEPS = [
 	},
 ];
 
-const VIDEO_FEATURES = [
+const SUMMIT_REASON_ITEMS: Array<
+	| {
+			type: "text";
+			title: string;
+			body: string;
+		}
+	| {
+			type: "video";
+			title: string;
+			src: string;
+			poster: string;
+			aspectRatio?: string;
+		}
+> = [
 	{
-		title: "Launchpad energy",
-		text: "Clips from OFFSCRIPT sessions – where founders and creators light up the room and remind you to stay curious.",
-		src: "/videos/AdobeStock_779518867.mov",
-		accent: "coral",
+		type: "text",
+		title: "Discover futures you didn’t know existed",
+		body: "Don’t just hear the same old stories. Discover new voices. Meet YouTubers, entrepreneurs and innovators showing real, unexpected paths beyond school.",
 	},
 	{
-		title: "Learning out loud",
-		text: "Stories of young adults testing ideas in public and learning faster by sharing the mess.",
-		src: "/videos/AdobeStock_1555953349.mov",
-		accent: "mint",
+		type: "text",
+		title: "Dive into workshops, AI tools, and hands-on sessions designed to help you thrive.",
+		body: "Learn practical skills like negotiation, AI tools, and entrepreneurship in interactive sessions. You’ll test, try, and leave ready to start your own journey.",
 	},
 	{
-		title: "Creativity is a muscle",
-		text: "A reminder that experimentation beats perfection – straight from the OFFSCRIPT crew.",
-		src: "/videos/AdobeStock_239572930.mov",
-		accent: "blue",
+		type: "video",
+		title: "OFFSCRIPT summit careers fair highlight",
+		src: "https://player.vimeo.com/progressive_redirect/playback/1123513240/rendition/1080p/file.mp4?loc=external&log_user=0&signature=8e702256c89bc581889f69feb9fce68f043ffc2f640af97472b2372107de8f73",
+		poster: "https://offscriptgen.com/wp-content/uploads/2025/10/offscript-summit-careers-fair.png",
+		aspectRatio: "16 / 9",
 	},
 ];
 
@@ -115,28 +127,41 @@ export function WelcomeScreen() {
 				</div>
 		</section>
 
-		<section className="mission-reels" aria-labelledby="mission-reels-title">
-			<header className="mission-reels-header">
-				<h2 id="mission-reels-title" className="section-header">
-					Offscript Generation in motion
+		<section className="summit-reasons" aria-labelledby="summit-reasons-title">
+			<header className="summit-reasons__header">
+				<h2 id="summit-reasons-title" className="section-header">
+					Reasons to attend for youth
 				</h2>
-				<p className="value-card-text">
-					Short clips from our parent summit show the energy, honesty, and experimentation you’ll tap into here.
-				</p>
 			</header>
-			<div className="mission-reels-grid">
-				{VIDEO_FEATURES.map((feature) => (
-					<article key={feature.title} className={`video-bubble video-bubble-${feature.accent}`}>
-						<div className="video-frame">
-							<video controls playsInline preload="metadata" autoPlay muted loop>
-								<source src={feature.src} type="video/quicktime" />
-								Your browser does not support the video tag.
-							</video>
+			<div className="summit-reasons__grid">
+				{SUMMIT_REASON_ITEMS.map((item) =>
+					item.type === "text" ? (
+						<article key={item.title} className="summit-reasons__item">
+							<div className="summit-reasons__text">
+								<h3>{item.title}</h3>
+								<p>{item.body}</p>
+							</div>
+						</article>
+					) : (
+						<div key={item.title} className="summit-reasons__item summit-reasons__item--video">
+							<div className="summit-reasons__video-wrapper">
+								<video
+									className="summit-reasons__video"
+									src={item.src}
+									poster={item.poster}
+									playsInline
+									autoPlay
+									muted
+									loop
+									controls
+									style={item.aspectRatio ? { aspectRatio: item.aspectRatio } : undefined}
+								>
+									Your browser does not support the video tag.
+								</video>
+							</div>
 						</div>
-						<h3 className="video-bubble-title">{feature.title}</h3>
-						<p className="video-bubble-text">{feature.text}</p>
-					</article>
-				))}
+					)
+				)}
 			</div>
 		</section>
 

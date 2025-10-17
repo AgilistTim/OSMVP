@@ -1,18 +1,20 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
+import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { CareerSuggestion } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
 import { useRealtimeSession } from "@/hooks/use-realtime-session";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { SuggestionBasket } from "@/components/suggestion-basket";
-import { ArrowUpRight, Archive } from "lucide-react";
+import { ArrowUpRight, Archive, FileText } from "lucide-react";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
@@ -22,6 +24,28 @@ interface Turn {
 }
 
 const MUTUAL_EXPRESSION_REGEX = /\b(i['’]m|i am|i've|i was|my\s|i also|same here|me too)/i;
+
+const REQUIRED_INSIGHT_KINDS: InsightKind[] = ["interest", "strength", "hope"];
+const FALLBACK_MIN_TURNS = 6;
+
+const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
+	interest: "what excites you",
+	strength: "what you’re good at",
+	constraint: "constraints",
+	goal: "goals",
+	frustration: "frustrations",
+	hope: "hopes",
+	boundary: "boundaries",
+	highlight: "highlights",
+};
+
+const INSIGHT_KIND_COACHING: Partial<Record<InsightKind, string>> = {
+	interest: "Ask what’s been lighting them up lately or what they can’t stop thinking about.",
+	strength:
+		"Call out the strength you’re noticing using their own words (e.g. “Sounds like that eye for detail is a real strength”) and check how they lean on it when things click.",
+	hope:
+		"If they seem unsure, float an outcome you’re hearing (\"Feels like part of you wants people to feel something from your shots\") and ask if that lands.",
+};
 
 function looksLikeMutualMoment(text: string): boolean {
 	const trimmed = text.trim();
@@ -113,6 +137,13 @@ export function Onboarding() {
 	const [readiness, setReadiness] = useState<Readiness | null>(profile.readiness ?? null);
 	const [isBasketOpen, setIsBasketOpen] = useState<boolean>(false);
 	const [recentReactions, setRecentReactions] = useState<ReactionSnapshot[]>([]);
+	const router = useRouter();
+	const [suggestionRevealState, setSuggestionRevealState] = useState<"collecting" | "priming" | "ready">("collecting");
+	const suggestionRevealStateRef = useRef<"collecting" | "priming" | "ready">("collecting");
+	const setSuggestionReveal = useCallback((nextState: "collecting" | "priming" | "ready") => {
+		setSuggestionRevealState(nextState);
+		suggestionRevealStateRef.current = nextState;
+	}, []);
 
 	const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -127,6 +158,8 @@ export function Onboarding() {
 	const suggestionsFetchInFlightRef = useRef<boolean>(false);
 	const suggestionsLastInsightCountRef = useRef<number>(0);
 	const lastScrolledTurnCountRef = useRef<number>(0);
+	const suggestionRevealTimeoutRef = useRef<number | null>(null);
+	const lastSuggestionKeyRef = useRef<string>("");
 
 	const [realtimeState, realtimeControls] = useRealtimeSession({
 		sessionId,
@@ -138,6 +171,28 @@ export function Onboarding() {
 		() => turns.filter((turn) => turn.role === "user").length,
 		[turns]
 	);
+
+	const insightCoverage = useMemo(() => {
+		const presentKinds = new Set(profile.insights.map((insight) => insight.kind));
+		if (presentKinds.has("goal") && !presentKinds.has("hope")) {
+			presentKinds.add("hope");
+		}
+		const missingKinds = REQUIRED_INSIGHT_KINDS.filter((kind) => presentKinds.has(kind) === false);
+		const missingLabels = missingKinds.map((kind) => INSIGHT_KIND_LABELS[kind] ?? kind);
+		const hasMinimumTurns = userTurnsCount >= 4;
+		const distinctInsightKinds = new Set(profile.insights.map((insight) => insight.kind)).size;
+		const fallbackReady =
+			userTurnsCount >= FALLBACK_MIN_TURNS &&
+			distinctInsightKinds >= 2 &&
+			presentKinds.size >= 2;
+		return {
+			missingKinds,
+			missingLabels,
+			hasMinimumTurns,
+			fallbackReady,
+			isReady: (missingKinds.length === 0 && hasMinimumTurns) || fallbackReady,
+		};
+	}, [profile.insights, userTurnsCount]);
 
 	const suggestionGuidance = useMemo(() => {
 		if (suggestions.length === 0) {
@@ -202,6 +257,62 @@ export function Onboarding() {
 		return guidanceLines.join("\n");
 	}, [recentReactions, suggestions]);
 
+	const insightGuidance = useMemo(() => {
+		if (insightCoverage.isReady && !insightCoverage.fallbackReady) {
+			return null;
+		}
+		if (insightCoverage.missingKinds.length === 0) {
+			return null;
+		}
+
+		const missingLabels = insightCoverage.missingKinds
+			.map((kind) => INSIGHT_KIND_LABELS[kind] ?? kind)
+			.filter(Boolean);
+
+		const coachingPrompts = insightCoverage.missingKinds
+			.map((kind) => INSIGHT_KIND_COACHING[kind])
+			.filter((prompt): prompt is string => typeof prompt === "string" && prompt.length > 0);
+
+		const lines = [
+			`We still need more colour around ${formatList(missingLabels)} before surfacing idea cards.`,
+		];
+
+		if (coachingPrompts.length > 0) {
+			lines.push(`Steer the conversation there with prompts like: ${formatList(coachingPrompts)}.`);
+		}
+
+		lines.push("Keep the tone upbeat and affirm the user when they share specifics.");
+
+		return lines.join(" ");
+	}, [insightCoverage]);
+
+	const insightStatusMessage = useMemo(() => {
+		if (insightCoverage.isReady) {
+			return insightCoverage.fallbackReady
+				? "Lining up the first ideas now—keep sharing detail so we can sharpen them."
+				: null;
+		}
+		if (insightCoverage.missingLabels.length === 0) {
+			return "Give me another beat or two and I’ll bring ideas to react to.";
+		}
+		const labelList = formatList(insightCoverage.missingLabels);
+		return `Need a touch more on ${labelList} before I pin fresh idea cards.`;
+	}, [insightCoverage]);
+
+	const initialGuidance = useMemo(() => {
+		if (turns.length > 0) {
+			return null;
+		}
+		const lines = [
+			"Opening move: greet them warmly in British English, then ask what they’d like to be called before any other question.",
+			"Use this exact opener straight after that: “What’s been keeping you busy when you’re not dealing with school or work?”",
+			"Keep the opener short (≤2 sentences) and avoid piling on extra questions until they reply.",
+		];
+		return lines.join(" ");
+	}, [turns.length]);
+
+	const suggestionsKey = useMemo(() => suggestions.map((item) => item.id).join("|"), [suggestions]);
+
 	const handleSuggestionReaction = useCallback(
 		({
 			suggestion,
@@ -262,7 +373,9 @@ export function Onboarding() {
 	const savedSuggestions = suggestionGroups.saved;
 	const maybeSuggestions = suggestionGroups.maybe;
 	const skippedSuggestions = suggestionGroups.skipped;
-
+	const pendingSuggestionsCount = pendingSuggestions.length;
+	const canShowSuggestionCards = pendingSuggestionsCount > 0 && suggestionRevealState === "ready";
+	const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState === "priming";
 	const handleClearSkipped = useCallback(() => {
 		if (skippedSuggestions.length === 0) return;
 		skippedSuggestions.forEach((item) => {
@@ -414,8 +527,18 @@ export function Onboarding() {
 			const responsePayload: Record<string, unknown> = {
 				output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
 			};
+			const instructions: string[] = [];
+			if (initialGuidance) {
+				instructions.push(initialGuidance);
+			}
+			if (insightGuidance) {
+				instructions.push(insightGuidance);
+			}
 			if (suggestionGuidance) {
-				responsePayload.instructions = suggestionGuidance;
+				instructions.push(suggestionGuidance);
+			}
+			if (instructions.length > 0) {
+				responsePayload.instructions = instructions.join("\n\n");
 			}
 
 			realtimeControls.sendEvent({
@@ -427,14 +550,16 @@ export function Onboarding() {
 				await ensureRealtimeConnected();
 			}
 		},
-		[
-			createRealtimeId,
-			deriveInsights,
-			ensureRealtimeConnected,
-			mode,
-			realtimeControls,
-			suggestionGuidance,
-			setProfile,
+			[
+				createRealtimeId,
+				deriveInsights,
+				ensureRealtimeConnected,
+				initialGuidance,
+				mode,
+				realtimeControls,
+				suggestionGuidance,
+				insightGuidance,
+				setProfile,
 			turns,
 		]
 	);
@@ -463,15 +588,25 @@ export function Onboarding() {
 		const responsePayload: Record<string, unknown> = {
 			output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
 		};
+	const instructions: string[] = [];
+	if (initialGuidance) {
+		instructions.push(initialGuidance);
+	}
+	if (insightGuidance) {
+		instructions.push(insightGuidance);
+	}
 		if (suggestionGuidance) {
-			responsePayload.instructions = suggestionGuidance;
+			instructions.push(suggestionGuidance);
+		}
+		if (instructions.length > 0) {
+			responsePayload.instructions = instructions.join("\n\n");
 		}
 		realtimeControls.sendEvent({
 			type: "response.create",
 			response: responsePayload,
 		});
 	})();
-}, [ensureRealtimeConnected, mode, realtimeControls, started, suggestionGuidance, turns.length]);
+}, [ensureRealtimeConnected, initialGuidance, insightGuidance, mode, realtimeControls, started, suggestionGuidance, turns.length]);
 
 useEffect(() => {
 	const container = transcriptContainerRef.current;
@@ -486,6 +621,15 @@ useEffect(() => {
 	});
 	lastScrolledTurnCountRef.current = turnCount;
 }, [mode, turns.length, displayedQuestion, pendingSuggestions.length]);
+
+	useEffect(() => {
+		return () => {
+			if (suggestionRevealTimeoutRef.current) {
+				window.clearTimeout(suggestionRevealTimeoutRef.current);
+				suggestionRevealTimeoutRef.current = null;
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		setVoice({
@@ -597,13 +741,7 @@ useEffect(() => {
 	}, [suggestions.length]);
 
 	useEffect(() => {
-		if (userTurnsCount < 3) {
-			return;
-		}
-		const signalInsights = profile.insights.filter((insight) =>
-			["interest", "goal", "hope", "strength"].includes(insight.kind)
-		);
-		if (signalInsights.length < 2) {
+		if (!insightCoverage.isReady) {
 			return;
 		}
 
@@ -618,9 +756,9 @@ useEffect(() => {
 		}
 
 		suggestionsFetchInFlightRef.current = true;
-		void (async () => {
-			try {
-				const response = await fetch("/api/suggestions", {
+	void (async () => {
+		try {
+			const response = await fetch("/api/suggestions", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
@@ -635,19 +773,20 @@ useEffect(() => {
 				if (!response.ok) {
 					throw new Error(`Suggestions request failed: ${response.status}`);
 				}
-				const data = (await response.json()) as {
-					suggestions?: Array<{
-						id?: string;
-						title?: string;
-						summary?: string;
-						careerAngles?: string[];
-						nextSteps?: string[];
-						whyItFits?: string[];
-						confidence?: "high" | "medium" | "low";
-						score?: number;
-						neighborTerritories?: string[];
-					}>;
-				};
+					const data = (await response.json()) as {
+						suggestions?: Array<{
+							id?: string;
+							title?: string;
+							summary?: string;
+							careerAngles?: string[];
+							nextSteps?: string[];
+							whyItFits?: string[];
+							confidence?: "high" | "medium" | "low";
+							score?: number;
+							neighborTerritories?: string[];
+							distance?: "core" | "adjacent" | "unexpected";
+						}>;
+					};
 					if (Array.isArray(data.suggestions)) {
 						const normalized = data.suggestions
 							.filter(
@@ -656,17 +795,24 @@ useEffect(() => {
 									typeof item?.title === "string" &&
 									typeof item?.summary === "string"
 							)
-							.map((item) => ({
-								id: item.id!,
-								title: item.title!,
-								summary: item.summary!,
-								careerAngles: item.careerAngles ?? [],
-								nextSteps: item.nextSteps ?? [],
-								whyItFits: item.whyItFits ?? [],
-								confidence: item.confidence ?? "medium",
-								score: item.score ?? 0,
-								neighborTerritories: item.neighborTerritories ?? [],
-							}))
+							.map((item) => {
+								const distance: CardDistance =
+									item.distance === "adjacent" || item.distance === "unexpected"
+										? item.distance
+										: "core";
+								return {
+									id: item.id!,
+									title: item.title!,
+									summary: item.summary!,
+									careerAngles: item.careerAngles ?? [],
+									nextSteps: item.nextSteps ?? [],
+									whyItFits: item.whyItFits ?? [],
+									confidence: item.confidence ?? "medium",
+									score: item.score ?? 0,
+									neighborTerritories: item.neighborTerritories ?? [],
+									distance,
+								};
+							})
 							.sort((a, b) => b.score - a.score);
 
 						const incomingIds = new Set(normalized.map((item) => item.id));
@@ -684,7 +830,50 @@ useEffect(() => {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [profile.insights, setSuggestions, suggestions, userTurnsCount, votesByCareerId]);
+	}, [insightCoverage.isReady, profile.insights, setSuggestions, suggestions, votesByCareerId]);
+
+	useEffect(() => {
+		if (!insightCoverage.isReady) {
+			setSuggestionReveal("collecting");
+			lastSuggestionKeyRef.current = "";
+			if (suggestionRevealTimeoutRef.current) {
+				window.clearTimeout(suggestionRevealTimeoutRef.current);
+				suggestionRevealTimeoutRef.current = null;
+			}
+			return;
+		}
+
+		if (suggestions.length === 0) {
+			setSuggestionReveal("priming");
+			if (suggestionRevealTimeoutRef.current) {
+				window.clearTimeout(suggestionRevealTimeoutRef.current);
+				suggestionRevealTimeoutRef.current = null;
+			}
+			return;
+		}
+
+		const currentKey = suggestionsKey;
+		if (lastSuggestionKeyRef.current === currentKey && suggestionRevealStateRef.current === "ready") {
+			return;
+		}
+
+		lastSuggestionKeyRef.current = currentKey;
+		setSuggestionReveal("priming");
+		if (suggestionRevealTimeoutRef.current) {
+			window.clearTimeout(suggestionRevealTimeoutRef.current);
+		}
+		suggestionRevealTimeoutRef.current = window.setTimeout(() => {
+			setSuggestionReveal("ready");
+			suggestionRevealTimeoutRef.current = null;
+		}, 1300);
+
+		return () => {
+			if (suggestionRevealTimeoutRef.current) {
+				window.clearTimeout(suggestionRevealTimeoutRef.current);
+				suggestionRevealTimeoutRef.current = null;
+			}
+		};
+	}, [insightCoverage.isReady, setSuggestionReveal, suggestions.length, suggestionsKey]);
 
 	useEffect(() => {
 		if (!mode) {
@@ -705,6 +894,9 @@ useEffect(() => {
 							<span className="text-sm text-muted-foreground">{progress}%</span>
 						</div>
 						{showProgressBar ? <Progress value={progress} /> : null}
+						{insightStatusMessage ? (
+							<p className="text-xs text-muted-foreground">{insightStatusMessage}</p>
+						) : null}
 					</div>
 					<div className="flex flex-wrap items-center justify-end gap-2">
 						<Button
@@ -720,6 +912,17 @@ useEffect(() => {
 							<span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">
 								{totalBasketCount}
 							</span>
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
+							onClick={() => router.push("/exploration")}
+							aria-label="See personal exploration page"
+						>
+							<FileText className="size-3.5" aria-hidden />
+							<span>Personal page</span>
 						</Button>
 						{!isVoice ? (
 							<Button
@@ -753,21 +956,34 @@ useEffect(() => {
 					Answer out loud, or switch to text if you’d rather type this turn.
 				</p>
 			</Card>
-			{pendingSuggestions.length > 0 ? (
+			{(showSuggestionPriming || canShowSuggestionCards) ? (
 				<section className="voice-suggestions" aria-label="Suggested directions">
-					<div className="message ai-message suggestion-preface">
-						<div className="message-label">GUIDE</div>
-						<div className="message-content suggestion-preface-content">
-							That triggers some thoughts — do any of these look like your sort of thing?
+					{showSuggestionPriming ? (
+						<div className="suggestion-priming">
+							<div className="suggestion-priming__pulse" />
+							<div>
+								<p>That sparks a few ideas…</p>
+								<p>I’m lining them up now.</p>
+							</div>
 						</div>
-					</div>
-					<SuggestionCards
-						suggestions={pendingSuggestions}
-						variant="panel"
-						title="Ideas to react to"
-						description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
-						onReaction={handleSuggestionReaction}
-					/>
+					) : null}
+					{canShowSuggestionCards ? (
+						<>
+							<div className="message ai-message suggestion-preface">
+								<div className="message-label">GUIDE</div>
+								<div className="message-content suggestion-preface-content">
+									That triggers some thoughts — do any of these look like your sort of thing?
+								</div>
+							</div>
+							<SuggestionCards
+								suggestions={pendingSuggestions}
+								variant="panel"
+								title="Ideas to react to"
+								description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
+								onReaction={handleSuggestionReaction}
+							/>
+						</>
+					) : null}
 				</section>
 			) : null}
 		</div>
@@ -813,7 +1029,14 @@ useEffect(() => {
 								);
 							})
 						)}
-					{pendingSuggestions.length > 0 ? (
+				{showSuggestionPriming ? (
+					<div className="message ai-message suggestion-preface">
+						<div className="message-label">GUIDE</div>
+						<div className="message-content suggestion-preface-content">
+							That makes me think of a few things… give me a moment.
+						</div>
+						</div>
+					) : canShowSuggestionCards ? (
 						<>
 							<div className="message ai-message suggestion-preface">
 								<div className="message-label">GUIDE</div>

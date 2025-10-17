@@ -53,10 +53,79 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     const latestUser = [...turns].reverse().find((turn) => turn.role === "user");
-    const fallbackInsight = latestUser?.text
-      ? [{ kind: "interest" as InsightKind, value: latestUser.text.slice(0, 64) }]
-      : [];
-    return NextResponse.json({ insights: fallbackInsight });
+    const existingKinds = new Set(existingInsights.map((item) => item.kind));
+    const fallbackInsights: ProfileInsightResponse[] = [];
+
+    const priorityOrder: InsightKind[] = [
+      "interest",
+      "strength",
+      "hope",
+      "goal",
+      "highlight",
+    ];
+
+    const buildValue = (kind: InsightKind, text: string) => {
+      const trimmed = text.trim().slice(0, 160);
+      const sanitized =
+        trimmed
+          .replace(/^I['’]?\s+(am|was|have|feel|love|like|want|hope|enjoy|can)\s+/i, "")
+          .trim() || trimmed;
+      switch (kind) {
+        case "strength":
+          return sanitized.startsWith("Feels")
+            ? sanitized
+            : `Feels confident about ${sanitized}`;
+        case "hope":
+          return sanitized.startsWith("Hoping")
+            ? sanitized
+            : `Hoping to ${sanitized}`;
+        case "goal":
+          return sanitized.startsWith("Wants")
+            ? sanitized
+            : `Wants to ${sanitized}`;
+        case "highlight":
+          return sanitized.startsWith("Noted")
+            ? sanitized
+            : `Noted: ${sanitized}`;
+        default:
+          return sanitized;
+      }
+    };
+
+    if (latestUser?.text) {
+      const nextKind = priorityOrder.find((kind) => existingKinds.has(kind) === false);
+      if (nextKind) {
+        fallbackInsights.push({
+          kind: nextKind,
+          value: buildValue(nextKind, latestUser.text),
+          confidence: "low",
+          source: "assistant",
+          evidence: "Heuristic fallback (no OpenAI key).",
+        });
+      }
+    }
+
+    const insightScore =
+      Number(existingKinds.has("interest")) +
+      Number(existingKinds.has("strength")) +
+      Number(existingKinds.has("hope")) +
+      Number(fallbackInsights.some((item) => item.kind === "interest")) +
+      Number(fallbackInsights.some((item) => item.kind === "strength")) +
+      Number(fallbackInsights.some((item) => item.kind === "hope"));
+
+    const readiness: Readiness =
+      insightScore >= 3 ? "G3" : insightScore >= 2 ? "G2" : "G1";
+
+    const summary =
+      latestUser?.text && fallbackInsights.length > 0
+        ? `Captured a new note about ${fallbackInsights[0]?.kind ?? "their journey"}.`
+        : undefined;
+
+    return NextResponse.json({
+      insights: fallbackInsights,
+      summary,
+      readiness,
+    });
   }
 
   const openai = new OpenAI({ apiKey });

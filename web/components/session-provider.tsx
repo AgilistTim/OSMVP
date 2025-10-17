@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
+import type { CardDistance } from "@/lib/dynamic-suggestions";
 
 export type SessionMode = "text" | "voice" | null;
 
@@ -95,6 +96,7 @@ export interface CareerSuggestion {
 	confidence: "high" | "medium" | "low";
 	score: number;
 	neighborTerritories: string[];
+	distance: CardDistance;
 }
 
 interface SessionState {
