@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, MessageCircle, Sparkles, XIcon } from "lucide-react";
+import { MessageCircle, Play, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -52,9 +52,9 @@ const REACTION_CHOICES: Array<{
 }> = [
 	{
 		value: 1,
-		label: "Save it",
-		icon: Bookmark,
-		description: "Keep this vibe handy",
+		label: "Upvote",
+		icon: ThumbsUp,
+		description: "Lock it in as a favourite",
 	},
 	{
 		value: 0,
@@ -64,9 +64,9 @@ const REACTION_CHOICES: Array<{
 	},
 	{
 		value: -1,
-		label: "Skip",
-		icon: XIcon,
-		description: "Not your vibe",
+		label: "Downvote",
+		icon: ThumbsDown,
+		description: "Doesn’t fit right now",
 	},
 ];
 
@@ -361,7 +361,8 @@ export function SuggestionCards({
 											onClick={() => handleOpenDetails(suggestion.id)}
 											type="button"
 										>
-											See details
+											<Play className="size-4" aria-hidden />
+											Explore pathway
 										</Button>
 									</div>
 								</Card>

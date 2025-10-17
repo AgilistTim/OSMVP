@@ -71,7 +71,7 @@ describe("SuggestionCards", () => {
 		const user = userEvent.setup();
 		renderWithSession(<SuggestionCards suggestions={SUGGESTIONS} />);
 
-		const saveButton = screen.getByRole("button", { name: /Save it/i });
+	const saveButton = screen.getByRole("button", { name: /Upvote/i });
 		expect(saveButton).toHaveAttribute("aria-pressed", "false");
 
 		await user.click(saveButton);
@@ -85,7 +85,7 @@ describe("SuggestionCards", () => {
 		const user = userEvent.setup();
 		renderWithSession(<SuggestionCards suggestions={SUGGESTIONS} />);
 
-	await user.click(screen.getByRole("button", { name: /See details/i }));
+	await user.click(screen.getByRole("button", { name: /Explore pathway/i }));
 	await waitFor(() => {
 		const drawer = document.querySelector('[data-slot="drawer-content"]');
 		expect(drawer).not.toBeNull();

@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
-import type { CareerSuggestion } from "@/components/session-provider";
+import type { CareerSuggestion, ConversationTurn } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
 import { useRealtimeSession } from "@/hooks/use-realtime-session";
 import { SuggestionCards } from "@/components/suggestion-cards";
@@ -18,12 +18,12 @@ import { ArrowUpRight, Archive, FileText } from "lucide-react";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
-interface Turn {
-	role: "user" | "assistant";
-	text: string;
-}
+type Turn = ConversationTurn;
 
 const MUTUAL_EXPRESSION_REGEX = /\b(i['’]m|i am|i've|i was|my\s|i also|same here|me too)/i;
+
+const DEFAULT_OPENING =
+	"I’d love to have a quick chat to spot what actually lights you up. As we go, I’ll pin ideas you can give a thumbs up or down, and I’ll spin up a personal page you can share. To get started, what should I call you?";
 
 const REQUIRED_INSIGHT_KINDS: InsightKind[] = ["interest", "strength", "hope"];
 const FALLBACK_MIN_TURNS = 6;
@@ -128,11 +128,11 @@ export function Onboarding() {
 		setSuggestions,
 		voteCareer,
 		votesByCareerId,
-		sessionId,
-	} = useSession();
-
-	const [turns, setTurns] = useState<Turn[]>([]);
-	const [question, setQuestion] = useState<string>("");
+	sessionId,
+	turns,
+	setTurns,
+} = useSession();
+const [question, setQuestion] = useState<string>(DEFAULT_OPENING);
 	const [currentInput, setCurrentInput] = useState<string>("");
 	const [readiness, setReadiness] = useState<Readiness | null>(profile.readiness ?? null);
 	const [isBasketOpen, setIsBasketOpen] = useState<boolean>(false);
@@ -155,11 +155,12 @@ export function Onboarding() {
 	const lastInsightsTurnCountRef = useRef<number>(0);
 	const initialResponseRequestedRef = useRef<boolean>(false);
 	const previousModeRef = useRef<typeof mode>(mode);
-	const suggestionsFetchInFlightRef = useRef<boolean>(false);
-	const suggestionsLastInsightCountRef = useRef<number>(0);
-	const lastScrolledTurnCountRef = useRef<number>(0);
-	const suggestionRevealTimeoutRef = useRef<number | null>(null);
-	const lastSuggestionKeyRef = useRef<string>("");
+const suggestionsFetchInFlightRef = useRef<boolean>(false);
+const suggestionsLastInsightCountRef = useRef<number>(0);
+const lastScrolledTurnCountRef = useRef<number>(0);
+const suggestionRevealTimeoutRef = useRef<number | null>(null);
+const lastSuggestionKeyRef = useRef<string>("");
+const initialAssistantHandledRef = useRef<boolean>(false);
 
 	const [realtimeState, realtimeControls] = useRealtimeSession({
 		sessionId,
@@ -171,6 +172,12 @@ export function Onboarding() {
 		() => turns.filter((turn) => turn.role === "user").length,
 		[turns]
 	);
+
+useEffect(() => {
+	if (turns.length === 0) {
+		initialAssistantHandledRef.current = false;
+	}
+}, [turns.length]);
 
 	const insightCoverage = useMemo(() => {
 		const presentKinds = new Set(profile.insights.map((insight) => insight.kind));
@@ -342,6 +349,33 @@ export function Onboarding() {
 		[]
 	);
 
+	const profileHighlights = useMemo(() => {
+		const unique = (items: string[]) => {
+			const seen = new Set<string>();
+			const result: string[] = [];
+			for (const item of items) {
+				const trimmed = item.trim();
+				if (!trimmed) continue;
+				const key = trimmed.toLowerCase();
+				if (seen.has(key)) continue;
+				seen.add(key);
+				result.push(trimmed);
+				if (result.length >= 4) break;
+			}
+			return result;
+		};
+		const interests = unique(profile.interests ?? []);
+		const strengths = unique(profile.strengths ?? []);
+		const goalsSource = profile.goals && profile.goals.length > 0 ? profile.goals : profile.hopes;
+		const goals = unique(goalsSource ?? []);
+		return {
+			interests,
+			strengths,
+			goals,
+			hasAny: interests.length > 0 || strengths.length > 0 || goals.length > 0,
+		};
+	}, [profile.goals, profile.hopes, profile.interests, profile.strengths]);
+
 	const progress = useMemo(() => {
 		if (userTurnsCount === 0) return 20;
 		return Math.min(100, 20 + userTurnsCount * 15);
@@ -374,8 +408,9 @@ export function Onboarding() {
 	const maybeSuggestions = suggestionGroups.maybe;
 	const skippedSuggestions = suggestionGroups.skipped;
 	const pendingSuggestionsCount = pendingSuggestions.length;
-	const canShowSuggestionCards = pendingSuggestionsCount > 0 && suggestionRevealState === "ready";
-	const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState === "priming";
+const canShowSuggestionCards =
+	pendingSuggestionsCount > 0 && suggestionRevealState === "ready";
+const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState === "priming";
 	const handleClearSkipped = useCallback(() => {
 		if (skippedSuggestions.length === 0) return;
 		skippedSuggestions.forEach((item) => {
@@ -550,16 +585,17 @@ export function Onboarding() {
 				await ensureRealtimeConnected();
 			}
 		},
-			[
-				createRealtimeId,
-				deriveInsights,
-				ensureRealtimeConnected,
-				initialGuidance,
-				mode,
-				realtimeControls,
-				suggestionGuidance,
-				insightGuidance,
-				setProfile,
+		[
+			createRealtimeId,
+			deriveInsights,
+			ensureRealtimeConnected,
+			initialGuidance,
+			mode,
+			realtimeControls,
+			suggestionGuidance,
+			insightGuidance,
+			setProfile,
+			setTurns,
 			turns,
 		]
 	);
@@ -659,14 +695,14 @@ useEffect(() => {
 
 		lastUserTranscriptIdRef.current = latestUser.id;
 		lastUserTranscriptTextRef.current = latestUser.text;
-		setProfile({ lastTranscript: latestUser.text, lastTranscriptId: latestUser.id });
-			setTurns((prev) => {
-				const newTurn: Turn = { role: "user", text: latestUser.text };
-				const next = [...prev, newTurn];
-				void deriveInsights(next);
-				return next;
-			});
-		}, [deriveInsights, mode, realtimeState.transcripts, setProfile]);
+	setProfile({ lastTranscript: latestUser.text, lastTranscriptId: latestUser.id });
+		setTurns((prev) => {
+			const newTurn: Turn = { role: "user", text: latestUser.text };
+			const next = [...prev, newTurn];
+			void deriveInsights(next);
+			return next;
+		});
+		}, [deriveInsights, mode, realtimeState.transcripts, setProfile, setTurns]);
 
 	useEffect(() => {
 		const latestAssistant = realtimeState.transcripts.find(
@@ -683,18 +719,22 @@ useEffect(() => {
 
 		lastAssistantTranscriptIdRef.current = latestAssistant.id;
 		lastAssistantTranscriptTextRef.current = latestAssistant.text;
-		const assistantText = latestAssistant.text;
-		const shouldAddMutual = looksLikeMutualMoment(assistantText);
-		setProfile({
-			lastAssistantTranscript: assistantText,
-			lastAssistantTranscriptId: latestAssistant.id,
-		});
-		setQuestion(assistantText);
-		setTurns((prev) => [...prev, { role: "assistant", text: assistantText }]);
-		if (shouldAddMutual) {
-			addMutualMoment(assistantText);
-		}
-	}, [addMutualMoment, realtimeState.transcripts, setProfile]);
+	let assistantText = latestAssistant.text;
+	if (!initialAssistantHandledRef.current && turns.length === 0) {
+		assistantText = DEFAULT_OPENING;
+		initialAssistantHandledRef.current = true;
+	}
+	const shouldAddMutual = assistantText !== DEFAULT_OPENING && looksLikeMutualMoment(assistantText);
+	setProfile({
+		lastAssistantTranscript: assistantText,
+		lastAssistantTranscriptId: latestAssistant.id,
+	});
+	setQuestion(assistantText);
+	setTurns((prev) => [...prev, { role: "assistant", text: assistantText }]);
+	if (shouldAddMutual) {
+		addMutualMoment(assistantText);
+	}
+	}, [addMutualMoment, realtimeState.transcripts, setProfile, setTurns, turns.length]);
 
 	useEffect(() => {
 		if (previousModeRef.current && mode && previousModeRef.current !== mode) {
@@ -815,13 +855,7 @@ useEffect(() => {
 							})
 							.sort((a, b) => b.score - a.score);
 
-						const incomingIds = new Set(normalized.map((item) => item.id));
-						const merged = [
-							...normalized,
-							...suggestions.filter((existing) => !incomingIds.has(existing.id)),
-						];
-
-						setSuggestions(merged);
+						setSuggestions(normalized);
 						suggestionsLastInsightCountRef.current = insightCount;
 					}
 			} catch (error) {
@@ -937,6 +971,50 @@ useEffect(() => {
 					</div>
 				</div>
 			</header>
+
+			{profileHighlights.hasAny ? (
+				<section className="profile-inline-cards" aria-label="Profile highlights">
+					{profileHighlights.interests.length > 0 ? (
+						<article className="profile-inline-card" data-category="interests">
+							<h3 className="profile-inline-title">Interests</h3>
+							<ul className="profile-inline-list">
+								{profileHighlights.interests.map((item) => (
+									<li key={`interest-${item.toLowerCase()}`}>
+										<span className="profile-inline-dot" aria-hidden>○</span>
+										<span>{item}</span>
+									</li>
+								))}
+							</ul>
+						</article>
+					) : null}
+					{profileHighlights.strengths.length > 0 ? (
+						<article className="profile-inline-card" data-category="strengths">
+							<h3 className="profile-inline-title">Strengths</h3>
+							<ul className="profile-inline-list">
+								{profileHighlights.strengths.map((item) => (
+									<li key={`strength-${item.toLowerCase()}`}>
+										<span className="profile-inline-dot" aria-hidden>○</span>
+										<span>{item}</span>
+									</li>
+								))}
+							</ul>
+						</article>
+					) : null}
+					{profileHighlights.goals.length > 0 ? (
+						<article className="profile-inline-card" data-category="goals">
+							<h3 className="profile-inline-title">Goals</h3>
+							<ul className="profile-inline-list">
+								{profileHighlights.goals.map((item) => (
+									<li key={`goal-${item.toLowerCase()}`}>
+										<span className="profile-inline-dot" aria-hidden>○</span>
+										<span>{item}</span>
+									</li>
+								))}
+							</ul>
+						</article>
+					) : null}
+				</section>
+			) : null}
 
 	{isVoice ? (
 		<div className="voice-mode-stack">

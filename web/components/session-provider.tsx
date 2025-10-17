@@ -17,6 +17,11 @@ export type InsightKind =
 
 export type InsightSource = "user" | "assistant" | "system";
 
+export interface ConversationTurn {
+	role: "user" | "assistant";
+	text: string;
+}
+
 export interface ProfileInsight {
 	id: string;
 	kind: InsightKind;
@@ -115,6 +120,7 @@ interface SessionState {
 		microphone: "inactive" | "active" | "paused";
 	};
 	onboardingStep: number;
+	turns: ConversationTurn[];
 }
 
 interface SessionActions {
@@ -141,6 +147,7 @@ interface SessionActions {
 	clearMutualMoments: () => void;
 	setSuggestions: (suggestions: CareerSuggestion[]) => void;
 	clearSuggestions: () => void;
+	setTurns: React.Dispatch<React.SetStateAction<ConversationTurn[]>>;
 }
 
 const SessionContext = createContext<(SessionState & SessionActions) | null>(null);
@@ -164,6 +171,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
 	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle", microphone: "inactive" });
 	const [onboardingStep, updateOnboardingStep] = useState<number>(0);
+	const [turns, setTurnsState] = useState<ConversationTurn[]>([]);
 
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
@@ -346,6 +354,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setSummaryState(undefined);
 		updateOnboardingStep(0);
 		setVoiceState({ status: "idle", microphone: "inactive" });
+		setTurnsState([]);
 	}, [
 		setProfile,
 		setCandidates,
@@ -354,6 +363,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setSummaryState,
 		updateOnboardingStep,
 		setVoiceState,
+		setTurnsState,
 	]);
 
 	const beginSession = useCallback(() => {
@@ -391,23 +401,25 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 					}
 					return { ...prev, [careerId]: value };
 				}),
-			setSummary: (s) => setSummaryState(s),
-			beginSession,
-			setVoice,
-			setOnboardingStep: (value) =>
-				updateOnboardingStep((prev) =>
-					typeof value === "function" ? (value as (current: number) => number)(prev) : value
-				),
-			addMutualMoment,
-			removeMutualMoment,
-			clearMutualMoments,
-			setSuggestions,
-			clearSuggestions,
-		}),
-		[
-			mode,
-			profile,
-			candidates,
+		setSummary: (s) => setSummaryState(s),
+		beginSession,
+		setVoice,
+		setOnboardingStep: (value) =>
+			updateOnboardingStep((prev) =>
+				typeof value === "function" ? (value as (current: number) => number)(prev) : value
+			),
+		addMutualMoment,
+		removeMutualMoment,
+		clearMutualMoments,
+		setSuggestions,
+		clearSuggestions,
+		turns,
+		setTurns: (updater) => setTurnsState(updater),
+	}),
+	[
+		mode,
+		profile,
+		candidates,
 			votesByCareerId,
 			suggestions,
 			summary,
@@ -422,18 +434,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			resetProfile,
 			beginSession,
 			addMutualMoment,
-			removeMutualMoment,
-			clearMutualMoments,
-			setSuggestions,
-			clearSuggestions,
-			setModeState,
-			setCandidates,
-			setSummaryState,
-			setVoice,
-			setVotes,
-			updateOnboardingStep,
-		]
-	);
+		removeMutualMoment,
+		clearMutualMoments,
+		setSuggestions,
+		clearSuggestions,
+		setModeState,
+		setCandidates,
+		setSummaryState,
+		setVoice,
+		setVotes,
+		updateOnboardingStep,
+		turns,
+		setTurnsState,
+	]
+);
 
 	useEffect(() => {
 		if (process.env.NODE_ENV === "production") {
@@ -453,8 +467,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log("Mutual moments", profile.mutualMoments);
 		console.log("Insights", profile.insights);
 		console.log("Suggestions", suggestions);
+		console.log("Turns", turns);
 		console.groupEnd();
-	}, [profile, sessionId, suggestions]);
+	}, [profile, sessionId, suggestions, turns]);
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
