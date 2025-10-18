@@ -767,7 +767,7 @@
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(80px, 12vh, 140px);
+  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(140px, 20vh, 200px);
   scroll-padding-top: clamp(18px, 3vw, 26px);
   scroll-padding-bottom: clamp(60px, 12vh, 120px);
   margin: 0;
