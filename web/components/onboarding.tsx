@@ -977,8 +977,8 @@ useEffect(() => {
 		);
 
 	let conversationMessages: ReactNode = null;
-	if (turns.length === 0) {
-		if (!isVoice) {
+	if (!isVoice) {
+		if (turns.length === 0) {
 			const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
 			conversationMessages = (
 				<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
@@ -988,36 +988,36 @@ useEffect(() => {
 					</div>
 				</div>
 			);
-		}
-	} else {
-		conversationMessages = (
-			<>
-				{turns.map((turn, index) => {
-					const isUser = turn.role === "user";
-					const { lengthClass, isLongText } = classifyMessageLength(turn.text);
-					const messageClasses = cn(
-						"message",
-						isUser ? "user-message" : "ai-message",
-						isLongText ? "long-text" : ""
-					);
-					const contentClasses = cn(
-						"message-content",
-						lengthClass,
-						isLongText ? "long-text" : ""
-					);
+		} else {
+			conversationMessages = (
+				<>
+					{turns.map((turn, index) => {
+						const isUser = turn.role === "user";
+						const { lengthClass, isLongText } = classifyMessageLength(turn.text);
+						const messageClasses = cn(
+							"message",
+							isUser ? "user-message" : "ai-message",
+							isLongText ? "long-text" : ""
+						);
+						const contentClasses = cn(
+							"message-content",
+							lengthClass,
+							isLongText ? "long-text" : ""
+						);
 
-					return (
-						<div
-							key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-							className={messageClasses}
-						>
-							<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
-							<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
-						</div>
-					);
-				})}
-			</>
-		);
+						return (
+							<div
+								key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+								className={messageClasses}
+							>
+								<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
+								<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
+							</div>
+						);
+					})}
+				</>
+			);
+		}
 	}
 
 	let textSuggestionContent: ReactNode = null;
