@@ -22,6 +22,7 @@ type CardVariant = "panel" | "inline";
 interface SuggestionCardsProps {
 	suggestions: CareerSuggestion[];
 	variant?: CardVariant;
+	layout?: "carousel" | "grid";
 	title?: string;
 	description?: string;
 	showHeader?: boolean;
@@ -83,6 +84,7 @@ const EXIT_ANIMATION_MS = 420;
 export function SuggestionCards({
 	suggestions,
 	variant = "panel",
+	layout = "carousel",
 	title,
 	description,
 	showHeader,
@@ -103,6 +105,8 @@ export function SuggestionCards({
 
 	const isInline = variant === "inline";
 	const shouldShowHeader = showHeader ?? variant !== "inline";
+	const isGridLayout = layout === "grid";
+	const isCarouselLayout = layout === "carousel";
 
 	useEffect(() => {
 		if (!isInline) {
@@ -151,6 +155,13 @@ export function SuggestionCards({
 	}, [displayCards, isInline]);
 
 	useEffect(() => {
+		if (!isCarouselLayout) {
+			setCarouselFade((prev) =>
+				prev.showStart || prev.showEnd ? { showStart: false, showEnd: false } : prev
+			);
+			return;
+		}
+
 		const container = carouselRef.current;
 		if (!container) {
 			return;
@@ -199,7 +210,7 @@ export function SuggestionCards({
 			}
 			resizeObserver?.disconnect();
 		};
-	}, [suggestions, isInline]);
+	}, [suggestions, isInline, isCarouselLayout]);
 
 	useEffect(() => {
 		if (!isInline) return;
@@ -282,11 +293,12 @@ export function SuggestionCards({
 				className={cn(
 					"suggestion-carousel",
 					isInline ? "suggestion-carousel-inline" : "suggestion-carousel-panel",
+					isGridLayout ? "suggestion-carousel-grid" : "",
 					carouselFade.showStart ? "suggestion-carousel-fade-start" : "",
 					carouselFade.showEnd ? "suggestion-carousel-fade-end" : ""
 				)}
 			>
-				<div className="suggestion-track">
+				<div className={cn("suggestion-track", isGridLayout ? "suggestion-track-grid" : "")}>
 					{cardsToRender.length === 0 ? (
 						emptyState ? (
 							<div className="w-full py-6 text-center text-sm text-muted-foreground">{emptyState}</div>

@@ -89,6 +89,20 @@
   --suggestion-card-gap: clamp(20px, 5vw, 28px);
 }
 
+@media (max-width: 1024px) {
+  :root {
+    --suggestion-card-width: clamp(220px, 60vw, 280px);
+    --suggestion-card-gap: clamp(16px, 5vw, 22px);
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --suggestion-card-width: min(88vw, 260px);
+    --suggestion-card-gap: clamp(12px, 6vw, 18px);
+  }
+}
+
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -321,6 +335,7 @@
 
   .chat-input-dock {
     position: static;
+    bottom: auto;
     padding: 0;
     pointer-events: auto;
   }
@@ -658,7 +673,7 @@
 .sticky-cta {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: max(24px, env(safe-area-inset-bottom) + 16px);
   transform: translateX(-50%);
   width: min(520px, calc(100% - 32px));
   padding: 12px;
@@ -712,6 +727,17 @@
   flex-direction: column;
   gap: clamp(10px, 2vw, 16px);
   min-height: 0;
+}
+
+.chat-footer {
+  margin-top: clamp(12px, 3vw, 20px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 3vw, 18px);
+}
+
+.chat-footer--text {
+  padding-bottom: 0;
 }
 
 .chat-header {
@@ -785,7 +811,7 @@
   gap: clamp(16px, 4vw, 28px);
 }
 
-.voice-footer {
+.voice-controls-card {
   display: grid;
   gap: clamp(12px, 3vw, 18px);
   padding: clamp(16px, 4vw, 24px);
@@ -795,14 +821,91 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
 }
 
-.voice-footer > .card {
-  width: 100%;
+.voice-controls-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.58);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.voice-footer-note {
+.voice-controls-actions {
+  display: grid;
+  gap: clamp(10px, 2vw, 14px);
+  grid-template-columns: repeat(auto-fit, minmax(164px, 1fr));
+}
+
+.voice-control-button {
+  border-radius: 999px !important;
+  padding: clamp(12px, 3vw, 16px) clamp(18px, 6vw, 28px) !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+  height: auto !important;
+  min-height: 44px;
+  justify-content: center;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.voice-control-button--primary {
+  background: var(--off-black) !important;
+  color: var(--off-white) !important;
+  border: 1px solid var(--off-black) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+}
+
+.voice-control-button--primary:hover:not(:disabled),
+.voice-control-button--primary:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22);
+}
+
+.voice-control-button--outline {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  color: rgba(0, 0, 0, 0.7) !important;
+}
+
+.voice-control-button--outline:hover:not(:disabled),
+.voice-control-button--outline:focus-visible {
+  background: var(--off-white) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.voice-control-button--active {
+  color: rgba(0, 0, 0, 0.48) !important;
+}
+
+.voice-control-button--stop {
+  color: rgba(0, 0, 0, 0.82) !important;
+}
+
+.voice-control-button:disabled {
+  opacity: 0.45;
+  transform: none;
+  box-shadow: none;
+}
+
+.voice-controls-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.voice-controls-note {
   font-size: 0.9rem;
   line-height: 1.5;
   color: rgba(0, 0, 0, 0.65);
+}
+
+.voice-controls-meta {
+  font-size: 0.75rem;
+  color: rgba(0, 0, 0, 0.42);
 }
 
 .voice-mode-panel + .voice-suggestions {
@@ -816,22 +919,21 @@
 }
 
 .voice-suggestions .suggestion-carousel {
-  overflow-x: auto;
-  padding-bottom: clamp(12px, 3vw, 18px);
-  margin-inline: calc(-1 * clamp(16px, 5vw, 36px));
-  padding-inline: clamp(16px, 5vw, 36px);
-  scroll-snap-type: x proximity;
+  overflow: visible;
+  padding: 0;
+  margin: 0;
 }
 
 .voice-suggestions .suggestion-track {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(220px, 42vw, 320px), 1fr));
   gap: var(--suggestion-card-gap);
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  padding-bottom: 4px;
+  padding: 0;
 }
 
 .voice-suggestions .suggestion-card {
   min-height: 100%;
+  width: 100%;
 }
 
 
@@ -968,6 +1070,24 @@
   scroll-padding: 0 clamp(12px, 4vw, 24px);
 }
 
+.suggestion-carousel-grid {
+  overflow: visible;
+  padding: 0;
+  margin: 0;
+  scroll-snap-type: none;
+  touch-action: auto;
+  scrollbar-width: none;
+}
+
+.suggestion-carousel-grid::-webkit-scrollbar {
+  display: none;
+}
+
+.suggestion-carousel-grid::before,
+.suggestion-carousel-grid::after {
+  content: none;
+}
+
 .suggestion-carousel::-webkit-scrollbar {
   height: 6px;
 }
@@ -1078,6 +1198,18 @@
   padding-right: clamp(40px, 10vw, 96px);
   padding-bottom: 12px;
   min-height: 100%;
+}
+
+.suggestion-track-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(220px, 42vw, 320px), 1fr));
+  gap: var(--suggestion-card-gap);
+  padding: 0;
+}
+
+.suggestion-track-grid .suggestion-card {
+  flex: 1 1 auto;
+  width: 100%;
 }
 
 .suggestion-card {
@@ -2166,22 +2298,16 @@
   }
 
   .voice-suggestions .suggestion-carousel {
-    margin-inline: calc(-1 * clamp(12px, 6vw, 20px));
-    padding-inline: clamp(12px, 6vw, 20px);
-    scroll-snap-type: x proximity;
-  }
-
-  .voice-suggestions .suggestion-card {
-    flex-basis: clamp(220px, 78vw, 280px);
+    margin: 0;
+    padding: 0;
   }
 
   .voice-suggestions .suggestion-track {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: clamp(12px, 4vw, 18px);
-    padding-bottom: 4px;
+    grid-template-columns: 1fr;
+    gap: clamp(12px, 5vw, 18px);
   }
 
-  .voice-footer {
+  .voice-controls-card {
     padding: clamp(14px, 6vw, 22px);
   }
 
@@ -2208,7 +2334,7 @@
   }
 
   .sticky-cta {
-    bottom: 16px;
+    bottom: max(16px, env(safe-area-inset-bottom) + 12px);
     width: calc(100% - 24px);
     padding: 10px;
     border-radius: 16px;
@@ -2223,9 +2349,9 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: max(0px, env(safe-area-inset-bottom));
   z-index: 40;
-  padding: clamp(12px, 5vw, 20px) clamp(14px, 6vw, 28px) max(18px, env(safe-area-inset-bottom) + 12px);
+  padding: clamp(12px, 5vw, 20px) clamp(14px, 6vw, 28px) max(12px, calc(18px - env(safe-area-inset-bottom)));
   pointer-events: none;
 }
 
@@ -2235,10 +2361,6 @@
 
 .chat-input-spacer {
   height: clamp(96px, 24vh, 150px);
-}
-
-.voice-footer > .card {
-  width: 100%;
 }
 
 .profile-insights-bar {

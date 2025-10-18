@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -924,20 +925,10 @@ useEffect(() => {
 		</div>
 	);
 
-	const voiceConversation = (
-		<div className="voice-mode-stack">
-			<Card className="voice-mode-panel">
-				<div className="flex items-center justify-end">
-					<Button variant="default" size="lg" className="chat-mode-button" onClick={() => setMode("text")}>
-						Switch to text
-					</Button>
-				</div>
-				<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
-				<p className="text-sm text-muted-foreground">
-					Answer out loud, or switch to text if you’d rather type this turn.
-				</p>
-			</Card>
-			{(showSuggestionPriming || canShowSuggestionCards) ? (
+	const voiceSuggestionsSection =
+		!isVoice || (!showSuggestionPriming && !canShowSuggestionCards)
+			? null
+			: (
 				<section className="voice-suggestions" aria-label="Suggested directions">
 					{showSuggestionPriming ? (
 						<div className="suggestion-priming">
@@ -959,6 +950,7 @@ useEffect(() => {
 							<SuggestionCards
 								suggestions={pendingSuggestions}
 								variant="panel"
+								layout="grid"
 								title="Ideas to react to"
 								description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
 								onReaction={handleSuggestionReaction}
@@ -966,90 +958,112 @@ useEffect(() => {
 						</>
 					) : null}
 				</section>
-			) : null}
-		</div>
-	);
-
-	const textConversation =
-		turns.length === 0
-			? (() => {
-					const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
-					return (
-						<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
-							<div className="message-label">GUIDE</div>
-							<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
-								{renderMessageContent(displayedQuestion)}
-							</div>
-						</div>
-					);
-				})()
-			: (
-				<>
-					{turns.map((turn, index) => {
-						const isUser = turn.role === "user";
-						const { lengthClass, isLongText } = classifyMessageLength(turn.text);
-						const messageClasses = cn(
-							"message",
-							isUser ? "user-message" : "ai-message",
-							isLongText ? "long-text" : ""
-						);
-						const contentClasses = cn(
-							"message-content",
-							lengthClass,
-							isLongText ? "long-text" : ""
-						);
-
-						return (
-							<div
-								key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-								className={messageClasses}
-							>
-								<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
-								<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
-							</div>
-						);
-					})}
-					{showSuggestionPriming ? (
-						<div className="message ai-message suggestion-preface">
-							<div className="message-label">GUIDE</div>
-							<div className="message-content suggestion-preface-content">
-								That makes me think of a few things… give me a moment.
-							</div>
-						</div>
-					) : canShowSuggestionCards ? (
-						<>
-							<div className="message ai-message suggestion-preface">
-								<div className="message-label">GUIDE</div>
-								<div className="message-content suggestion-preface-content">
-									That triggers some thoughts — do any of these look like your sort of thing?
-								</div>
-							</div>
-							<div className="message ai-message suggestion-message">
-								<div className="message-label">CARDS</div>
-								<div className="message-content">
-									<SuggestionCards
-										suggestions={pendingSuggestions}
-										variant="inline"
-										showHeader={false}
-										emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
-										onReaction={handleSuggestionReaction}
-									/>
-								</div>
-							</div>
-						</>
-					) : null}
-				</>
 			);
 
-	const conversationContent = isVoice ? voiceConversation : textConversation;
-
-	const voiceFooterContent = (
-		<div className="voice-footer">
-			<VoiceControls state={realtimeState} controls={realtimeControls} />
-			<div className="voice-footer-note">
-				We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds off.
+	const voiceGuidanceStack = !isVoice
+		? null
+		: (
+			<div className="voice-mode-stack">
+				<VoiceControls state={realtimeState} controls={realtimeControls} />
+				<Card className="voice-mode-panel">
+					<div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/80">Voice mode</div>
+					<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
+					<p className="text-sm text-muted-foreground">
+						Answer out loud, or use the header toggle if you’d rather type this turn.
+					</p>
+				</Card>
+				{voiceSuggestionsSection}
 			</div>
-		</div>
+		);
+
+	let conversationMessages: ReactNode = null;
+	if (turns.length === 0) {
+		if (!isVoice) {
+			const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
+			conversationMessages = (
+				<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
+					<div className="message-label">GUIDE</div>
+					<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
+						{renderMessageContent(displayedQuestion)}
+					</div>
+				</div>
+			);
+		}
+	} else {
+		conversationMessages = (
+			<>
+				{turns.map((turn, index) => {
+					const isUser = turn.role === "user";
+					const { lengthClass, isLongText } = classifyMessageLength(turn.text);
+					const messageClasses = cn(
+						"message",
+						isUser ? "user-message" : "ai-message",
+						isLongText ? "long-text" : ""
+					);
+					const contentClasses = cn(
+						"message-content",
+						lengthClass,
+						isLongText ? "long-text" : ""
+					);
+
+					return (
+						<div
+							key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+							className={messageClasses}
+						>
+							<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
+							<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
+						</div>
+					);
+				})}
+			</>
+		);
+	}
+
+	let textSuggestionContent: ReactNode = null;
+	if (!isVoice) {
+		if (showSuggestionPriming) {
+			textSuggestionContent = (
+				<div className="message ai-message suggestion-preface">
+					<div className="message-label">GUIDE</div>
+					<div className="message-content suggestion-preface-content">
+						That makes me think of a few things… give me a moment.
+					</div>
+				</div>
+			);
+		} else if (canShowSuggestionCards) {
+			textSuggestionContent = (
+				<>
+					<div className="message ai-message suggestion-preface">
+						<div className="message-label">GUIDE</div>
+						<div className="message-content suggestion-preface-content">
+							That triggers some thoughts — do any of these look like your sort of thing?
+						</div>
+					</div>
+					<div className="message ai-message suggestion-message">
+						<div className="message-label">CARDS</div>
+						<div className="message-content">
+							<SuggestionCards
+								suggestions={pendingSuggestions}
+								variant="inline"
+								layout="carousel"
+								showHeader={false}
+								emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
+								onReaction={handleSuggestionReaction}
+							/>
+						</div>
+					</div>
+				</>
+			);
+		}
+	}
+
+	const conversationContent = (
+		<>
+			{voiceGuidanceStack}
+			{conversationMessages}
+			{textSuggestionContent}
+		</>
 	);
 
 	const textInputPanel = (
@@ -1105,7 +1119,7 @@ useEffect(() => {
 		</div>
 	);
 
-	const trackFooter = isVoice ? voiceFooterContent : <div className="chat-input-spacer" aria-hidden />;
+	const conversationFooter = isVoice ? null : textInputPanel;
 
 	return (
 		<div className="chat-app-shell">
@@ -1121,17 +1135,21 @@ useEffect(() => {
 				<ProfileInsightsBar insights={profileInsights} actions={profileActions} />
 			</header>
 
-			<main className={cn("chat-panel", isVoice ? "chat-panel--voice" : "")}> 
-				<div className="chat-track"> 
-					<div ref={transcriptContainerRef} className={cn("chat-messages", isVoice ? "voice-messages" : "")}> 
-						{conversationContent} 
-						<div ref={messagesEndRef} /> 
-					</div> 
-					{trackFooter} 
-				</div> 
+			<main className={cn("chat-panel", isVoice ? "chat-panel--voice" : "")}>
+				<div className="chat-track">
+					<div ref={transcriptContainerRef} className={cn("chat-messages", isVoice ? "voice-messages" : "")}>
+						{conversationContent}
+						{!isVoice ? <div className="chat-input-spacer" aria-hidden /> : null}
+						<div ref={messagesEndRef} />
+					</div>
+				</div>
 			</main>
 
-			{!isVoice ? <div className="chat-input-dock">{textInputPanel}</div> : null}
+			{!isVoice ? (
+				<footer className="chat-footer chat-footer--text">
+					<div className="chat-input-dock">{conversationFooter}</div>
+				</footer>
+			) : null}
 
 			<SuggestionBasket
 				open={isBasketOpen}
