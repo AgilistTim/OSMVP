@@ -640,13 +640,12 @@
 .chat-app-shell {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  min-height: 100dvh;
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
   padding: clamp(18px, 4vw, 32px) clamp(12px, 5vw, 32px);
   gap: clamp(12px, 2vw, 20px);
-  overflow: hidden;
 }
 
 .chat-panel {
@@ -655,6 +654,10 @@
   flex-direction: column;
   gap: clamp(10px, 2vw, 16px);
   min-height: 0;
+}
+
+.chat-panel--voice .chat-track {
+  gap: clamp(18px, 4vw, 28px);
 }
 
 .chat-track {
@@ -715,6 +718,11 @@
   box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.08);
 }
 
+.voice-messages {
+  padding-top: clamp(20px, 4vw, 28px);
+  padding-bottom: clamp(40px, 6vw, 60px);
+}
+
 .voice-mode-panel {
   flex-shrink: 0;
 }
@@ -724,18 +732,48 @@
   gap: clamp(16px, 4vw, 28px);
 }
 
+.voice-footer {
+  display: grid;
+  gap: clamp(12px, 3vw, 18px);
+  padding: clamp(16px, 4vw, 24px);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: clamp(18px, 3vw, 24px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.voice-footer > .card {
+  width: 100%;
+}
+
+.voice-footer-note {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.voice-mode-panel + .voice-suggestions {
+  margin-top: clamp(16px, 4vw, 28px);
+}
+
+
 .voice-suggestions {
   display: grid;
   gap: clamp(16px, 3vw, 24px);
-  overflow: visible;
 }
 
 .voice-suggestions .suggestion-carousel {
   overflow-x: auto;
   padding-bottom: clamp(12px, 3vw, 18px);
+  margin-inline: calc(-1 * clamp(16px, 5vw, 36px));
+  padding-inline: clamp(16px, 5vw, 36px);
+  scroll-snap-type: x proximity;
 }
 
 .voice-suggestions .suggestion-track {
+  display: grid;
+  gap: var(--suggestion-card-gap);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   padding-bottom: 4px;
 }
 
@@ -2042,15 +2080,8 @@
     padding: 32px 20px;
   }
 
-.cta-section {
-  padding: 32px 24px;
-}
-
-  .chat-messages {
-    padding: 22px clamp(12px, 5vw, 20px) clamp(128px, 22vh, 172px);
-    min-height: clamp(220px, 60vh, 460px);
-    scroll-padding-top: 22px;
-    scroll-padding-bottom: clamp(120px, 18vh, 172px);
+  .cta-section {
+    padding: 32px 24px;
   }
 
   .chat-app-shell {
@@ -2058,13 +2089,47 @@
     max-width: 640px;
   }
 
+  .chat-header {
+    position: static;
+    top: auto;
+    box-shadow: none;
+    padding: clamp(16px, 5vw, 24px) clamp(16px, 5vw, 28px) clamp(12px, 4vw, 18px);
+  }
+
   .chat-panel {
-    gap: clamp(10px, 4vw, 16px);
+    gap: clamp(14px, 5vw, 20px);
+  }
+
+  .chat-messages {
+    padding: clamp(18px, 5vw, 26px);
+    padding-bottom: clamp(72px, 18vh, 120px);
   }
 
   .chat-input-panel {
-    padding: clamp(12px, 4vw, 18px) clamp(14px, 6vw, 24px) max(22px, env(safe-area-inset-bottom) + 10px);
-    border-radius: clamp(18px, 4vw, 24px);
+    position: static;
+    box-shadow: none;
+    border-radius: clamp(16px, 4vw, 20px);
+    padding: clamp(12px, 5vw, 18px) clamp(14px, 5vw, 24px) clamp(18px, 6vw, 26px);
+  }
+
+  .voice-suggestions .suggestion-carousel {
+    margin-inline: calc(-1 * clamp(12px, 6vw, 20px));
+    padding-inline: clamp(12px, 6vw, 20px);
+    scroll-snap-type: x proximity;
+  }
+
+  .voice-suggestions .suggestion-card {
+    flex-basis: clamp(220px, 78vw, 280px);
+  }
+
+  .voice-suggestions .suggestion-track {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: clamp(12px, 4vw, 18px);
+    padding-bottom: 4px;
+  }
+
+  .voice-footer {
+    padding: clamp(14px, 6vw, 22px);
   }
 
   .chat-toolbar {

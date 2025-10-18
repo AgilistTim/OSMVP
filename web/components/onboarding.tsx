@@ -918,6 +918,181 @@ useEffect(() => {
 	const isVoice = mode === "voice";
 	const showProgressBar = progress < 100;
 	const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
+
+	const conversationContent = isVoice ? (
+		<div className="voice-mode-stack">
+			<Card className="voice-mode-panel">
+				<div className="flex items-center justify-end">
+					<Button variant="default" size="lg" className="chat-mode-button" onClick={() => setMode("text")}>
+						Switch to text
+					</Button>
+				</div>
+				<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
+				<p className="text-sm text-muted-foreground">
+					Answer out loud, or switch to text if you’d rather type this turn.
+				</p>
+			</Card>
+			{(showSuggestionPriming || canShowSuggestionCards) ? (
+				<section className="voice-suggestions" aria-label="Suggested directions">
+					{showSuggestionPriming ? (
+						<div className="suggestion-priming">
+							<div className="suggestion-priming__pulse" />
+							<div>
+								<p>That sparks a few ideas…</p>
+								<p>I’m lining them up now.</p>
+							</div>
+						</div>
+					) : null}
+					{canShowSuggestionCards ? (
+						<>
+							<div className="message ai-message suggestion-preface">
+								<div className="message-label">GUIDE</div>
+								<div className="message-content suggestion-preface-content">
+									That triggers some thoughts — do any of these look like your sort of thing?
+								</div>
+							</div>
+							<SuggestionCards
+								suggestions={pendingSuggestions}
+								variant="panel"
+								title="Ideas to react to"
+								description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
+								onReaction={handleSuggestionReaction}
+							/>
+						</>
+					) : null}
+				</section>
+			) : null}
+		</div>
+	) : turns.length === 0 ? (
+		(() => {
+			const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
+			return (
+				<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
+					<div className="message-label">GUIDE</div>
+					<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
+						{renderMessageContent(displayedQuestion)}
+					</div>
+				</div>
+			);
+		})()
+	) : (
+		<>
+			{turns.map((turn, index) => {
+				const isUser = turn.role === "user";
+				const { lengthClass, isLongText } = classifyMessageLength(turn.text);
+				const messageClasses = cn(
+					"message",
+					isUser ? "user-message" : "ai-message",
+					isLongText ? "long-text" : ""
+				);
+				const contentClasses = cn(
+					"message-content",
+					lengthClass,
+					isLongText ? "long-text" : ""
+				);
+
+				return (
+					<div
+						key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+						className={messageClasses}
+					>
+						<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
+						<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
+					</div>
+				);
+			})}
+			{showSuggestionPriming ? (
+				<div className="message ai-message suggestion-preface">
+					<div className="message-label">GUIDE</div>
+					<div className="message-content suggestion-preface-content">
+						That makes me think of a few things… give me a moment.
+					</div>
+				</div>
+			) : canShowSuggestionCards ? (
+				<>
+					<div className="message ai-message suggestion-preface">
+						<div className="message-label">GUIDE</div>
+						<div className="message-content suggestion-preface-content">
+							That triggers some thoughts — do any of these look like your sort of thing?
+						</div>
+					</div>
+					<div className="message ai-message suggestion-message">
+						<div className="message-label">CARDS</div>
+						<div className="message-content">
+							<SuggestionCards
+								suggestions={pendingSuggestions}
+								variant="inline"
+								showHeader={false}
+								emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
+								onReaction={handleSuggestionReaction}
+							/>
+						</div>
+					</div>
+				</>
+			) : null}
+		</>
+	);
+
+	const footerContent = isVoice ? (
+		<div className="voice-footer">
+			<VoiceControls state={realtimeState} controls={realtimeControls} />
+			<div className="voice-footer-note">
+				We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds off.
+			</div>
+		</div>
+	) : (
+		<div className="chat-input-panel">
+			<div className="message-input-wrapper">
+				<Textarea
+					ref={inputRef}
+					placeholder="Type something you’re into or curious about"
+					value={currentInput}
+					onChange={(event) => setCurrentInput(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && !event.shiftKey) {
+							event.preventDefault();
+							handleSubmit();
+						}
+					}}
+					className="message-input"
+					rows={1}
+					style={{ maxHeight: 180 }}
+				/>
+				<Button
+					type="button"
+					variant="default"
+					size="icon"
+					className="send-button"
+					onClick={handleSubmit}
+					disabled={!canSubmitText}
+					aria-label="Send message"
+				>
+					<ArrowUpRight aria-hidden />
+				</Button>
+			</div>
+			<div className="chat-input-meta">
+				<span
+					className={cn(
+						"char-counter",
+						currentInput.length > 100 ? "char-counter-visible" : "",
+						currentInput.length > 500
+							? "char-counter-highlight"
+							: currentInput.length > 200
+								? "char-counter-accent"
+							: ""
+					)}
+					aria-live="polite"
+				>
+					{currentInput.length > 100
+						? currentInput.length > 500
+							? `${currentInput.length} characters (long message)`
+							: `${currentInput.length} characters`
+						: "\u00A0"}
+				</span>
+			</div>
+		</div>
+	);
+
 	return (
 		<div className="chat-app-shell">
 			<header className="chat-header">
@@ -967,7 +1142,16 @@ useEffect(() => {
 							>
 								Switch to voice
 							</Button>
-						) : null}
+						) : (
+							<Button
+								variant="default"
+								size="lg"
+								className="chat-mode-button"
+								onClick={() => setMode("text")}
+							>
+								Switch to text
+							</Button>
+						)}
 					</div>
 				</div>
 			</header>
@@ -1016,188 +1200,17 @@ useEffect(() => {
 				</section>
 			) : null}
 
-	{isVoice ? (
-		<div className="voice-mode-stack">
-			<Card className="voice-mode-panel">
-				<div className="flex items-center justify-end">
-					<Button
-						variant="default"
-						size="lg"
-						className="chat-mode-button"
-						onClick={() => setMode("text")}
+			<main className={cn("chat-panel", isVoice ? "chat-panel--voice" : "")}>
+				<div className="chat-track">
+					<div
+						ref={transcriptContainerRef}
+						className={cn("chat-messages", isVoice ? "voice-messages" : "")}
 					>
-						Switch to text
-					</Button>
-				</div>
-				<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>
-				<p className="text-sm text-muted-foreground">
-					Answer out loud, or switch to text if you’d rather type this turn.
-				</p>
-			</Card>
-			{(showSuggestionPriming || canShowSuggestionCards) ? (
-				<section className="voice-suggestions" aria-label="Suggested directions">
-					{showSuggestionPriming ? (
-						<div className="suggestion-priming">
-							<div className="suggestion-priming__pulse" />
-							<div>
-								<p>That sparks a few ideas…</p>
-								<p>I’m lining them up now.</p>
-							</div>
-						</div>
-					) : null}
-					{canShowSuggestionCards ? (
-						<>
-							<div className="message ai-message suggestion-preface">
-								<div className="message-label">GUIDE</div>
-								<div className="message-content suggestion-preface-content">
-									That triggers some thoughts — do any of these look like your sort of thing?
-								</div>
-							</div>
-							<SuggestionCards
-								suggestions={pendingSuggestions}
-								variant="panel"
-								title="Ideas to react to"
-								description="Give each a quick reaction. Saved, maybe, or skipped cards head to your stash."
-								onReaction={handleSuggestionReaction}
-							/>
-						</>
-					) : null}
-				</section>
-			) : null}
-		</div>
-	) : (
-				<main className="chat-panel">
-					<div className="chat-track">
-						<div ref={transcriptContainerRef} className="chat-messages">
-						{turns.length === 0 ? (
-							(() => {
-								const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
-								return (
-									<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
-										<div className="message-label">GUIDE</div>
-										<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
-											{renderMessageContent(displayedQuestion)}
-										</div>
-									</div>
-								);
-							})()
-						) : (
-							turns.map((turn, index) => {
-								const isUser = turn.role === "user";
-								const { lengthClass, isLongText } = classifyMessageLength(turn.text);
-								const messageClasses = cn(
-									"message",
-									isUser ? "user-message" : "ai-message",
-									isLongText ? "long-text" : ""
-								);
-								const contentClasses = cn(
-									"message-content",
-									lengthClass,
-									isLongText ? "long-text" : ""
-								);
-
-								return (
-									<div
-										key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-										className={messageClasses}
-									>
-										<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
-										<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
-									</div>
-								);
-							})
-						)}
-				{showSuggestionPriming ? (
-					<div className="message ai-message suggestion-preface">
-						<div className="message-label">GUIDE</div>
-						<div className="message-content suggestion-preface-content">
-							That makes me think of a few things… give me a moment.
-						</div>
-						</div>
-					) : canShowSuggestionCards ? (
-						<>
-							<div className="message ai-message suggestion-preface">
-								<div className="message-label">GUIDE</div>
-								<div className="message-content suggestion-preface-content">
-									That triggers some thoughts — do any of these look like your sort of thing?
-								</div>
-							</div>
-							<div className="message ai-message suggestion-message">
-								<div className="message-label">CARDS</div>
-								<div className="message-content">
-									<SuggestionCards
-										suggestions={pendingSuggestions}
-										variant="inline"
-										showHeader={false}
-										emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
-										onReaction={handleSuggestionReaction}
-									/>
-								</div>
-							</div>
-						</>
-					) : null}
-				</div>
-				<div className="chat-input-panel">
-							<div className="message-input-wrapper">
-								<Textarea
-									ref={inputRef}
-									placeholder="Type something you’re into or curious about"
-									value={currentInput}
-								onChange={(event) => setCurrentInput(event.target.value)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter" && !event.shiftKey) {
-										event.preventDefault();
-										handleSubmit();
-									}
-								}}
-								className="message-input"
-								rows={1}
-								style={{ maxHeight: 180 }}
-							/>
-							<Button
-								type="button"
-								variant="default"
-								size="icon"
-								className="send-button"
-								onClick={handleSubmit}
-								disabled={!canSubmitText}
-								aria-label="Send message"
-							>
-								<ArrowUpRight aria-hidden />
-							</Button>
-						</div>
-						<div className="chat-input-meta">
-							<span
-								className={cn(
-									"char-counter",
-									currentInput.length > 100 ? "char-counter-visible" : "",
-									currentInput.length > 500
-										? "char-counter-highlight"
-										: currentInput.length > 200
-											? "char-counter-accent"
-										: ""
-								)}
-								aria-live="polite"
-							>
-								{currentInput.length > 100
-									? currentInput.length > 500
-										? `${currentInput.length} characters (long message)`
-										: `${currentInput.length} characters`
-									: "\u00A0"}
-							</span>
-						</div>
-						</div>
+						{conversationContent}
 					</div>
-				</main>
-			)}
-
-	{isVoice && <VoiceControls state={realtimeState} controls={realtimeControls} />}
-
-	{isVoice ? (
-		<div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-			We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds off.
-		</div>
-	) : null}
+					{footerContent}
+				</div>
+			</main>
 
 			<SuggestionBasket
 				open={isBasketOpen}
