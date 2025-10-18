@@ -203,7 +203,7 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 			<section className="passion-discovery">
 				<SectionHeader
 					eyebrow="Exploration signals"
-					title="What lights you up"
+					title="What you're into"
 					description="Celebrating the sparks that cropped up across the conversation."
 				/>
 				<div className="discovery-grid">

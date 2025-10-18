@@ -25,13 +25,13 @@ type Turn = ConversationTurn;
 const MUTUAL_EXPRESSION_REGEX = /\b(i['’]m|i am|i've|i was|my\s|i also|same here|me too)/i;
 
 const DEFAULT_OPENING =
-	"I’d love to have a quick chat to spot what actually lights you up. As we go, I’ll pin ideas you can give a thumbs up or down, and I’ll spin up a personal page you can share. To get started, what should I call you?";
+	"Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share. To start, what should I call you?";
 
 const REQUIRED_INSIGHT_KINDS: InsightKind[] = ["interest", "strength", "hope"];
 const FALLBACK_MIN_TURNS = 6;
 
 const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
-	interest: "what excites you",
+	interest: "what you're into",
 	strength: "what you’re good at",
 	constraint: "constraints",
 	goal: "goals",
@@ -42,11 +42,11 @@ const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
 };
 
 const INSIGHT_KIND_COACHING: Partial<Record<InsightKind, string>> = {
-	interest: "Ask what’s been lighting them up lately or what they can’t stop thinking about.",
+	interest: "Ask what they're into right now or what they've been working on.",
 	strength:
-		"Call out the strength you’re noticing using their own words (e.g. “Sounds like that eye for detail is a real strength”) and check how they lean on it when things click.",
+		"Point out what they're good at using their own words (e.g. 'Sounds like you're really good at noticing details') and ask how they use that skill.",
 	hope:
-		"If they seem unsure, float an outcome you’re hearing (\"Feels like part of you wants people to feel something from your shots\") and ask if that lands.",
+		"If they seem unsure, suggest what it sounds like they want ('Sounds like you want people to feel something from your photos') and ask if that's right.",
 };
 
 function looksLikeMutualMoment(text: string): boolean {
