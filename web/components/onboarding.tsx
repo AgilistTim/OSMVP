@@ -885,6 +885,37 @@ useEffect(() => {
 		}
 	}, [mode, setMode]);
 
+	// Mobile keyboard handling
+	useEffect(() => {
+		if (typeof window === 'undefined' || !window.visualViewport) return;
+		
+		const handleViewportResize = () => {
+			const inputPanel = document.querySelector('.chat-input-panel') as HTMLElement;
+			if (!inputPanel) return;
+			
+			const viewport = window.visualViewport!;
+			const viewportHeight = viewport.height;
+			const windowHeight = window.innerHeight;
+			const keyboardHeight = windowHeight - viewportHeight;
+			
+			if (keyboardHeight > 0) {
+				// Keyboard is open
+				inputPanel.style.transform = `translateY(-${keyboardHeight}px)`;
+			} else {
+				// Keyboard is closed
+				inputPanel.style.transform = 'translateY(0)';
+			}
+		};
+		
+		window.visualViewport.addEventListener('resize', handleViewportResize);
+		window.visualViewport.addEventListener('scroll', handleViewportResize);
+		
+		return () => {
+			window.visualViewport?.removeEventListener('resize', handleViewportResize);
+			window.visualViewport?.removeEventListener('scroll', handleViewportResize);
+		};
+	}, []);
+
 	const isVoice = mode === "voice";
 	const showProgressBar = progress < 100;
 	const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;

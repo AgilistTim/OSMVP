@@ -85,7 +85,7 @@
   --off-coral: #fdc0a8;
   --off-lavender: #cfceff;
   --off-bright-green: #81f08c;
-  --suggestion-card-width: clamp(240px, 68vw, 320px);
+  --suggestion-card-width: clamp(260px, 85vw, 340px);
   --suggestion-card-gap: clamp(20px, 5vw, 28px);
 }
 
@@ -767,7 +767,7 @@
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(80px, 18vh, 140px);
+  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(80px, 12vh, 140px);
   scroll-padding-top: clamp(18px, 3vw, 26px);
   scroll-padding-bottom: clamp(60px, 12vh, 120px);
   margin: 0;
@@ -784,14 +784,19 @@
 
 
 .chat-input-panel {
-  position: relative;
-  z-index: 1;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 0;
-  padding: clamp(14px, 3vw, 22px) clamp(16px, 5vw, 28px);
-  border-radius: clamp(20px, 3vw, 24px);
+  padding: clamp(14px, 3vw, 22px) clamp(16px, 5vw, 36px) max(26px, env(safe-area-inset-bottom) + 14px);
+  border-radius: clamp(20px, 3vw, 26px);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 1) 70%);
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.12);
