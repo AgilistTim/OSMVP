@@ -15,6 +15,7 @@ import { useRealtimeSession } from "@/hooks/use-realtime-session";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { SuggestionBasket } from "@/components/suggestion-basket";
 import { ArrowUpRight, Archive, FileText } from "lucide-react";
+import { ProfileInsightsBar } from "@/components/profile-insights-bar";
 
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
@@ -147,6 +148,7 @@ const [question, setQuestion] = useState<string>(DEFAULT_OPENING);
 
 	const transcriptContainerRef = useRef<HTMLDivElement | null>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
+	const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
 	const lastUserTranscriptIdRef = useRef<string | undefined>(undefined);
 	const lastUserTranscriptTextRef = useRef<string | undefined>(undefined);
@@ -349,32 +351,7 @@ useEffect(() => {
 		[]
 	);
 
-	const profileHighlights = useMemo(() => {
-		const unique = (items: string[]) => {
-			const seen = new Set<string>();
-			const result: string[] = [];
-			for (const item of items) {
-				const trimmed = item.trim();
-				if (!trimmed) continue;
-				const key = trimmed.toLowerCase();
-				if (seen.has(key)) continue;
-				seen.add(key);
-				result.push(trimmed);
-				if (result.length >= 4) break;
-			}
-			return result;
-		};
-		const interests = unique(profile.interests ?? []);
-		const strengths = unique(profile.strengths ?? []);
-		const goalsSource = profile.goals && profile.goals.length > 0 ? profile.goals : profile.hopes;
-		const goals = unique(goalsSource ?? []);
-		return {
-			interests,
-			strengths,
-			goals,
-			hasAny: interests.length > 0 || strengths.length > 0 || goals.length > 0,
-		};
-	}, [profile.goals, profile.hopes, profile.interests, profile.strengths]);
+	const profileInsights = useMemo(() => profile.insights ?? [], [profile.insights]);
 
 	const progress = useMemo(() => {
 		if (userTurnsCount === 0) return 20;
@@ -645,18 +622,10 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 }, [ensureRealtimeConnected, initialGuidance, insightGuidance, mode, realtimeControls, started, suggestionGuidance, turns.length]);
 
 useEffect(() => {
-	const container = transcriptContainerRef.current;
-	if (!container) return;
-	const turnCount = turns.length;
-	const shouldAnimate = turnCount > lastScrolledTurnCountRef.current;
-	requestAnimationFrame(() => {
-		container.scrollTo({
-			top: container.scrollHeight,
-			behavior: shouldAnimate ? "smooth" : "auto",
-		});
-	});
-	lastScrolledTurnCountRef.current = turnCount;
-}, [mode, turns.length, displayedQuestion, pendingSuggestions.length]);
+	const behavior: ScrollBehavior = lastScrolledTurnCountRef.current > 0 ? "smooth" : "auto";
+	messagesEndRef.current?.scrollIntoView({ behavior });
+	lastScrolledTurnCountRef.current = turns.length;
+}, [turns.length, suggestionRevealState, displayedQuestion, pendingSuggestions.length, mode]);
 
 	useEffect(() => {
 		return () => {
@@ -919,7 +888,43 @@ useEffect(() => {
 	const showProgressBar = progress < 100;
 	const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
 
-	const conversationContent = isVoice ? (
+	const profileActions = (
+		<div className="profile-actions-cluster">
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				className="profile-action-button idea-basket-trigger inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
+				onClick={() => setIsBasketOpen(true)}
+				aria-label="Open idea stash"
+			>
+				<Archive className="size-3.5" aria-hidden />
+				<span>Idea stash</span>
+				<span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">{totalBasketCount}</span>
+			</Button>
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				className="profile-action-button inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
+				onClick={() => router.push("/exploration")}
+				aria-label="See personal exploration page"
+			>
+				<FileText className="size-3.5" aria-hidden />
+				<span>Personal page</span>
+			</Button>
+			<Button
+				variant="default"
+				size="lg"
+				className="profile-action-button chat-mode-button"
+				onClick={() => setMode(isVoice ? "text" : "voice")}
+			>
+				{isVoice ? "Switch to text" : "Switch to voice"}
+			</Button>
+		</div>
+	);
+
+	const voiceConversation = (
 		<div className="voice-mode-stack">
 			<Card className="voice-mode-panel">
 				<div className="flex items-center justify-end">
@@ -963,84 +968,91 @@ useEffect(() => {
 				</section>
 			) : null}
 		</div>
-	) : turns.length === 0 ? (
-		(() => {
-			const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
-			return (
-				<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
-					<div className="message-label">GUIDE</div>
-					<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
-						{renderMessageContent(displayedQuestion)}
-					</div>
-				</div>
-			);
-		})()
-	) : (
-		<>
-			{turns.map((turn, index) => {
-				const isUser = turn.role === "user";
-				const { lengthClass, isLongText } = classifyMessageLength(turn.text);
-				const messageClasses = cn(
-					"message",
-					isUser ? "user-message" : "ai-message",
-					isLongText ? "long-text" : ""
-				);
-				const contentClasses = cn(
-					"message-content",
-					lengthClass,
-					isLongText ? "long-text" : ""
-				);
-
-				return (
-					<div
-						key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
-						className={messageClasses}
-					>
-						<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
-						<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
-					</div>
-				);
-			})}
-			{showSuggestionPriming ? (
-				<div className="message ai-message suggestion-preface">
-					<div className="message-label">GUIDE</div>
-					<div className="message-content suggestion-preface-content">
-						That makes me think of a few things… give me a moment.
-					</div>
-				</div>
-			) : canShowSuggestionCards ? (
-				<>
-					<div className="message ai-message suggestion-preface">
-						<div className="message-label">GUIDE</div>
-						<div className="message-content suggestion-preface-content">
-							That triggers some thoughts — do any of these look like your sort of thing?
-						</div>
-					</div>
-					<div className="message ai-message suggestion-message">
-						<div className="message-label">CARDS</div>
-						<div className="message-content">
-							<SuggestionCards
-								suggestions={pendingSuggestions}
-								variant="inline"
-								showHeader={false}
-								emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
-								onReaction={handleSuggestionReaction}
-							/>
-						</div>
-					</div>
-				</>
-			) : null}
-		</>
 	);
 
-	const footerContent = isVoice ? (
+	const textConversation =
+		turns.length === 0
+			? (() => {
+					const { lengthClass, isLongText } = classifyMessageLength(displayedQuestion);
+					return (
+						<div className={cn("message ai-message", isLongText ? "long-text" : "")}>
+							<div className="message-label">GUIDE</div>
+							<div className={cn("message-content", lengthClass, isLongText ? "long-text" : "")}>
+								{renderMessageContent(displayedQuestion)}
+							</div>
+						</div>
+					);
+				})()
+			: (
+				<>
+					{turns.map((turn, index) => {
+						const isUser = turn.role === "user";
+						const { lengthClass, isLongText } = classifyMessageLength(turn.text);
+						const messageClasses = cn(
+							"message",
+							isUser ? "user-message" : "ai-message",
+							isLongText ? "long-text" : ""
+						);
+						const contentClasses = cn(
+							"message-content",
+							lengthClass,
+							isLongText ? "long-text" : ""
+						);
+
+						return (
+							<div
+								key={`${turn.role}-${index}-${turn.text.slice(0, 8)}`}
+								className={messageClasses}
+							>
+								<div className="message-label">{isUser ? "YOU" : "GUIDE"}</div>
+								<div className={contentClasses}>{renderMessageContent(turn.text)}</div>
+							</div>
+						);
+					})}
+					{showSuggestionPriming ? (
+						<div className="message ai-message suggestion-preface">
+							<div className="message-label">GUIDE</div>
+							<div className="message-content suggestion-preface-content">
+								That makes me think of a few things… give me a moment.
+							</div>
+						</div>
+					) : canShowSuggestionCards ? (
+						<>
+							<div className="message ai-message suggestion-preface">
+								<div className="message-label">GUIDE</div>
+								<div className="message-content suggestion-preface-content">
+									That triggers some thoughts — do any of these look like your sort of thing?
+								</div>
+							</div>
+							<div className="message ai-message suggestion-message">
+								<div className="message-label">CARDS</div>
+								<div className="message-content">
+									<SuggestionCards
+										suggestions={pendingSuggestions}
+										variant="inline"
+										showHeader={false}
+										emptyState={<span>No cards right now. We’ll bring new ones shortly.</span>}
+										onReaction={handleSuggestionReaction}
+									/>
+								</div>
+							</div>
+						</>
+					) : null}
+				</>
+			);
+
+	const conversationContent = isVoice ? voiceConversation : textConversation;
+
+	const voiceFooterContent = (
 		<div className="voice-footer">
 			<VoiceControls state={realtimeState} controls={realtimeControls} />
 			<div className="voice-footer-note">
 				We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds off.
 			</div>
 		</div>
-	) : (
+	);
+
+	const textInputPanel = (
 		<div className="chat-input-panel">
 			<div className="message-input-wrapper">
 				<Textarea
@@ -1079,7 +1091,7 @@ useEffect(() => {
 							? "char-counter-highlight"
 							: currentInput.length > 200
 								? "char-counter-accent"
-							: ""
+								: ""
 					)}
 					aria-live="polite"
 				>
@@ -1093,124 +1105,33 @@ useEffect(() => {
 		</div>
 	);
 
+	const trackFooter = isVoice ? voiceFooterContent : <div className="chat-input-spacer" aria-hidden />;
+
 	return (
 		<div className="chat-app-shell">
 			<header className="chat-header">
-				<div className="flex flex-wrap items-start justify-between gap-3">
-					<div className="min-w-[200px] flex-1 space-y-2">
-						<div className="flex items-center justify-between gap-3">
-							<h2 className="text-lg font-medium">{header}</h2>
-							<span className="text-sm text-muted-foreground">{progress}%</span>
-						</div>
-						{showProgressBar ? <Progress value={progress} /> : null}
-						{insightStatusMessage ? (
-							<p className="text-xs text-muted-foreground">{insightStatusMessage}</p>
-						) : null}
-					</div>
-					<div className="flex flex-wrap items-center justify-end gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							className="idea-basket-trigger inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
-							onClick={() => setIsBasketOpen(true)}
-							aria-label="Open idea stash"
-						>
-							<Archive className="size-3.5" aria-hidden />
-							<span>Idea stash</span>
-							<span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">
-								{totalBasketCount}
-							</span>
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							className="inline-flex items-center gap-2 rounded-full border-border/70 bg-background/80 px-3 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-foreground transition hover:bg-background"
-							onClick={() => router.push("/exploration")}
-							aria-label="See personal exploration page"
-						>
-							<FileText className="size-3.5" aria-hidden />
-							<span>Personal page</span>
-						</Button>
-						{!isVoice ? (
-							<Button
-								variant="default"
-								size="lg"
-								className="chat-mode-button"
-								onClick={() => setMode("voice")}
-							>
-								Switch to voice
-							</Button>
-						) : (
-							<Button
-								variant="default"
-								size="lg"
-								className="chat-mode-button"
-								onClick={() => setMode("text")}
-							>
-								Switch to text
-							</Button>
-						)}
-					</div>
+				<div className="chat-header-top">
+					<h2 className="text-lg font-medium">{header}</h2>
+					<span className="text-sm text-muted-foreground">{progress}%</span>
 				</div>
+				{showProgressBar ? <Progress value={progress} /> : null}
+				{insightStatusMessage ? (
+					<p className="text-xs text-muted-foreground">{insightStatusMessage}</p>
+				) : null}
+				<ProfileInsightsBar insights={profileInsights} actions={profileActions} />
 			</header>
 
-			{profileHighlights.hasAny ? (
-				<section className="profile-inline-cards" aria-label="Profile highlights">
-					{profileHighlights.interests.length > 0 ? (
-						<article className="profile-inline-card" data-category="interests">
-							<h3 className="profile-inline-title">Interests</h3>
-							<ul className="profile-inline-list">
-								{profileHighlights.interests.map((item) => (
-									<li key={`interest-${item.toLowerCase()}`}>
-										<span className="profile-inline-dot" aria-hidden>○</span>
-										<span>{item}</span>
-									</li>
-								))}
-							</ul>
-						</article>
-					) : null}
-					{profileHighlights.strengths.length > 0 ? (
-						<article className="profile-inline-card" data-category="strengths">
-							<h3 className="profile-inline-title">Strengths</h3>
-							<ul className="profile-inline-list">
-								{profileHighlights.strengths.map((item) => (
-									<li key={`strength-${item.toLowerCase()}`}>
-										<span className="profile-inline-dot" aria-hidden>○</span>
-										<span>{item}</span>
-									</li>
-								))}
-							</ul>
-						</article>
-					) : null}
-					{profileHighlights.goals.length > 0 ? (
-						<article className="profile-inline-card" data-category="goals">
-							<h3 className="profile-inline-title">Goals</h3>
-							<ul className="profile-inline-list">
-								{profileHighlights.goals.map((item) => (
-									<li key={`goal-${item.toLowerCase()}`}>
-										<span className="profile-inline-dot" aria-hidden>○</span>
-										<span>{item}</span>
-									</li>
-								))}
-							</ul>
-						</article>
-					) : null}
-				</section>
-			) : null}
-
-			<main className={cn("chat-panel", isVoice ? "chat-panel--voice" : "")}>
-				<div className="chat-track">
-					<div
-						ref={transcriptContainerRef}
-						className={cn("chat-messages", isVoice ? "voice-messages" : "")}
-					>
-						{conversationContent}
-					</div>
-					{footerContent}
-				</div>
+			<main className={cn("chat-panel", isVoice ? "chat-panel--voice" : "")}> 
+				<div className="chat-track"> 
+					<div ref={transcriptContainerRef} className={cn("chat-messages", isVoice ? "voice-messages" : "")}> 
+						{conversationContent} 
+						<div ref={messagesEndRef} /> 
+					</div> 
+					{trackFooter} 
+				</div> 
 			</main>
+
+			{!isVoice ? <div className="chat-input-dock">{textInputPanel}</div> : null}
 
 			<SuggestionBasket
 				open={isBasketOpen}
