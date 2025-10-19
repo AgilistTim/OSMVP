@@ -941,57 +941,12 @@ useEffect(() => {
 		}
 	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls]);
 
-	// Mobile keyboard handling - improved approach
-	// iOS Safari keyboard handling using visualViewport API
+	// Simple auto-scroll to bottom when new messages arrive
 	useEffect(() => {
-		if (typeof window === 'undefined' || !window.visualViewport) return;
-		
-		const inputDock = document.querySelector('.chat-input-dock') as HTMLElement;
-		const messagesContainer = document.querySelector('.chat-messages') as HTMLElement;
-		
-		// Get input dock height dynamically
-		const getInputHeight = () => {
-			const inputPanel = document.querySelector('.chat-input-panel') as HTMLElement;
-			return inputPanel?.offsetHeight || 100; // fallback to 100px
-		};
-		
-		const handleViewportChange = () => {
-			if (!window.visualViewport || !inputDock) return;
-			
-			const viewport = window.visualViewport;
-			const inputHeight = getInputHeight();
-			
-			// Calculate top position: viewportHeight + scrollY - elementHeight
-			const topPosition = viewport.height + window.scrollY - inputHeight;
-			
-			// Apply position using transform
-			inputDock.style.transform = `translateY(${topPosition}px)`;
-			
-			// Scroll messages to keep content visible when keyboard opens
-			if (messagesContainer && viewport.height < window.innerHeight * 0.75) {
-				setTimeout(() => {
-					messagesContainer.scrollTo({
-						top: messagesContainer.scrollHeight,
-						behavior: 'smooth'
-					});
-				}, 100);
-			}
-		};
-		
-		// Run on mount
-		handleViewportChange();
-		
-		// Listen to all relevant events
-		window.visualViewport.addEventListener('resize', handleViewportChange);
-		window.visualViewport.addEventListener('scroll', handleViewportChange);
-		window.addEventListener('touchmove', handleViewportChange);
-		
-		return () => {
-			window.visualViewport?.removeEventListener('resize', handleViewportChange);
-			window.visualViewport?.removeEventListener('scroll', handleViewportChange);
-			window.removeEventListener('touchmove', handleViewportChange);
-		};
-	}, []);
+		if (messagesEndRef.current) {
+			messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+		}
+	}, [turns.length]);
 
 	const isVoice = mode === "voice";
 	const showProgressBar = progress < 100;
