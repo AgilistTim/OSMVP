@@ -115,6 +115,8 @@ export function ChatIntegrated() {
     if (turnsSnapshot.length === lastInsightsTurnCountRef.current) return;
     lastInsightsTurnCountRef.current = turnsSnapshot.length;
 
+    console.log('deriveInsights called with', turnsSnapshot.length, 'turns');
+
     try {
       const response = await fetch('/api/profile/insights', {
         method: 'POST',
@@ -140,6 +142,7 @@ export function ChatIntegrated() {
           source?: 'assistant' | 'user' | 'system';
         }>;
       };
+      console.log('Insights API returned:', data.insights);
       if (Array.isArray(data.insights)) {
         appendProfileInsights(
           data.insights
@@ -154,6 +157,7 @@ export function ChatIntegrated() {
               source: item.source ?? 'assistant',
             }))
         );
+        console.log('Called appendProfileInsights with', data.insights.length, 'insights');
       }
     } catch (err) {
       console.error('Failed to derive profile insights', err);
@@ -350,9 +354,7 @@ export function ChatIntegrated() {
           <Button
             variant="outline"
             className="btn-personal-page"
-            onClick={() => {
-              /* TODO: Navigate to personal page */
-            }}
+            onClick={() => router.push('/exploration')}
           >
             <FileText className="w-4 h-4" />
             PERSONAL PAGE
