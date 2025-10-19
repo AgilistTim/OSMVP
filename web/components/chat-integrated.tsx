@@ -99,6 +99,18 @@ export function ChatIntegrated() {
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
   const suggestionsLastInsightCountRef = useRef(0);
+  
+  // Track all suggestions that have ever been shown (for vote persistence)
+  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
+  
+  // Initialize allSuggestionsRef with existing suggestions from session
+  useEffect(() => {
+    suggestions.forEach(s => {
+      if (!allSuggestionsRef.current.has(s.id)) {
+        allSuggestionsRef.current.set(s.id, s);
+      }
+    });
+  }, [suggestions]);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
@@ -394,13 +406,24 @@ export function ChatIntegrated() {
             }))
             .sort((a, b) => b.score - a.score);
 
+          // Store all new suggestions in our persistent map
+          normalized.forEach(s => {
+            allSuggestionsRef.current.set(s.id, s);
+          });
+          
           // Preserve existing voted cards that aren't in the new suggestions
           const votedSuggestionIds = new Set(
             Object.keys(votesByCareerId).filter(id => votesByCareerId[id] !== undefined)
           );
-          const existingVotedCards = suggestions.filter(s => votedSuggestionIds.has(s.id));
           const newSuggestionIds = new Set(normalized.map(s => s.id));
-          const votedCardsNotInNewSet = existingVotedCards.filter(s => !newSuggestionIds.has(s.id));
+          
+          // Get voted cards from our persistent map (not from current suggestions)
+          const votedCardsNotInNewSet: typeof normalized = [];
+          votedSuggestionIds.forEach(id => {
+            if (!newSuggestionIds.has(id) && allSuggestionsRef.current.has(id)) {
+              votedCardsNotInNewSet.push(allSuggestionsRef.current.get(id)!);
+            }
+          });
           
           // Merge new suggestions with existing voted cards
           setSuggestions([...normalized, ...votedCardsNotInNewSet]);
