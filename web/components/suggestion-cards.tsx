@@ -99,6 +99,7 @@ export function SuggestionCards({
 		showEnd: false,
 	});
 	const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(null);
+	const [activeCardIndex, setActiveCardIndex] = useState(0);
 	const [displayCards, setDisplayCards] = useState<DisplayCard[]>(
 		suggestions.map((suggestion) => ({ suggestion, state: "idle" }))
 	);
@@ -187,6 +188,12 @@ export function SuggestionCards({
 				}
 				return next;
 			});
+			
+			// Calculate active card index based on scroll position
+			const cardWidth = container.querySelector('.suggestion-card')?.clientWidth || 300;
+			const gap = 16; // approximate gap
+			const newIndex = Math.round(scrollLeft / (cardWidth + gap));
+			setActiveCardIndex(Math.max(0, Math.min(newIndex, cardsToRender.length - 1)));
 		};
 
 		const scheduleUpdate = () => {
@@ -380,11 +387,27 @@ export function SuggestionCards({
 								</Card>
 							);
 						})
-					)}
-				</div>
+				)}
 			</div>
+			
+			{/* Scroll indicator dots - only show for carousel layout with multiple cards */}
+			{isCarouselLayout && cardsToRender.length > 1 && (
+				<div className="suggestion-scroll-indicator" aria-label={`Card ${activeCardIndex + 1} of ${cardsToRender.length}`}>
+					{cardsToRender.map((_, index) => (
+						<div
+							key={index}
+							className={cn(
+								"scroll-dot",
+								index === activeCardIndex ? "active" : ""
+							)}
+							aria-hidden="true"
+						/>
+					))}
+				</div>
+			)}
+		</div>
 
-			<Drawer open={Boolean(activeSuggestion)} onOpenChange={handleDrawerChange}>
+		<Drawer open={Boolean(activeSuggestion)} onOpenChange={handleDrawerChange}>
 				<DrawerContent className="suggestion-detail-drawer gap-0 rounded-t-3xl border border-border bg-background/95 shadow-xl">
 					<DrawerHeader className="suggestion-detail-header space-y-2">
 						{activeSuggestion ? (

@@ -930,15 +930,21 @@
 }
 
 .voice-suggestions .suggestion-track {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(220px, 42vw, 320px), 1fr));
+  /* Use same horizontal scroll as text mode */
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
   gap: var(--suggestion-card-gap);
-  padding: 0;
+  padding: 0 clamp(16px, 5vw, 40px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .voice-suggestions .suggestion-card {
-  min-height: 100%;
-  width: 100%;
+  flex: 0 0 var(--suggestion-card-width);
+  scroll-snap-align: center;
+  min-height: auto;
+  width: var(--suggestion-card-width);
 }
 
 
@@ -1388,6 +1394,29 @@
 
 .suggestion-card .message-label {
   display: none;
+}
+
+/* Scroll indicator dots for card carousel */
+.suggestion-scroll-indicator {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 16px 0 8px;
+  margin-top: 4px;
+}
+
+.scroll-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.scroll-dot.active {
+  width: 20px;
+  border-radius: 3px;
+  background: var(--lime);
 }
 
 .suggestion-gate,

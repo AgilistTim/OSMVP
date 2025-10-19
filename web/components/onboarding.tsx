@@ -834,7 +834,7 @@ useEffect(() => {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [insightCoverage.isReady, profile.insights, setSuggestions, suggestions, votesByCareerId]);
+		}, [insightCoverage.isReady, profile.insights, setSuggestions, votesByCareerId]);
 
 	useEffect(() => {
 		if (!insightCoverage.isReady) {
@@ -877,13 +877,26 @@ useEffect(() => {
 				suggestionRevealTimeoutRef.current = null;
 			}
 		};
-	}, [insightCoverage.isReady, setSuggestionReveal, suggestions.length, suggestionsKey]);
+	}, [insightCoverage.isReady, setSuggestionReveal, suggestionsKey]);
 
 	useEffect(() => {
 		if (!mode) {
 			setMode("text");
 		}
 	}, [mode, setMode]);
+
+	// Auto-scroll to top when entering voice mode
+	useEffect(() => {
+		if (mode === 'voice') {
+			// Scroll window to top
+			window.scrollTo({ top: 0, behavior: 'smooth' });
+			
+			// Also scroll transcript container to top
+			if (transcriptContainerRef.current) {
+				transcriptContainerRef.current.scrollTop = 0;
+			}
+		}
+	}, [mode]);
 
 	// Mobile keyboard handling
 	useEffect(() => {
