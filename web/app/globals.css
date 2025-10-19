@@ -1957,6 +1957,10 @@ body {
   touch-action: pan-y;
 }
 
+.idea-basket-body .suggestion-card * {
+  touch-action: pan-y;
+}
+
 @keyframes suggestionCardEnter {
   from {
     opacity: 0;
@@ -2386,6 +2390,10 @@ body {
   }
 
   .idea-basket-body .suggestion-card {
+    touch-action: pan-y;
+  }
+
+  .idea-basket-body .suggestion-card * {
     touch-action: pan-y;
   }
 
