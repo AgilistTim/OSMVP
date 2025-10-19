@@ -12,7 +12,7 @@ import {
 } from '@chatscope/chat-ui-kit-react';
 import './chat-integrated.css';
 import { useSession } from '@/components/session-provider';
-import type { ConversationTurn } from '@/components/session-provider';
+import type { ConversationTurn, InsightKind } from '@/components/session-provider';
 import { SuggestionCards } from '@/components/suggestion-cards';
 import { ProfileInsightsBar } from '@/components/profile-insights-bar';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,9 @@ export function ChatIntegrated() {
     setTurns,
     suggestions,
     votesByCareerId,
+    appendProfileInsights,
+    setSuggestions,
+    sessionId,
   } = useSession();
 
   // Compute suggestion groups from votes
@@ -80,6 +83,9 @@ export function ChatIntegrated() {
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastInsightsTurnCountRef = useRef(0);
+  const suggestionsFetchInFlightRef = useRef(false);
+  const suggestionsLastInsightCountRef = useRef(0);
 
   // Convert turns to chat-ui-kit message format
   const messages: MessageType[] = useMemo(() => {
@@ -102,6 +108,58 @@ export function ChatIntegrated() {
       };
     });
   }, [turns]);
+
+  // Derive insights from conversation
+  const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
+    const lastTurn = turnsSnapshot.at(-1);
+    if (!lastTurn || lastTurn.role !== 'user') return;
+    if (turnsSnapshot.length === lastInsightsTurnCountRef.current) return;
+    lastInsightsTurnCountRef.current = turnsSnapshot.length;
+
+    try {
+      const response = await fetch('/api/profile/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          turns: turnsSnapshot,
+          existingInsights: (profile.insights ?? []).map((insight) => ({
+            kind: insight.kind,
+            value: insight.value,
+          })),
+        }),
+      });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json() as {
+        insights?: Array<{
+          kind: string;
+          value: string;
+          confidence?: 'low' | 'medium' | 'high';
+          evidence?: string;
+          source?: 'assistant' | 'user' | 'system';
+        }>;
+      };
+      if (Array.isArray(data.insights)) {
+        appendProfileInsights(
+          data.insights
+            .filter(
+              (item) => typeof item?.kind === 'string' && typeof item?.value === 'string'
+            )
+            .map((item) => ({
+              kind: item.kind as InsightKind,
+              value: item.value,
+              confidence: item.confidence,
+              evidence: item.evidence,
+              source: item.source ?? 'assistant',
+            }))
+        );
+      }
+    } catch (err) {
+      console.error('Failed to derive profile insights', err);
+    }
+  }, [appendProfileInsights, profile.insights, sessionId]);
 
   // Send message to AI
   const handleSend = useCallback(async (message: string) => {
@@ -146,7 +204,11 @@ export function ChatIntegrated() {
           text: data.reply,
         };
         console.log('Adding assistant turn:', assistantTurn);
-        setTurns((prev) => [...prev, assistantTurn]);
+        const nextTurns = [...turns, userTurn, assistantTurn];
+        setTurns(nextTurns);
+        
+        // Derive insights from the conversation
+        void deriveInsights(nextTurns);
       } else {
         console.warn('No reply in API response:', data);
       }
@@ -161,12 +223,92 @@ export function ChatIntegrated() {
     } finally {
       setIsTyping(false);
     }
-  }, [turns, profile, suggestions, setTurns]);
+  }, [turns, profile, suggestions, setTurns, deriveInsights]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  // Fetch career suggestions based on insights
+  useEffect(() => {
+    const insightCount = profile.insights.length;
+    const lastCount = suggestionsLastInsightCountRef.current;
+    const hasEnoughInsights = insightCount >= 3;
+
+    const shouldFetch =
+      hasEnoughInsights &&
+      !suggestionsFetchInFlightRef.current &&
+      (suggestions.length === 0 || insightCount > lastCount);
+
+    if (!shouldFetch) {
+      return;
+    }
+
+    suggestionsFetchInFlightRef.current = true;
+    void (async () => {
+      try {
+        const response = await fetch('/api/suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            insights: profile.insights.map((insight) => ({
+              kind: insight.kind,
+              value: insight.value,
+            })),
+            limit: 3,
+            votes: votesByCareerId,
+          }),
+        });
+        if (!response.ok) {
+          throw new Error(`Suggestions request failed: ${response.status}`);
+        }
+        const data = await response.json() as {
+          suggestions?: Array<{
+            id?: string;
+            title?: string;
+            summary?: string;
+            careerAngles?: string[];
+            nextSteps?: string[];
+            whyItFits?: string[];
+            confidence?: 'high' | 'medium' | 'low';
+            score?: number;
+            neighborTerritories?: string[];
+            distance?: 'core' | 'adjacent' | 'unexpected';
+          }>;
+        };
+        if (Array.isArray(data.suggestions)) {
+          const normalized = data.suggestions
+            .filter(
+              (item) =>
+                typeof item?.id === 'string' &&
+                typeof item?.title === 'string' &&
+                typeof item?.summary === 'string'
+            )
+            .map((item) => ({
+              id: item.id!,
+              title: item.title!,
+              summary: item.summary!,
+              careerAngles: item.careerAngles ?? [],
+              nextSteps: item.nextSteps ?? [],
+              whyItFits: item.whyItFits ?? [],
+              confidence: item.confidence ?? 'medium',
+              score: item.score ?? 0,
+              neighborTerritories: item.neighborTerritories ?? [],
+              distance: item.distance === 'adjacent' || item.distance === 'unexpected' ? item.distance : 'core' as const,
+            }))
+            .sort((a, b) => b.score - a.score);
+
+          setSuggestions(normalized);
+          suggestionsLastInsightCountRef.current = insightCount;
+        }
+      } catch (error) {
+        console.error('Failed to load suggestions', error);
+      } finally {
+        suggestionsFetchInFlightRef.current = false;
+      }
+    })();
+  }, [profile.insights, setSuggestions, votesByCareerId, suggestions.length]);
 
   const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
   const showProgressBar = progress < 100;
