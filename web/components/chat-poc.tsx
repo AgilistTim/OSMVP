@@ -97,6 +97,7 @@ export function ChatPOC() {
                   sentTime: msg.sentTime,
                   sender: msg.sender,
                   direction: msg.direction,
+                  position: 'single',
                 }}
               />
             ))}
