@@ -168,7 +168,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log('[SessionProvider] Initializing votesByCareerId');
 		return {};
 	});
-	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>([]);
+	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>(() => {
+		console.log('[SessionProvider] Initializing suggestions');
+		return [];
+	});
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());

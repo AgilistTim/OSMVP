@@ -305,8 +305,18 @@ export function ChatIntegrated() {
             }))
             .sort((a, b) => b.score - a.score);
 
-          setSuggestions(normalized);
+          // Preserve existing voted cards that aren't in the new suggestions
+          const votedSuggestionIds = new Set(
+            Object.keys(votesByCareerId).filter(id => votesByCareerId[id] !== undefined)
+          );
+          const existingVotedCards = suggestions.filter(s => votedSuggestionIds.has(s.id));
+          const newSuggestionIds = new Set(normalized.map(s => s.id));
+          const votedCardsNotInNewSet = existingVotedCards.filter(s => !newSuggestionIds.has(s.id));
+          
+          // Merge new suggestions with existing voted cards
+          setSuggestions([...normalized, ...votedCardsNotInNewSet]);
           suggestionsLastInsightCountRef.current = insightCount;
+          console.log('[Suggestions] Merged', normalized.length, 'new cards with', votedCardsNotInNewSet.length, 'existing voted cards');
         }
       } catch (error) {
         console.error('Failed to load suggestions', error);
