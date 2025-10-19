@@ -2,6 +2,18 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+
+/* iOS Safari keyboard fixes - based on Perplexity research */
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior-y: contain;
+}
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -701,7 +713,7 @@
 .chat-app-shell {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
+  height: 100svh; /* Small viewport height - accounts for keyboard */
   width: 100%;
   max-width: 960px;
   margin: 0 auto;

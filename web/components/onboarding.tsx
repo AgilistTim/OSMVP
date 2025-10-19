@@ -948,6 +948,26 @@ useEffect(() => {
 		}
 	}, [turns.length]);
 
+	// iOS keyboard handling - adjust container height when keyboard opens
+	useEffect(() => {
+		if (typeof window === 'undefined' || !window.visualViewport) return;
+
+		const handleResize = () => {
+			const shell = document.querySelector('.chat-app-shell') as HTMLElement;
+			if (shell && window.visualViewport) {
+				shell.style.height = `${window.visualViewport.height}px`;
+			}
+		};
+
+		window.visualViewport.addEventListener('resize', handleResize);
+		// Run once on mount
+		handleResize();
+
+		return () => {
+			window.visualViewport?.removeEventListener('resize', handleResize);
+		};
+	}, []);
+
 	const isVoice = mode === "voice";
 	const showProgressBar = progress < 100;
 	const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
