@@ -111,8 +111,7 @@ export function ChatIntegrated() {
 
   // Derive insights from conversation
   const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
-    const lastTurn = turnsSnapshot.at(-1);
-    if (!lastTurn || lastTurn.role !== 'user') return;
+    if (turnsSnapshot.length === 0) return;
     if (turnsSnapshot.length === lastInsightsTurnCountRef.current) return;
     lastInsightsTurnCountRef.current = turnsSnapshot.length;
 
