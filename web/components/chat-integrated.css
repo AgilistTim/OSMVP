@@ -1,0 +1,191 @@
+/* Offscript Chat Integrated Styling */
+
+.chat-integrated-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+/* Profile Insights */
+.profile-insights-container {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* Custom Header */
+.offscript-header {
+  flex-shrink: 0;
+  background: white;
+  padding: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.progress-section {
+  margin-bottom: 16px;
+}
+
+.progress-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 8px;
+  margin-bottom: 8px;
+}
+
+.progress-subtitle {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-idea-stash {
+  background: #d1fae5;
+  border: 1px solid #10b981;
+  color: #065f46;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.btn-idea-stash .badge {
+  background: #065f46;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.btn-personal-page {
+  background: #dbeafe;
+  border: 1px solid #3b82f6;
+  color: #1e40af;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-voice {
+  background: #1f2937;
+  color: white;
+  font-weight: 600;
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Suggestions Container */
+.suggestions-container {
+  flex-shrink: 0;
+  padding: 16px;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Chat UI Kit Overrides for Offscript Branding */
+
+/* Main container takes remaining space */
+.cs-main-container {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Incoming messages (AI) - Yellow */
+.cs-message--incoming .cs-message__content {
+  background: #fef08a !important;
+  color: #1f2937 !important;
+  border-radius: 16px !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Outgoing messages (User) - Mint to Coral Gradient */
+.cs-message--outgoing .cs-message__content {
+  background: linear-gradient(135deg, #d1fae5 0%, #fecaca 100%) !important;
+  color: #1f2937 !important;
+  border-radius: 16px !important;
+  padding: 12px 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Message input styling */
+.cs-message-input {
+  background: white !important;
+  border: 2px solid #e5e7eb !important;
+  border-radius: 24px !important;
+  padding: 8px 16px !important;
+}
+
+.cs-message-input:focus-within {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.cs-message-input__content-editor {
+  font-size: 16px !important;
+}
+
+/* Send button */
+.cs-button--send {
+  background: #10b981 !important;
+  border-radius: 50% !important;
+  width: 40px !important;
+  height: 40px !important;
+}
+
+.cs-button--send:hover {
+  background: #059669 !important;
+}
+
+/* Typing indicator */
+.cs-typing-indicator {
+  background: #fef08a !important;
+  border-radius: 16px !important;
+  padding: 12px 16px !important;
+}
+
+/* Message list */
+.cs-message-list {
+  padding: 16px !important;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+}
+
+/* Scrollbar styling */
+.cs-message-list__scroll-wrapper::-webkit-scrollbar {
+  width: 8px;
+}
+
+.cs-message-list__scroll-wrapper::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 4px;
+}
+
+.cs-message-list__scroll-wrapper::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 4px;
+}
+
+.cs-message-list__scroll-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
