@@ -96,10 +96,20 @@
 .suggestions-container {
   flex-shrink: 0;
   padding: 16px;
+  padding-bottom: 24px; /* Extra padding for mobile to ensure buttons are reachable */
   background: white;
   border-bottom: 1px solid #e5e7eb;
-  max-height: 300px;
+  max-height: 50vh; /* Use viewport height instead of fixed pixels */
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .suggestions-container {
+    max-height: 60vh; /* More space on mobile */
+    padding-bottom: 32px; /* Extra padding to ensure voting buttons are visible */
+  }
 }
 
 /* Chat UI Kit Overrides for Offscript Branding */

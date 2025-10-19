@@ -141,10 +141,39 @@ Return strictly formatted JSON with:
 - summary: optional short (<= 2 sentences) recap of the new information learned in this turn.
 - readiness: one of G1, G2, G3, G4 reflecting the user's current career readiness based on the full conversation so far.
 
+## Insight Type Definitions
+
+**interest**: Things they're drawn to, enjoy, or spend time on
+- Examples: "building AI voice tools", "watching YouTube about tech", "helping ADHD communities"
+
+**strength**: Skills, abilities, or qualities they demonstrate or claim
+- Examples: "focus and productivity", "building tools", "problem-solving", "getting things done"
+- Look for: "I built", "I can", "I'm good at", "I get them done", past accomplishments
+
+**goal**: Concrete outcomes they want to achieve
+- Examples: "sell the goal-setting tool", "start a business", "make it into a product"
+- Look for: "I want to", "I'm going to", "I plan to", "turn it into"
+
+**hope**: Aspirations or desires for the future (more abstract than goals)
+- Examples: "help people focus better", "make a difference"
+
+**frustration**: Pain points or challenges they face
+- Examples: "can't focus", "struggling with", "annoyed by"
+
+**constraint**: Limitations or boundaries affecting their choices
+- Examples: "no time", "limited budget", "need to finish school first"
+
+**boundary**: Personal limits or non-negotiables
+- Examples: "won't work weekends", "must be remote"
+
+**highlight**: Notable moments or achievements worth remembering
+- Examples: "built a Pomodoro calendar tool", "solved a real problem for myself"
+
 Guidelines:
 - Only add NEW insights that are not already present in this list: ${existingSummary}.
 - Capture the user's actual wording wherever possible (e.g. "obsessed with all-night beat-making" instead of "music production interest").
 - Make each insight specific and actionable.
+- **Be aggressive in extracting strengths and goals** - if they mention building something, that's a strength; if they mention wanting to sell it, that's a goal.
 - Base evidence on the provided conversation turns. If a fact is inferred, note the reasoning in the evidence field.
 - If no new insights are present, return an empty array.
 - Maintain a supportive coaching interpretation in the summary.`;
