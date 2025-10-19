@@ -942,43 +942,54 @@ useEffect(() => {
 	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls]);
 
 	// Mobile keyboard handling - improved approach
+	// iOS Safari keyboard handling using visualViewport API
 	useEffect(() => {
 		if (typeof window === 'undefined' || !window.visualViewport) return;
 		
-		const appShell = document.querySelector('.chat-app-shell') as HTMLElement;
+		const inputDock = document.querySelector('.chat-input-dock') as HTMLElement;
 		const messagesContainer = document.querySelector('.chat-messages') as HTMLElement;
 		
+		// Get input dock height dynamically
+		const getInputHeight = () => {
+			const inputPanel = document.querySelector('.chat-input-panel') as HTMLElement;
+			return inputPanel?.offsetHeight || 100; // fallback to 100px
+		};
+		
 		const handleViewportChange = () => {
-			if (!window.visualViewport) return;
+			if (!window.visualViewport || !inputDock) return;
 			
 			const viewport = window.visualViewport;
-			// Detect keyboard by checking if viewport height is significantly smaller than window height
-			const isKeyboardOpen = viewport.height < window.innerHeight * 0.75;
+			const inputHeight = getInputHeight();
 			
-			if (isKeyboardOpen) {
-				// Add class to trigger CSS changes
-				appShell?.classList.add('keyboard-open');
-				// Scroll messages to bottom to keep content visible
-				if (messagesContainer) {
-					setTimeout(() => {
-						messagesContainer.scrollTo({
-							top: messagesContainer.scrollHeight,
-							behavior: 'smooth'
-						});
-					}, 100);
-				}
-			} else {
-				// Remove class when keyboard closes
-				appShell?.classList.remove('keyboard-open');
+			// Calculate top position: viewportHeight + scrollY - elementHeight
+			const topPosition = viewport.height + window.scrollY - inputHeight;
+			
+			// Apply position using transform
+			inputDock.style.transform = `translateY(${topPosition}px)`;
+			
+			// Scroll messages to keep content visible when keyboard opens
+			if (messagesContainer && viewport.height < window.innerHeight * 0.75) {
+				setTimeout(() => {
+					messagesContainer.scrollTo({
+						top: messagesContainer.scrollHeight,
+						behavior: 'smooth'
+					});
+				}, 100);
 			}
 		};
 		
+		// Run on mount
+		handleViewportChange();
+		
+		// Listen to all relevant events
 		window.visualViewport.addEventListener('resize', handleViewportChange);
 		window.visualViewport.addEventListener('scroll', handleViewportChange);
+		window.addEventListener('touchmove', handleViewportChange);
 		
 		return () => {
 			window.visualViewport?.removeEventListener('resize', handleViewportChange);
 			window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+			window.removeEventListener('touchmove', handleViewportChange);
 		};
 	}, []);
 

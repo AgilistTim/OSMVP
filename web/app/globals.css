@@ -699,6 +699,7 @@
 }
 
 .chat-app-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
@@ -786,10 +787,7 @@
 
 
 .chat-input-panel {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
@@ -2390,12 +2388,11 @@
   }
 }
 .chat-input-dock {
-  position: fixed;
+  position: absolute;
   left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0;
+  width: 100%;
   z-index: 40;
-  padding: 0;
   pointer-events: none;
 }
 
@@ -2562,12 +2559,5 @@
 }
 
 
-/* Mobile keyboard handling - adjust layout when keyboard is open */
-.chat-app-shell.keyboard-open .chat-input-spacer {
-  height: clamp(60px, 12vh, 90px);
-}
-
-.chat-app-shell.keyboard-open .chat-messages {
-  padding-bottom: clamp(18px, 3vh, 24px);
-}
+/* Mobile keyboard handling via visualViewport API in JavaScript */
 
