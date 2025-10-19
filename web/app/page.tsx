@@ -1,13 +1,34 @@
 "use client";
 
-import { Onboarding } from "@/components/onboarding";
 import { useSession } from "@/components/session-provider";
 import { WelcomeScreen } from "@/components/welcome-screen";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 function Content() {
 	const { started } = useSession();
+	const router = useRouter();
+	
+	// Redirect to chat-integrated when session starts
+	useEffect(() => {
+		if (started) {
+			router.push('/chat-integrated');
+		}
+	}, [started, router]);
+	
 	if (!started) return <WelcomeScreen />;
-	return <Onboarding />;
+	
+	// Show loading state during redirect
+	return (
+		<div style={{ 
+			display: 'flex', 
+			alignItems: 'center', 
+			justifyContent: 'center', 
+			minHeight: '100vh' 
+		}}>
+			<p>Loading...</p>
+		</div>
+	);
 }
 
 export default function Home() {
