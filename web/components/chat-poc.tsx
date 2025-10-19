@@ -54,12 +54,12 @@ export function ChatPOC() {
       {/* Custom Offscript Header */}
       <div className="offscript-header">
         <div className="progress-section">
-          <div className="progress-title">Let's keep it rolling.</div>
+          <div className="progress-title">Let&apos;s keep it rolling.</div>
           <div className="progress-bar">
             <div className="progress-fill" style={{ width: '20%' }}></div>
           </div>
           <div className="progress-subtitle">
-            Need a touch more on what you're into, what you're good at, and hopes before I pin fresh idea cards.
+            Need a touch more on what you&apos;re into, what you&apos;re good at, and hopes before I pin fresh idea cards.
           </div>
         </div>
         
