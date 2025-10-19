@@ -86,7 +86,7 @@ export function SuggestionBasket({
 					</div>
 				</DrawerHeader>
 
-				<div className="idea-basket-body space-y-10 overflow-y-auto px-6 pb-8 pt-2">
+				<div className="idea-basket-body space-y-10 overflow-y-auto px-6 pb-8 pt-2 max-h-[60vh]">
 					{hasContent ? (
 						sectionOrder.map(({ key, title, icon: Icon, items, description }) => (
 							<Fragment key={key}>
