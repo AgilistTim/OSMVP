@@ -767,7 +767,7 @@
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(90px, 15vh, 130px);
+  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(24px, 4vh, 36px);
   scroll-padding-top: clamp(18px, 3vw, 26px);
   scroll-padding-bottom: clamp(60px, 12vh, 120px);
   margin: 0;
@@ -784,13 +784,8 @@
 
 
 .chat-input-panel {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   width: 100%;
-  max-width: 960px;
-  margin: 0 auto;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -2388,13 +2383,10 @@
   }
 }
 .chat-input-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: max(0px, env(safe-area-inset-bottom));
+  position: static;
   z-index: 40;
-  padding: clamp(12px, 5vw, 20px) clamp(14px, 6vw, 28px) max(12px, calc(18px - env(safe-area-inset-bottom)));
-  pointer-events: none;
+  padding: 0;
+  pointer-events: auto;
 }
 
 .chat-input-dock .chat-input-panel {
@@ -2402,7 +2394,7 @@
 }
 
 .chat-input-spacer {
-  height: clamp(96px, 24vh, 150px);
+  display: none;
 }
 
 .profile-insights-bar {
@@ -2559,13 +2551,12 @@
 }
 
 
-/* Mobile keyboard handling - reduce padding when keyboard is open */
+/* Mobile keyboard handling - adjust layout when keyboard is open */
 .chat-app-shell.keyboard-open .chat-messages {
-  padding-bottom: clamp(60px, 10vh, 90px);
+  padding-bottom: clamp(18px, 3vh, 24px);
 }
 
-.chat-app-shell.keyboard-open .chat-input-panel {
-  /* Ensure input stays visible and no transform applied */
-  transform: none !important;
+.chat-app-shell.keyboard-open .chat-footer {
+  margin-top: 0;
 }
 
