@@ -100,17 +100,19 @@ export function ChatIntegrated() {
   const suggestionsFetchInFlightRef = useRef(false);
   const suggestionsLastInsightCountRef = useRef(0);
 
+  // Ensure initial message is added to turns on mount
+  useEffect(() => {
+    if (turns.length === 0) {
+      const initialTurn: ConversationTurn = {
+        role: 'assistant',
+        text: DEFAULT_OPENING,
+      };
+      setTurns([initialTurn]);
+    }
+  }, []); // Only run once on mount
+
   // Convert turns to chat-ui-kit message format
   const messages: MessageType[] = useMemo(() => {
-    if (turns.length === 0) {
-      return [{
-        message: DEFAULT_OPENING,
-        sentTime: 'just now',
-        sender: 'Guide',
-        direction: 'incoming' as 'incoming' | 'outgoing',
-      }];
-    }
-
     return turns.map((turn): MessageType => {
       const isAssistant = turn.role === 'assistant';
       return {
@@ -199,10 +201,15 @@ export function ChatIntegrated() {
     try {
       // Ensure Realtime connection is active
       if (realtimeState.status !== 'connected') {
+        console.log('[Realtime] Connection not active, connecting...', { status: realtimeState.status });
         await realtimeControls.connect({
           enableMicrophone: mode === 'voice',
           enableAudioOutput: mode === 'voice',
         });
+        
+        // Wait a bit for connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log('[Realtime] Connection established, status:', realtimeState.status);
       }
 
       // Generate unique ID for this message
@@ -287,13 +294,14 @@ export function ChatIntegrated() {
     }
   }, [realtimeState.transcripts, turns, setTurns, deriveInsights]);
 
-  // Auto-connect Realtime session on mount
+  // Auto-connect Realtime session for text mode only
+  // Voice mode requires explicit user action (START VOICE button)
   useEffect(() => {
-    if (realtimeState.status === 'idle') {
-      console.log('[Realtime] Auto-connecting session');
+    if (realtimeState.status === 'idle' && mode === 'text') {
+      console.log('[Realtime] Auto-connecting session for text mode');
       realtimeControls.connect({
-        enableMicrophone: mode === 'voice',
-        enableAudioOutput: mode === 'voice',
+        enableMicrophone: false,
+        enableAudioOutput: false,
       }).catch((err) => {
         console.error('[Realtime] Connection error:', err);
       });
@@ -514,27 +522,25 @@ export function ChatIntegrated() {
             />
           </div>
           
-          {/* Show conversation history in voice mode */}
-          {turns.length > 0 && (
-            <div style={{ marginTop: '2rem', textAlign: 'left', maxWidth: '600px', margin: '0 auto' }}>
-              <h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1rem' }}>Conversation</h4>
-              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                {turns.map((turn, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      marginBottom: '1rem',
-                      padding: '0.75rem',
-                      backgroundColor: turn.role === 'user' ? '#f0ff3c' : '#d8fdf0',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    <strong>{turn.role === 'user' ? 'You' : 'Guide'}:</strong> {turn.text}
-                  </div>
-                ))}
+          {/* Show only last assistant message in voice mode */}
+          {(() => {
+            const lastAssistantTurn = turns.filter(t => t.role === 'assistant').slice(-1)[0];
+            return lastAssistantTurn ? (
+              <div style={{ marginTop: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto 0' }}>
+                <div
+                  style={{
+                    padding: '1.5rem',
+                    backgroundColor: '#d8fdf0',
+                    borderRadius: '12px',
+                    fontSize: '1.1rem',
+                    lineHeight: '1.6',
+                  }}
+                >
+                  {lastAssistantTurn.text}
+                </div>
               </div>
-            </div>
-          )}
+            ) : null;
+          })()}
         </div>
       )}
 
