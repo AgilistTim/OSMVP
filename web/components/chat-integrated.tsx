@@ -117,8 +117,9 @@ export function ChatIntegrated() {
     setIsTyping(true);
 
     try {
-      // Call the onboarding API
-      const response = await fetch('/api/onboarding', {
+      // Call the chat API
+      console.log('Sending to API:', { turns: [...turns, userTurn], profile, suggestions });
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,11 +129,15 @@ export function ChatIntegrated() {
         }),
       });
 
+      console.log('API response status:', response.status);
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API error:', errorText);
         throw new Error('Failed to get AI response');
       }
 
       const data = await response.json();
+      console.log('API response data:', data);
 
       // Add assistant response
       if (data.reply) {
@@ -140,7 +145,10 @@ export function ChatIntegrated() {
           role: 'assistant',
           text: data.reply,
         };
+        console.log('Adding assistant turn:', assistantTurn);
         setTurns((prev) => [...prev, assistantTurn]);
+      } else {
+        console.warn('No reply in API response:', data);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -175,17 +183,17 @@ export function ChatIntegrated() {
       {/* Custom Offscript Header */}
       <div className="offscript-header">
         {showProgressBar && (
-          <div className="progress-section">
-            <div className="progress-title">
-              {progress < 100 ? "Let&apos;s keep it rolling." : "Ready to explore!"}
-            </div>
-            <Progress value={progress} className="progress-bar" />
-            <div className="progress-subtitle">
-              {progress < 100
-                ? "Need a touch more on what you&apos;re into, what you&apos;re good at, and hopes before I pin fresh idea cards."
-                : "You&apos;ve shared enough to start exploring ideas!"}
-            </div>
+        <div className="progress-section">
+          <div className="progress-title">
+            {progress < 100 ? "Let's keep it rolling." : "Ready to explore!"}
           </div>
+          <Progress value={progress} className="progress-bar" />
+          <div className="progress-subtitle">
+            {progress < 100
+              ? "Need a touch more on what you're into, what you're good at, and hopes before I pin fresh idea cards."
+              : "You've shared enough to start exploring ideas!"}
+          </div>
+        </div>
         )}
 
         <div className="action-buttons">
@@ -247,7 +255,7 @@ export function ChatIntegrated() {
             <div ref={messagesEndRef} />
           </MessageList>
           <MessageInput
-            placeholder="Type something you&apos;re into or curious about"
+            placeholder="Type something you're into or curious about"
             value={input}
             onChange={(val) => setInput(val)}
             onSend={handleSend}
