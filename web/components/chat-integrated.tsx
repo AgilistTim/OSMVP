@@ -14,6 +14,7 @@ import './chat-integrated.css';
 import { useSession } from '@/components/session-provider';
 import type { ConversationTurn, InsightKind } from '@/components/session-provider';
 import { SuggestionCards } from '@/components/suggestion-cards';
+import { SuggestionBasket } from '@/components/suggestion-basket';
 import { ProfileInsightsBar } from '@/components/profile-insights-bar';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -38,6 +39,7 @@ export function ChatIntegrated() {
     setTurns,
     suggestions,
     votesByCareerId,
+    voteCareer,
     appendProfileInsights,
     setSuggestions,
     sessionId,
@@ -82,6 +84,7 @@ export function ChatIntegrated() {
 
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
+  const [isBasketOpen, setIsBasketOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
@@ -345,7 +348,7 @@ export function ChatIntegrated() {
           <Button
             variant="outline"
             className="btn-idea-stash"
-            onClick={() => router.push('/exploration')}
+            onClick={() => setIsBasketOpen(true)}
           >
             <Archive className="w-4 h-4" />
             IDEA STASH
@@ -406,6 +409,18 @@ export function ChatIntegrated() {
           />
         </ChatContainer>
       </MainContainer>
+
+      {/* Suggestion Basket Drawer */}
+      <SuggestionBasket
+        open={isBasketOpen}
+        onOpenChange={setIsBasketOpen}
+        saved={savedSuggestions}
+        maybe={maybeSuggestions}
+        skipped={skippedSuggestions}
+        onCardReact={(payload) => {
+          voteCareer(payload.suggestion.id, payload.nextValue);
+        }}
+      />
     </div>
   );
 }
