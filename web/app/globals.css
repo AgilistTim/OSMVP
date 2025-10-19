@@ -713,11 +713,21 @@ body {
 .chat-app-shell {
   display: flex;
   flex-direction: column;
-  height: 100svh; /* Small viewport height - accounts for keyboard */
+  height: 100vh; /* Fallback for older browsers */
+  height: 100dvh; /* Dynamic viewport height */
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
   overflow: hidden;
+}
+
+/* Use svh only if supported and viewport is reasonable */
+@supports (height: 100svh) {
+  @media (min-height: 400px) {
+    .chat-app-shell {
+      height: 100svh;
+    }
+  }
 }
 
 .chat-panel {

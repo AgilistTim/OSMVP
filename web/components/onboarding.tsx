@@ -955,7 +955,14 @@ useEffect(() => {
 		const handleResize = () => {
 			const shell = document.querySelector('.chat-app-shell') as HTMLElement;
 			if (shell && window.visualViewport) {
-				shell.style.height = `${window.visualViewport.height}px`;
+				const viewportHeight = window.visualViewport.height;
+				// Only apply if viewport height is reasonable (not too small)
+				if (viewportHeight > 200) {
+					shell.style.height = `${viewportHeight}px`;
+				} else {
+					// Fallback to window.innerHeight if visualViewport seems wrong
+					shell.style.height = `${window.innerHeight}px`;
+				}
 			}
 		};
 
