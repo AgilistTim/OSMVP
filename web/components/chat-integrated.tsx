@@ -374,9 +374,7 @@ export function ChatIntegrated() {
           </Button>
           <Button
             className="btn-voice"
-            onClick={() => {
-              /* TODO: Switch to voice mode */
-            }}
+            onClick={() => router.push('/')}
           >
             SWITCH TO VOICE
           </Button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session-provider";
 
 const VALUE_CARDS = [
@@ -74,6 +75,7 @@ const SUMMIT_REASON_ITEMS: Array<
 ];
 
 export function WelcomeScreen() {
+	const router = useRouter();
 	const { beginSession } = useSession();
 
 	const heroCards = useMemo(
@@ -92,6 +94,7 @@ export function WelcomeScreen() {
 
 	function handleStart() {
 		beginSession();
+		router.push('/chat-integrated');
 	}
 
 	return (
