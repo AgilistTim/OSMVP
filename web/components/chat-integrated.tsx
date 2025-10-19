@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Archive, FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useRealtimeSession } from '@/hooks/use-realtime-session';
+import { VoiceControls } from '@/components/voice-controls';
 
 type MessageType = {
   message: string;
@@ -82,9 +84,17 @@ export function ChatIntegrated() {
     return Math.min(100, 20 + userTurnsCount * 15);
   }, [userTurnsCount]);
 
+  const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [isBasketOpen, setIsBasketOpen] = useState(false);
+
+  // Realtime API session
+  const [realtimeState, realtimeControls] = useRealtimeSession({
+    sessionId,
+    enableMicrophone: mode === 'voice',
+    enableAudioOutput: mode === 'voice',
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
@@ -171,65 +181,136 @@ export function ChatIntegrated() {
   const handleSend = useCallback(async (message: string) => {
     if (!message.trim()) return;
 
-    // Add user message immediately
+    const trimmed = message.trim();
     const userTurn: ConversationTurn = {
       role: 'user',
-      text: message.trim(),
+      text: trimmed,
     };
-    setTurns((prev) => [...prev, userTurn]);
+    
+    // Add user message to UI immediately
+    const nextTurns = [...turns, userTurn];
+    setTurns(nextTurns);
     setInput('');
     setIsTyping(true);
 
+    // Derive insights from the updated conversation
+    void deriveInsights(nextTurns);
+
     try {
-      // Call the chat API
-      console.log('Sending to API:', { turns: [...turns, userTurn], profile, suggestions });
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          turns: [...turns, userTurn],
-          profile,
-          suggestions,
-        }),
+      // Ensure Realtime connection is active
+      if (realtimeState.status !== 'connected') {
+        await realtimeControls.connect({
+          enableMicrophone: mode === 'voice',
+          enableAudioOutput: mode === 'voice',
+        });
+      }
+
+      // Generate unique ID for this message
+      const transcriptId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+      
+      console.log('[Realtime] Sending text message:', { transcriptId, text: trimmed });
+
+      // Send text message via Realtime API
+      realtimeControls.sendEvent({
+        type: 'conversation.item.create',
+        item: {
+          id: transcriptId,
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: trimmed,
+            },
+          ],
+        },
       });
 
-      console.log('API response status:', response.status);
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API error:', errorText);
-        throw new Error('Failed to get AI response');
+      // Wait for the server to acknowledge the message
+      try {
+        await realtimeControls.waitForConversationItem(transcriptId);
+        console.log('[Realtime] Message acknowledged');
+      } catch (err) {
+        console.warn('[Realtime] Message acknowledgment timeout:', err);
       }
 
-      const data = await response.json();
-      console.log('API response data:', data);
+      // Request a response from the model
+      realtimeControls.sendEvent({
+        type: 'response.create',
+        response: {
+          output_modalities: mode === 'voice' ? ['audio', 'text'] : ['text'],
+        },
+      });
 
-      // Add assistant response
-      if (data.reply) {
-        const assistantTurn: ConversationTurn = {
-          role: 'assistant',
-          text: data.reply,
-        };
-        console.log('Adding assistant turn:', assistantTurn);
-        const nextTurns = [...turns, userTurn, assistantTurn];
-        setTurns(nextTurns);
-        
-        // Derive insights from the conversation
-        void deriveInsights(nextTurns);
-      } else {
-        console.warn('No reply in API response:', data);
-      }
+      console.log('[Realtime] Response requested');
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('[Realtime] Error sending message:', error);
+      setIsTyping(false);
+      
       // Add error message
       const errorTurn: ConversationTurn = {
         role: 'assistant',
         text: "Sorry, I'm having trouble connecting right now. Can you try that again?",
       };
       setTurns((prev) => [...prev, errorTurn]);
-    } finally {
-      setIsTyping(false);
     }
-  }, [turns, profile, suggestions, setTurns, deriveInsights]);
+  }, [turns, setTurns, deriveInsights, realtimeState.status, realtimeControls, mode]);
+
+  // Listen for assistant responses from Realtime API
+  useEffect(() => {
+    const latestTranscript = realtimeState.transcripts[0];
+    
+    if (!latestTranscript || !latestTranscript.isFinal) {
+      return;
+    }
+
+    if (latestTranscript.role === 'assistant') {
+      // Check if we already have this message in our turns
+      const alreadyExists = turns.some(
+        (t) => t.role === 'assistant' && t.text === latestTranscript.text
+      );
+
+      if (!alreadyExists && latestTranscript.text.trim()) {
+        console.log('[Realtime] Adding assistant response:', latestTranscript.text);
+        
+        const assistantTurn: ConversationTurn = {
+          role: 'assistant',
+          text: latestTranscript.text,
+        };
+        
+        setTurns((prev) => [...prev, assistantTurn]);
+        setIsTyping(false);
+        
+        // Derive insights after assistant responds
+        void deriveInsights([...turns, assistantTurn]);
+      }
+    }
+  }, [realtimeState.transcripts, turns, setTurns, deriveInsights]);
+
+  // Auto-connect Realtime session on mount
+  useEffect(() => {
+    if (realtimeState.status === 'idle') {
+      console.log('[Realtime] Auto-connecting session');
+      realtimeControls.connect({
+        enableMicrophone: mode === 'voice',
+        enableAudioOutput: mode === 'voice',
+      }).catch((err) => {
+        console.error('[Realtime] Connection error:', err);
+      });
+    }
+  }, [realtimeState.status, realtimeControls, mode]);
+
+  // Handle typing indicator based on Realtime state
+  useEffect(() => {
+    // Show typing when we have a non-final assistant transcript
+    const hasActiveResponse = realtimeState.transcripts.some(
+      (t) => t.role === 'assistant' && !t.isFinal
+    );
+    
+    if (hasActiveResponse && !isTyping) {
+      setIsTyping(true);
+    }
+  }, [realtimeState.transcripts, isTyping]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -374,9 +455,9 @@ export function ChatIntegrated() {
           </Button>
           <Button
             className="btn-voice"
-            onClick={() => router.push('/')}
+            onClick={() => setMode(mode === 'text' ? 'voice' : 'text')}
           >
-            SWITCH TO VOICE
+            {mode === 'text' ? 'SWITCH TO VOICE' : 'SWITCH TO TEXT'}
           </Button>
         </div>
       </div>
@@ -388,35 +469,74 @@ export function ChatIntegrated() {
         </div>
       )}
 
-      {/* Chat UI Kit Container */}
-      <MainContainer>
-        <ChatContainer>
-          <MessageList
-            typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
-          >
-            {messages.map((msg, i) => (
-              <Message
-                key={i}
-                model={{
-                  message: msg.message,
-                  sentTime: msg.sentTime,
-                  sender: msg.sender,
-                  direction: msg.direction,
-                  position: 'single',
-                }}
-              />
-            ))}
-            <div ref={messagesEndRef} />
-          </MessageList>
-          <MessageInput
-            placeholder="Type something you're into or curious about"
-            value={input}
-            onChange={(val) => setInput(val)}
-            onSend={handleSend}
-            attachButton={false}
-          />
-        </ChatContainer>
-      </MainContainer>
+       {/* Chat Interface */}
+      {mode === 'text' ? (
+        <MainContainer>
+          <ChatContainer>
+            <MessageList
+              typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
+            >
+              {messages.map((msg, i) => (
+                <Message
+                  key={i}
+                  model={{
+                    message: msg.message,
+                    sentTime: msg.sentTime,
+                    sender: msg.sender,
+                    direction: msg.direction,
+                    position: 'single',
+                  }}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </MessageList>
+            <MessageInput
+              placeholder="Type something you're into or curious about"
+              value={input}
+              onChange={(val) => setInput(val)}
+              onSend={handleSend}
+              attachButton={false}
+            />
+          </ChatContainer>
+        </MainContainer>
+      ) : (
+        <div className="voice-mode-container" style={{ padding: '2rem', textAlign: 'center' }}>
+          <div style={{ marginBottom: '2rem' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '1rem' }}>
+              Voice Mode
+            </h3>
+            <p style={{ color: '#666', marginBottom: '2rem' }}>
+              Click Start Voice to begin speaking with the AI assistant.
+            </p>
+            <VoiceControls
+              state={realtimeState}
+              controls={realtimeControls}
+            />
+          </div>
+          
+          {/* Show conversation history in voice mode */}
+          {turns.length > 0 && (
+            <div style={{ marginTop: '2rem', textAlign: 'left', maxWidth: '600px', margin: '0 auto' }}>
+              <h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '1rem' }}>Conversation</h4>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {turns.map((turn, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      marginBottom: '1rem',
+                      padding: '0.75rem',
+                      backgroundColor: turn.role === 'user' ? '#f0ff3c' : '#d8fdf0',
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <strong>{turn.role === 'user' ? 'You' : 'Guide'}:</strong> {turn.text}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Suggestion Basket Drawer */}
       <SuggestionBasket
