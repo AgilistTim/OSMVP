@@ -1950,6 +1950,11 @@ body {
   max-height: min(68dvh, 560px);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.idea-basket-body .suggestion-card {
+  touch-action: pan-y;
 }
 
 @keyframes suggestionCardEnter {
@@ -2377,6 +2382,11 @@ body {
     max-height: 60vh;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
+
+  .idea-basket-body .suggestion-card {
+    touch-action: pan-y;
   }
 
   .chat-mode-button {
