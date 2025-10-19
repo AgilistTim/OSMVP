@@ -1,0 +1,183 @@
+/* Offscript Custom Styling for chat-ui-kit-react */
+
+.chat-poc-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: white;
+}
+
+/* Custom Offscript Header */
+.offscript-header {
+  flex-shrink: 0;
+  background: white;
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.progress-section {
+  margin-bottom: 1rem;
+}
+
+.progress-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #a3e635, #4ade80);
+  transition: width 0.3s ease;
+}
+
+.progress-subtitle {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action-buttons button {
+  padding: 0.75rem 1.25rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+}
+
+.btn-idea-stash {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #10b981;
+}
+
+.btn-idea-stash:hover {
+  background: #a7f3d0;
+}
+
+.btn-personal-page {
+  background: #dbeafe;
+  color: #1e40af;
+  border-color: #3b82f6;
+}
+
+.btn-personal-page:hover {
+  background: #bfdbfe;
+}
+
+.btn-voice {
+  background: #1f2937;
+  color: white;
+  flex: 1;
+  min-width: 200px;
+}
+
+.btn-voice:hover {
+  background: #111827;
+}
+
+.badge {
+  display: inline-block;
+  background: #065f46;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  text-align: center;
+  line-height: 20px;
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+
+/* Override chat-ui-kit styles with Offscript branding */
+
+/* Incoming messages (AI) - Yellow/Lime */
+.cs-message--incoming .cs-message__content {
+  background: #fef08a !important; /* Lime yellow */
+  color: #1f2937 !important;
+  border-radius: 16px !important;
+  padding: 1rem !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Outgoing messages (User) - Mint/Coral */
+.cs-message--outgoing .cs-message__content {
+  background: linear-gradient(135deg, #a7f3d0, #fca5a5) !important; /* Mint to coral */
+  color: #1f2937 !important;
+  border-radius: 16px !important;
+  padding: 1rem !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Message input */
+.cs-message-input {
+  background: white !important;
+  border-top: 1px solid #e5e7eb !important;
+  padding: 1rem !important;
+}
+
+.cs-message-input__content-editor {
+  background: #f9fafb !important;
+  border: 2px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  padding: 0.75rem !important;
+  font-size: 1rem !important;
+}
+
+.cs-message-input__content-editor:focus {
+  border-color: #a3e635 !important; /* Lime accent */
+  outline: none !important;
+}
+
+/* Send button */
+.cs-button--send {
+  background: #a3e635 !important; /* Lime */
+  color: #1f2937 !important;
+  border-radius: 8px !important;
+  padding: 0.5rem 1rem !important;
+  font-weight: 600 !important;
+}
+
+.cs-button--send:hover {
+  background: #84cc16 !important;
+}
+
+/* Message list */
+.cs-message-list {
+  background: white !important;
+  padding: 1rem !important;
+}
+
+/* Typing indicator */
+.cs-typing-indicator {
+  background: #fef08a !important;
+  border-radius: 16px !important;
+  padding: 0.75rem 1rem !important;
+}
+
+/* Main container */
+.cs-main-container {
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+.cs-chat-container {
+  height: 100% !important;
+}
+
