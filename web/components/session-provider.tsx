@@ -164,7 +164,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [mode, setModeState] = useState<SessionMode>(null);
 	const [profile, updateProfile] = useState<Profile>(() => createEmptyProfile());
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
-	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>({});
+	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>(() => {
+		console.log('[SessionProvider] Initializing votesByCareerId');
+		return {};
+	});
 	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>([]);
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
@@ -392,15 +395,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			removeProfileInsight,
 			resetProfile,
 			setCandidates,
-			voteCareer: (careerId, value) =>
+			voteCareer: (careerId, value) => {
+				console.log('[voteCareer] Called with:', { careerId, value });
 				setVotes((prev) => {
+					console.log('[voteCareer] Previous votes:', prev);
 					if (value === null) {
 						const updated = { ...prev };
 						delete updated[careerId];
+						console.log('[voteCareer] Clearing vote, new votes:', updated);
 						return updated;
 					}
-					return { ...prev, [careerId]: value };
-				}),
+					const newVotes = { ...prev, [careerId]: value };
+					console.log('[voteCareer] Setting vote, new votes:', newVotes);
+					return newVotes;
+				});
+			},
 		setSummary: (s) => setSummaryState(s),
 		beginSession,
 		setVoice,
