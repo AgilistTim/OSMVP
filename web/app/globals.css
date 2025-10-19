@@ -767,7 +767,7 @@
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(140px, 20vh, 200px);
+  padding: clamp(18px, 3vw, 26px) clamp(16px, 5vw, 40px) clamp(90px, 15vh, 130px);
   scroll-padding-top: clamp(18px, 3vw, 26px);
   scroll-padding-bottom: clamp(60px, 12vh, 120px);
   margin: 0;
@@ -2557,3 +2557,15 @@
   margin-top: 2px;
   color: rgba(0, 0, 0, 0.4);
 }
+
+
+/* Mobile keyboard handling - reduce padding when keyboard is open */
+.chat-app-shell.keyboard-open .chat-messages {
+  padding-bottom: clamp(60px, 10vh, 90px);
+}
+
+.chat-app-shell.keyboard-open .chat-input-panel {
+  /* Ensure input stays visible and no transform applied */
+  transform: none !important;
+}
+

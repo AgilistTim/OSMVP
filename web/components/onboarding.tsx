@@ -941,34 +941,44 @@ useEffect(() => {
 		}
 	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls]);
 
-	// Mobile keyboard handling
+	// Mobile keyboard handling - improved approach
 	useEffect(() => {
 		if (typeof window === 'undefined' || !window.visualViewport) return;
 		
-		const handleViewportResize = () => {
-			const inputPanel = document.querySelector('.chat-input-panel') as HTMLElement;
-			if (!inputPanel) return;
+		const appShell = document.querySelector('.chat-app-shell') as HTMLElement;
+		const messagesContainer = document.querySelector('.chat-messages') as HTMLElement;
+		
+		const handleViewportChange = () => {
+			if (!window.visualViewport) return;
 			
-			const viewport = window.visualViewport!;
-			const viewportHeight = viewport.height;
-			const windowHeight = window.innerHeight;
-			const keyboardHeight = windowHeight - viewportHeight;
+			const viewport = window.visualViewport;
+			// Detect keyboard by checking if viewport height is significantly smaller than window height
+			const isKeyboardOpen = viewport.height < window.innerHeight * 0.75;
 			
-			if (keyboardHeight > 0) {
-				// Keyboard is open
-				inputPanel.style.transform = `translateY(-${keyboardHeight}px)`;
+			if (isKeyboardOpen) {
+				// Add class to trigger CSS changes
+				appShell?.classList.add('keyboard-open');
+				// Scroll messages to bottom to keep content visible
+				if (messagesContainer) {
+					setTimeout(() => {
+						messagesContainer.scrollTo({
+							top: messagesContainer.scrollHeight,
+							behavior: 'smooth'
+						});
+					}, 100);
+				}
 			} else {
-				// Keyboard is closed
-				inputPanel.style.transform = 'translateY(0)';
+				// Remove class when keyboard closes
+				appShell?.classList.remove('keyboard-open');
 			}
 		};
 		
-		window.visualViewport.addEventListener('resize', handleViewportResize);
-		window.visualViewport.addEventListener('scroll', handleViewportResize);
+		window.visualViewport.addEventListener('resize', handleViewportChange);
+		window.visualViewport.addEventListener('scroll', handleViewportChange);
 		
 		return () => {
-			window.visualViewport?.removeEventListener('resize', handleViewportResize);
-			window.visualViewport?.removeEventListener('scroll', handleViewportResize);
+			window.visualViewport?.removeEventListener('resize', handleViewportChange);
+			window.visualViewport?.removeEventListener('scroll', handleViewportChange);
 		};
 	}, []);
 
