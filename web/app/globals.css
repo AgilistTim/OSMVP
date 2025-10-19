@@ -814,6 +814,9 @@
 .voice-mode-stack {
   display: grid;
   gap: clamp(16px, 4vw, 28px);
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 .voice-controls-card {
@@ -824,6 +827,9 @@
   border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: clamp(18px, 3vw, 24px);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 .voice-controls-status {
@@ -924,9 +930,11 @@
 }
 
 .voice-suggestions .suggestion-carousel {
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: visible;
   padding: 0;
   margin: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .voice-suggestions .suggestion-track {
