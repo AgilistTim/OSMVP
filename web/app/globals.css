@@ -1948,6 +1948,8 @@ body {
 
 .idea-basket-body {
   max-height: min(68dvh, 560px);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 @keyframes suggestionCardEnter {
@@ -2373,6 +2375,8 @@ body {
 
   .idea-basket-body {
     max-height: 60vh;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .chat-mode-button {
