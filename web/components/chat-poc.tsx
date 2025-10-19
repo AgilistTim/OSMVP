@@ -12,8 +12,15 @@ import {
 } from '@chatscope/chat-ui-kit-react';
 import './chat-poc.css'; // Custom Offscript styling
 
+type MessageType = {
+  message: string;
+  sentTime: string;
+  sender: string;
+  direction: 'incoming' | 'outgoing';
+};
+
 export function ChatPOC() {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<MessageType[]>([
     {
       message: "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share. To start, what should I call you?",
       sentTime: "just now",
