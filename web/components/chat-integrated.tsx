@@ -104,7 +104,9 @@ export function ChatIntegrated() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
-  const suggestionsLastInsightCountRef = useRef(() => {
+  
+  // Initialize last insight count from localStorage
+  const initialLastInsightCount = (() => {
     if (typeof window === 'undefined') return 0;
     try {
       const stored = localStorage.getItem('osmvp_last_insight_count');
@@ -117,9 +119,12 @@ export function ChatIntegrated() {
       console.error('[ChatIntegrated] Failed to restore last insight count:', error);
     }
     return 0;
-  }());
-  const shownSuggestionIdsRef = useRef<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
+  })();
+  const suggestionsLastInsightCountRef = useRef(initialLastInsightCount);
+  
+  // Initialize shown suggestion IDs from localStorage
+  const initialShownIds = (() => {
+    if (typeof window === 'undefined') return new Set<string>();
     try {
       const stored = localStorage.getItem('osmvp_shown_suggestion_ids');
       if (stored) {
@@ -130,8 +135,9 @@ export function ChatIntegrated() {
     } catch (error) {
       console.error('[ChatIntegrated] Failed to restore shown suggestion IDs:', error);
     }
-    return new Set();
-  }());
+    return new Set<string>();
+  })();
+  const shownSuggestionIdsRef = useRef(initialShownIds);
   
   // Store card messages separately so they persist across turn changes
   const [cardMessages, setCardMessages] = useState<MessageType[]>(() => {

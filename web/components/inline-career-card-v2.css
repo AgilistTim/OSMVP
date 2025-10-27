@@ -1,0 +1,41 @@
+.inline-career-card-v2 {
+  max-width: 600px;
+  margin: 0.5rem 0;
+  transition: all 0.2s ease;
+}
+
+.inline-career-card-v2:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Ensure cards are readable on mobile */
+@media (max-width: 640px) {
+  .inline-career-card-v2 {
+    max-width: 100%;
+  }
+}
+
+/* Line clamp utility for truncating text */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Smooth expand/collapse animation */
+.inline-career-card-v2 [data-expanded] {
+  animation: expandDown 0.2s ease-out;
+}
+
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
