@@ -207,12 +207,94 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 						title="Idea Stash"
 						description="Career cards you've saved, marked as maybe, or skipped during your exploration."
 					/>
-					{/* TODO: Add voted cards display here - will be implemented with Epic 3 inline cards */}
-					<div className="voted-cards-placeholder">
-						<p className="text-muted-foreground text-center py-8">
-							Voted cards will appear here once you react to career suggestions in the chat.
-						</p>
+			{(() => {
+				const savedCards = suggestions.filter(s => votesByCareerId[s.id] === 1);
+				const maybeCards = suggestions.filter(s => votesByCareerId[s.id] === 0);
+				const skippedCards = suggestions.filter(s => votesByCareerId[s.id] === -1);
+				const hasVotedCards = savedCards.length > 0 || maybeCards.length > 0 || skippedCards.length > 0;
+
+				if (!hasVotedCards) {
+					return (
+						<div className="voted-cards-placeholder">
+							<p className="text-muted-foreground text-center py-8">
+								Voted cards will appear here once you react to career suggestions in the chat.
+							</p>
+						</div>
+					);
+				}
+
+				return (
+					<div className="voted-cards-container" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+						{savedCards.length > 0 && (
+							<div>
+								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#059669' }}>
+									✅ Saved ({savedCards.length})
+								</h3>
+								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+									{savedCards.map(card => (
+										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem' }}>
+											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
+											<p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.75rem' }}>{card.summary}</p>
+											{card.whyItFits && card.whyItFits.length > 0 && (
+												<div>
+													<p style={{ fontSize: '0.75rem', fontWeight: '500', color: '#4b5563', marginBottom: '0.25rem' }}>Why this fits:</p>
+													<ul style={{ fontSize: '0.75rem', color: '#6b7280', paddingLeft: '1.25rem' }}>
+														{card.whyItFits.slice(0, 3).map((reason, idx) => (
+															<li key={idx}>{reason}</li>
+														))}
+													</ul>
+												</div>
+											)}
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+
+						{maybeCards.length > 0 && (
+							<div>
+								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#d97706' }}>
+									🤔 Maybe ({maybeCards.length})
+								</h3>
+								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+									{maybeCards.map(card => (
+										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem' }}>
+											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
+											<p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.75rem' }}>{card.summary}</p>
+											{card.whyItFits && card.whyItFits.length > 0 && (
+												<div>
+													<p style={{ fontSize: '0.75rem', fontWeight: '500', color: '#4b5563', marginBottom: '0.25rem' }}>Why this fits:</p>
+													<ul style={{ fontSize: '0.75rem', color: '#6b7280', paddingLeft: '1.25rem' }}>
+														{card.whyItFits.slice(0, 3).map((reason, idx) => (
+															<li key={idx}>{reason}</li>
+														))}
+													</ul>
+												</div>
+											)}
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+
+						{skippedCards.length > 0 && (
+							<div>
+								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#6b7280' }}>
+									👎 Skipped ({skippedCards.length})
+								</h3>
+								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+									{skippedCards.map(card => (
+										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem', opacity: 0.7 }}>
+											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
+											<p style={{ fontSize: '0.875rem', color: '#6b7280' }}>{card.summary}</p>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
 					</div>
+				);
+			})()}
 				</section>
 
 				<section className="passion-discovery">
