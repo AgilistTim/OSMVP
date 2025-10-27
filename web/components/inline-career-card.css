@@ -1,0 +1,33 @@
+.inline-career-card {
+  max-width: 600px;
+  margin: 0.75rem 0;
+  transition: all 0.2s ease;
+}
+
+.inline-career-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Ensure cards are readable on mobile */
+@media (max-width: 640px) {
+  .inline-career-card {
+    max-width: 100%;
+  }
+}
+
+/* Animation for expanding/collapsing */
+.inline-career-card [data-expanded] {
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 500px;
+  }
+}
+

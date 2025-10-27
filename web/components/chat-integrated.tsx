@@ -15,7 +15,7 @@ import { CustomMessageInput } from '@/components/custom-message-input';
 import '@/components/custom-message-input.css';
 import { useSession } from '@/components/session-provider';
 import type { ConversationTurn, InsightKind } from '@/components/session-provider';
-import { SuggestionCards } from '@/components/suggestion-cards';
+
 import { ProfileInsightsBar } from '@/components/profile-insights-bar';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -23,12 +23,17 @@ import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
+import { InlineCareerCard } from '@/components/inline-career-card';
+import type { CareerSuggestion } from '@/components/session-provider';
+import '@/components/inline-career-card.css';
 
 type MessageType = {
   message: string;
   sentTime: string;
   sender: string;
   direction: 'incoming' | 'outgoing';
+  type?: 'text' | 'career-card';
+  careerSuggestion?: CareerSuggestion;
 };
 
 const DEFAULT_OPENING =
@@ -100,6 +105,7 @@ export function ChatIntegrated() {
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
   const suggestionsLastInsightCountRef = useRef(0);
+  const shownSuggestionIdsRef = useRef<Set<string>>(new Set());
   
   // Track all suggestions that have ever been shown (for vote persistence)
   const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
@@ -124,18 +130,49 @@ export function ChatIntegrated() {
     }
   }, []); // Only run once on mount
 
-  // Convert turns to chat-ui-kit message format
+  // Convert turns to chat-ui-kit message format, including career cards inline
   const messages: MessageType[] = useMemo(() => {
-    return turns.map((turn): MessageType => {
+    const textMessages: MessageType[] = turns.map((turn): MessageType => {
       const isAssistant = turn.role === 'assistant';
       return {
         message: turn.text,
         sentTime: 'just now',
         sender: isAssistant ? 'Guide' : 'User',
         direction: isAssistant ? 'incoming' : 'outgoing',
+        type: 'text',
       };
     });
-  }, [turns]);
+
+    // Add career card messages for new suggestions
+    const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
+    if (newSuggestions.length > 0) {
+      // Mark these suggestions as shown
+      newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
+      
+      // Add intro message before cards
+      const introMessage: MessageType = {
+        message: `Here are some career paths that might fit you:`,
+        sentTime: 'just now',
+        sender: 'Guide',
+        direction: 'incoming',
+        type: 'text',
+      };
+      
+      // Add career card messages
+      const cardMessages: MessageType[] = newSuggestions.map((suggestion): MessageType => ({
+        message: '', // Empty message for card type
+        sentTime: 'just now',
+        sender: 'Guide',
+        direction: 'incoming',
+        type: 'career-card',
+        careerSuggestion: suggestion,
+      }));
+      
+      return [...textMessages, introMessage, ...cardMessages];
+    }
+
+    return textMessages;
+  }, [turns, suggestions]);
 
   // Derive insights from conversation
   const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
@@ -344,10 +381,20 @@ export function ChatIntegrated() {
     const lastCount = suggestionsLastInsightCountRef.current;
     const hasEnoughInsights = insightCount >= 3;
 
+    console.log('[Suggestions Effect] Triggered:', {
+      insightCount,
+      lastCount,
+      hasEnoughInsights,
+      inFlight: suggestionsFetchInFlightRef.current,
+      currentSuggestions: suggestions.length
+    });
+
     const shouldFetch =
       hasEnoughInsights &&
       !suggestionsFetchInFlightRef.current &&
       (suggestions.length === 0 || insightCount > lastCount);
+
+    console.log('[Suggestions Effect] Should fetch:', shouldFetch);
 
     if (!shouldFetch) {
       return;
@@ -437,7 +484,7 @@ export function ChatIntegrated() {
         suggestionsFetchInFlightRef.current = false;
       }
     })();
-  }, [profile.insights, setSuggestions, votesByCareerId, suggestions.length]);
+  }, [profile.insights.length, setSuggestions]);
 
   const showProgressBar = progress < 100;
 
@@ -481,14 +528,7 @@ export function ChatIntegrated() {
         </div>
       </div>
 
-      {/* Suggestion Cards */}
-      {suggestionGroups.pending.length > 0 && (
-        <div className="suggestions-container">
-          <SuggestionCards suggestions={suggestionGroups.pending} variant="inline" />
-        </div>
-      )}
-
-       {/* Chat Interface */}
+      {/* Chat Interface */}
       {mode === 'text' ? (
         <>
           <MainContainer>
@@ -496,18 +536,40 @@ export function ChatIntegrated() {
               <MessageList
                 typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
               >
-                {messages.map((msg, i) => (
-                  <Message
-                    key={i}
-                    model={{
-                      message: msg.message,
-                      sentTime: msg.sentTime,
-                      sender: msg.sender,
-                      direction: msg.direction,
-                      position: 'single',
-                    }}
-                  />
-                ))}
+                {messages.map((msg, i) => {
+                  if (msg.type === 'career-card' && msg.careerSuggestion) {
+                    return (
+                      <div key={i} style={{ padding: '0.5rem 1rem' }}>
+                        <InlineCareerCard
+                          suggestion={msg.careerSuggestion}
+                          voteStatus={votesByCareerId[msg.careerSuggestion.id] ?? null}
+                          onVote={(value) => {
+                            const current = votesByCareerId[msg.careerSuggestion!.id];
+                            // Toggle vote: if clicking same value, remove vote
+                            if (current === value) {
+                              voteCareer(msg.careerSuggestion!.id, null);
+                            } else {
+                              voteCareer(msg.careerSuggestion!.id, value);
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <Message
+                      key={i}
+                      model={{
+                        message: msg.message,
+                        sentTime: msg.sentTime,
+                        sender: msg.sender,
+                        direction: msg.direction,
+                        position: 'single',
+                      }}
+                    />
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </MessageList>
             </ChatContainer>
