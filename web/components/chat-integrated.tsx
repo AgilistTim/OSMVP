@@ -104,11 +104,43 @@ export function ChatIntegrated() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
-  const suggestionsLastInsightCountRef = useRef(0);
-  const shownSuggestionIdsRef = useRef<Set<string>>(new Set());
+  const suggestionsLastInsightCountRef = useRef(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const stored = localStorage.getItem('osmvp_last_insight_count');
+      if (stored) {
+        const count = parseInt(stored, 10);
+        console.log('[ChatIntegrated] Restored last insight count:', count);
+        return count;
+      }
+    } catch (error) {
+      console.error('[ChatIntegrated] Failed to restore last insight count:', error);
+    }
+    return 0;
+  }());
+  const shownSuggestionIdsRef = useRef<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const stored = localStorage.getItem('osmvp_shown_suggestion_ids');
+      if (stored) {
+        const ids = JSON.parse(stored) as string[];
+        console.log('[ChatIntegrated] Restored shown suggestion IDs:', ids.length);
+        return new Set(ids);
+      }
+    } catch (error) {
+      console.error('[ChatIntegrated] Failed to restore shown suggestion IDs:', error);
+    }
+    return new Set();
+  }());
   
   // Track all suggestions that have ever been shown (for vote persistence)
-  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
+  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(() => {
+    const map = new Map();
+    // Restore from current suggestions (which were loaded from localStorage)
+    suggestions.forEach(s => map.set(s.id, s));
+    console.log('[ChatIntegrated] Initialized allSuggestionsRef with', map.size, 'suggestions');
+    return map;
+  }());
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {
@@ -148,6 +180,17 @@ export function ChatIntegrated() {
     if (newSuggestions.length > 0) {
       // Mark these suggestions as shown
       newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
+      
+      // Persist shown suggestion IDs to localStorage
+      if (typeof window !== 'undefined') {
+        try {
+          const idsArray = Array.from(shownSuggestionIdsRef.current);
+          localStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
+          console.log('[ChatIntegrated] Saved shown suggestion IDs to localStorage:', idsArray.length);
+        } catch (error) {
+          console.error('[ChatIntegrated] Failed to save shown suggestion IDs:', error);
+        }
+      }
       
       // Add intro message before cards
       const introMessage: MessageType = {
@@ -476,6 +519,17 @@ export function ChatIntegrated() {
           // Merge new suggestions with existing voted cards
           setSuggestions([...normalized, ...votedCardsNotInNewSet]);
           suggestionsLastInsightCountRef.current = insightCount;
+          
+          // Persist last insight count to localStorage
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('osmvp_last_insight_count', insightCount.toString());
+              console.log('[Suggestions] Saved last insight count to localStorage:', insightCount);
+            } catch (error) {
+              console.error('[Suggestions] Failed to save last insight count:', error);
+            }
+          }
+          
           console.log('[Suggestions] Merged', normalized.length, 'new cards with', votedCardsNotInNewSet.length, 'existing voted cards');
         }
       } catch (error) {

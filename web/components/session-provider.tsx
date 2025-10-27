@@ -166,10 +166,32 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
 	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>(() => {
 		console.log('[SessionProvider] Initializing votesByCareerId');
+		if (typeof window === 'undefined') return {};
+		try {
+			const stored = localStorage.getItem('osmvp_votes');
+			if (stored) {
+				const parsed = JSON.parse(stored);
+				console.log('[SessionProvider] Restored votes from localStorage:', parsed);
+				return parsed;
+			}
+		} catch (error) {
+			console.error('[SessionProvider] Failed to restore votes:', error);
+		}
 		return {};
 	});
 	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>(() => {
 		console.log('[SessionProvider] Initializing suggestions');
+		if (typeof window === 'undefined') return [];
+		try {
+			const stored = localStorage.getItem('osmvp_suggestions');
+			if (stored) {
+				const parsed = JSON.parse(stored);
+				console.log('[SessionProvider] Restored suggestions from localStorage:', parsed.length, 'cards');
+				return parsed;
+			}
+		} catch (error) {
+			console.error('[SessionProvider] Failed to restore suggestions:', error);
+		}
 		return [];
 	});
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
@@ -460,6 +482,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setTurnsState,
 	]
 );
+
+	// Persist votes to localStorage
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			localStorage.setItem('osmvp_votes', JSON.stringify(votesByCareerId));
+			console.log('[SessionProvider] Saved votes to localStorage:', Object.keys(votesByCareerId).length, 'votes');
+		} catch (error) {
+			console.error('[SessionProvider] Failed to save votes:', error);
+		}
+	}, [votesByCareerId]);
+
+	// Persist suggestions to localStorage
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			localStorage.setItem('osmvp_suggestions', JSON.stringify(suggestions));
+			console.log('[SessionProvider] Saved suggestions to localStorage:', suggestions.length, 'cards');
+		} catch (error) {
+			console.error('[SessionProvider] Failed to save suggestions:', error);
+		}
+	}, [suggestions]);
 
 	useEffect(() => {
 		if (process.env.NODE_ENV === "production") {
