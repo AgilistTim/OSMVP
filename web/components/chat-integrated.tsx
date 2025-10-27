@@ -133,6 +133,33 @@ export function ChatIntegrated() {
     return new Set();
   }());
   
+  // Store card messages separately so they persist across turn changes
+  const [cardMessages, setCardMessages] = useState<MessageType[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const stored = localStorage.getItem('osmvp_card_messages');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        console.log('[ChatIntegrated] Restored card messages from localStorage:', parsed.length);
+        return parsed;
+      }
+    } catch (error) {
+      console.error('[ChatIntegrated] Failed to restore card messages:', error);
+    }
+    return [];
+  });
+  
+  // Persist card messages to localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('osmvp_card_messages', JSON.stringify(cardMessages));
+      console.log('[ChatIntegrated] Saved card messages to localStorage:', cardMessages.length);
+    } catch (error) {
+      console.error('[ChatIntegrated] Failed to save card messages:', error);
+    }
+  }, [cardMessages]);
+  
   // Track all suggestions that have ever been shown (for vote persistence)
   const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(() => {
     const map = new Map();
@@ -162,9 +189,9 @@ export function ChatIntegrated() {
     }
   }, []); // Only run once on mount
 
-  // Convert turns to chat-ui-kit message format, including career cards inline
-  const messages: MessageType[] = useMemo(() => {
-    const textMessages: MessageType[] = turns.map((turn): MessageType => {
+  // Convert turns to chat-ui-kit message format
+  const textMessages: MessageType[] = useMemo(() => {
+    return turns.map((turn): MessageType => {
       const isAssistant = turn.role === 'assistant';
       return {
         message: turn.text,
@@ -174,48 +201,55 @@ export function ChatIntegrated() {
         type: 'text',
       };
     });
-
-    // Add career card messages for new suggestions
+  }, [turns]);
+  
+  // Combine text messages and card messages
+  const messages: MessageType[] = useMemo(() => {
+    return [...textMessages, ...cardMessages];
+  }, [textMessages, cardMessages]);
+  
+  // Add new card messages when new suggestions appear
+  useEffect(() => {
     const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
-    if (newSuggestions.length > 0) {
-      // Mark these suggestions as shown
-      newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
-      
-      // Persist shown suggestion IDs to localStorage
-      if (typeof window !== 'undefined') {
-        try {
-          const idsArray = Array.from(shownSuggestionIdsRef.current);
-          localStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
-          console.log('[ChatIntegrated] Saved shown suggestion IDs to localStorage:', idsArray.length);
-        } catch (error) {
-          console.error('[ChatIntegrated] Failed to save shown suggestion IDs:', error);
-        }
+    if (newSuggestions.length === 0) return;
+    
+    // Mark these suggestions as shown
+    newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
+    
+    // Persist shown suggestion IDs to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const idsArray = Array.from(shownSuggestionIdsRef.current);
+        localStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
+        console.log('[ChatIntegrated] Saved shown suggestion IDs to localStorage:', idsArray.length);
+      } catch (error) {
+        console.error('[ChatIntegrated] Failed to save shown suggestion IDs:', error);
       }
-      
-      // Add intro message before cards
-      const introMessage: MessageType = {
-        message: `Here are some career paths that might fit you:`,
-        sentTime: 'just now',
-        sender: 'Guide',
-        direction: 'incoming',
-        type: 'text',
-      };
-      
-      // Add career card messages
-      const cardMessages: MessageType[] = newSuggestions.map((suggestion): MessageType => ({
-        message: '', // Empty message for card type
-        sentTime: 'just now',
-        sender: 'Guide',
-        direction: 'incoming',
-        type: 'career-card',
-        careerSuggestion: suggestion,
-      }));
-      
-      return [...textMessages, introMessage, ...cardMessages];
     }
-
-    return textMessages;
-  }, [turns, suggestions]);
+    
+    // Create intro message
+    const introMessage: MessageType = {
+      message: `Here are some career paths that might fit you:`,
+      sentTime: 'just now',
+      sender: 'Guide',
+      direction: 'incoming',
+      type: 'text',
+    };
+    
+    // Create career card messages
+    const newCardMessages: MessageType[] = newSuggestions.map((suggestion): MessageType => ({
+      message: '',
+      sentTime: 'just now',
+      sender: 'Guide',
+      direction: 'incoming',
+      type: 'career-card',
+      careerSuggestion: suggestion,
+    }));
+    
+    // Add intro + cards to card messages state
+    setCardMessages(prev => [...prev, introMessage, ...newCardMessages]);
+    console.log('[ChatIntegrated] Added', newSuggestions.length, 'new card messages');
+  }, [suggestions]);
 
   // Derive insights from conversation
   const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
