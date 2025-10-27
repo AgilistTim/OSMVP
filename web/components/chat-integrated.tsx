@@ -11,14 +11,15 @@ import {
   TypingIndicator,
 } from '@chatscope/chat-ui-kit-react';
 import './chat-integrated.css';
+import { CustomMessageInput } from '@/components/custom-message-input';
+import '@/components/custom-message-input.css';
 import { useSession } from '@/components/session-provider';
 import type { ConversationTurn, InsightKind } from '@/components/session-provider';
 import { SuggestionCards } from '@/components/suggestion-cards';
-import { SuggestionBasket } from '@/components/suggestion-basket';
 import { ProfileInsightsBar } from '@/components/profile-insights-bar';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Archive, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
@@ -87,7 +88,7 @@ export function ChatIntegrated() {
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
-  const [isBasketOpen, setIsBasketOpen] = useState(false);
+  // Basket drawer removed - voted cards now shown on MY PAGE
 
   // Realtime API session
   const [realtimeState, realtimeControls] = useRealtimeSession({
@@ -438,7 +439,6 @@ export function ChatIntegrated() {
     })();
   }, [profile.insights, setSuggestions, votesByCareerId, suggestions.length]);
 
-  const totalBasketCount = savedSuggestions.length + maybeSuggestions.length + skippedSuggestions.length;
   const showProgressBar = progress < 100;
 
   return (
@@ -454,8 +454,11 @@ export function ChatIntegrated() {
       <div className="offscript-header">
         {showProgressBar && (
         <div className="progress-section">
-          <div className="progress-title">
-            {progress < 100 ? "Let's keep it rolling." : "Ready to explore!"}
+          <div className="progress-header">
+            <div className="progress-title">
+              {progress < 100 ? "Let's keep it rolling." : "Ready to explore!"}
+            </div>
+            <div className="progress-percentage">{progress}%</div>
           </div>
           <Progress value={progress} className="progress-bar" />
           <div className="progress-subtitle">
@@ -469,26 +472,11 @@ export function ChatIntegrated() {
         <div className="action-buttons">
           <Button
             variant="outline"
-            className="btn-idea-stash"
-            onClick={() => setIsBasketOpen(true)}
-          >
-            <Archive className="w-4 h-4" />
-            IDEA STASH
-            {totalBasketCount > 0 && <span className="badge">{totalBasketCount}</span>}
-          </Button>
-          <Button
-            variant="outline"
-            className="btn-personal-page"
+            className="btn-my-page"
             onClick={() => router.push('/exploration')}
           >
             <FileText className="w-4 h-4" />
-            PERSONAL PAGE
-          </Button>
-          <Button
-            className="btn-voice"
-            onClick={() => setMode(mode === 'text' ? 'voice' : 'text')}
-          >
-            {mode === 'text' ? 'SWITCH TO VOICE' : 'SWITCH TO TEXT'}
+            MY PAGE
           </Button>
         </div>
       </div>
@@ -502,40 +490,56 @@ export function ChatIntegrated() {
 
        {/* Chat Interface */}
       {mode === 'text' ? (
-        <MainContainer>
-          <ChatContainer>
-            <MessageList
-              typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
-            >
-              {messages.map((msg, i) => (
-                <Message
-                  key={i}
-                  model={{
-                    message: msg.message,
-                    sentTime: msg.sentTime,
-                    sender: msg.sender,
-                    direction: msg.direction,
-                    position: 'single',
-                  }}
-                />
-              ))}
-              <div ref={messagesEndRef} />
-            </MessageList>
-            <MessageInput
+        <>
+          <MainContainer>
+            <ChatContainer>
+              <MessageList
+                typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
+              >
+                {messages.map((msg, i) => (
+                  <Message
+                    key={i}
+                    model={{
+                      message: msg.message,
+                      sentTime: msg.sentTime,
+                      sender: msg.sender,
+                      direction: msg.direction,
+                      position: 'single',
+                    }}
+                  />
+                ))}
+                <div ref={messagesEndRef} />
+              </MessageList>
+            </ChatContainer>
+          </MainContainer>
+          <div className="custom-input-wrapper">
+            <CustomMessageInput
               placeholder="Type something you're into or curious about"
               value={input}
-              onChange={(val) => setInput(val)}
+              onChange={setInput}
               onSend={handleSend}
-              attachButton={false}
+              mode={mode}
+              onModeToggle={() => setMode(mode === 'text' ? 'voice' : 'text')}
             />
-          </ChatContainer>
-        </MainContainer>
+          </div>
+        </>
       ) : (
         <div className="voice-mode-container" style={{ padding: '2rem', textAlign: 'center' }}>
           <div style={{ marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '1rem' }}>
-              Voice Mode
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
+                Voice Mode
+              </h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMode('text')}
+                style={{ gap: '0.5rem' }}
+              >
+                <FileText className="w-4 h-4" />
+                Switch to Text
+              </Button>
+            </div>
             <p style={{ color: '#666', marginBottom: '2rem' }}>
               Click Start Voice to begin speaking with the AI assistant.
             </p>
@@ -567,17 +571,7 @@ export function ChatIntegrated() {
         </div>
       )}
 
-      {/* Suggestion Basket Drawer */}
-      <SuggestionBasket
-        open={isBasketOpen}
-        onOpenChange={setIsBasketOpen}
-        saved={savedSuggestions}
-        maybe={maybeSuggestions}
-        skipped={skippedSuggestions}
-        onCardReact={(payload) => {
-          voteCareer(payload.suggestion.id, payload.nextValue);
-        }}
-      />
+      {/* Suggestion Basket Drawer removed - voted cards now shown on MY PAGE */}
     </div>
   );
 }

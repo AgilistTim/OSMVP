@@ -197,10 +197,25 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 					</div>
 				</div>
 				<ShareControls shareUrl={shareUrl} userName={userName} />
-				<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
-			</section>
+					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
+				</section>
 
-			<section className="passion-discovery">
+				{/* Voted Cards Section - Idea Stash */}
+				<section className="voted-cards-section">
+					<SectionHeader
+						eyebrow="Your reactions"
+						title="Idea Stash"
+						description="Career cards you've saved, marked as maybe, or skipped during your exploration."
+					/>
+					{/* TODO: Add voted cards display here - will be implemented with Epic 3 inline cards */}
+					<div className="voted-cards-placeholder">
+						<p className="text-muted-foreground text-center py-8">
+							Voted cards will appear here once you react to career suggestions in the chat.
+						</p>
+					</div>
+				</section>
+
+				<section className="passion-discovery">
 				<SectionHeader
 					eyebrow="Exploration signals"
 					title="What you're into"

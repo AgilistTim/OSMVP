@@ -1,0 +1,92 @@
+/* Custom Message Input Styling */
+
+.custom-message-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  background: white;
+  border-top: 1px solid #e5e7eb;
+}
+
+.message-textarea {
+  flex: 1;
+  min-height: 44px;
+  max-height: 120px;
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 24px;
+  font-size: 16px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.message-textarea:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.message-textarea::placeholder {
+  color: #9ca3af;
+}
+
+.input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mic-toggle-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #f3f4f6;
+  color: #1f2937;
+  transition: all 0.2s;
+}
+
+.mic-toggle-btn:hover {
+  background: #e5e7eb;
+  color: #10b981;
+}
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #10b981;
+  color: white;
+  transition: all 0.2s;
+}
+
+.send-btn:hover:not(:disabled) {
+  background: #059669;
+  transform: scale(1.05);
+}
+
+.send-btn:disabled {
+  background: #d1d5db;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .custom-message-input {
+    padding: 8px 12px;
+  }
+
+  .message-textarea {
+    font-size: 16px; /* Prevent zoom on iOS */
+    padding: 10px 14px;
+  }
+
+  .mic-toggle-btn,
+  .send-btn {
+    width: 44px; /* Ensure minimum tap target size */
+    height: 44px;
+  }
+}
+
