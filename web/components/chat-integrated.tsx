@@ -480,6 +480,14 @@ export function ChatIntegrated() {
     }
 
     suggestionsFetchInFlightRef.current = true;
+    
+    // Add anticipation message
+    const anticipationTurn: ConversationTurn = {
+      role: 'assistant',
+      text: "I'm finding some career paths for you based on what you've shared. Give me a moment to pull the details together...",
+    };
+    setTurns((prev) => [...prev, anticipationTurn]);
+    
     void (async () => {
       try {
         const response = await fetch('/api/suggestions', {
@@ -635,11 +643,33 @@ export function ChatIntegrated() {
                           voteStatus={votesByCareerId[msg.careerSuggestion.id] ?? null}
                           onVote={(value) => {
                             const current = votesByCareerId[msg.careerSuggestion!.id];
+                            const cardTitle = msg.careerSuggestion!.title;
+                            
                             // Toggle vote: if clicking same value, remove vote
                             if (current === value) {
                               voteCareer(msg.careerSuggestion!.id, null);
                             } else {
                               voteCareer(msg.careerSuggestion!.id, value);
+                              
+                              // Add contextual follow-up message after voting
+                              setTimeout(() => {
+                                let followUpText = '';
+                                if (value === 1) {
+                                  followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
+                                } else if (value === 0) {
+                                  followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
+                                } else if (value === -1) {
+                                  followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
+                                }
+                                
+                                if (followUpText) {
+                                  const followUpTurn: ConversationTurn = {
+                                    role: 'assistant',
+                                    text: followUpText,
+                                  };
+                                  setTurns((prev) => [...prev, followUpTurn]);
+                                }
+                              }, 500); // Small delay so vote status updates first
                             }
                           }}
                         />
