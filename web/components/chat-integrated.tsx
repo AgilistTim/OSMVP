@@ -7,7 +7,6 @@ import {
   ChatContainer,
   MessageList,
   Message,
-  MessageInput,
   TypingIndicator,
 } from '@chatscope/chat-ui-kit-react';
 import './chat-integrated.css';
@@ -23,9 +22,9 @@ import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
-import { InlineCareerCard } from '@/components/inline-career-card';
+import { InlineCareerCard } from '@/components/inline-career-card-v2';
 import type { CareerSuggestion } from '@/components/session-provider';
-import '@/components/inline-career-card.css';
+import '@/components/inline-career-card-v2.css';
 
 type MessageType = {
   message: string;
@@ -75,10 +74,6 @@ export function ChatIntegrated() {
 
     return { pending, saved, maybe: maybePile, skipped };
   }, [suggestions, votesByCareerId]);
-
-  const savedSuggestions = suggestionGroups.saved;
-  const maybeSuggestions = suggestionGroups.maybe;
-  const skippedSuggestions = suggestionGroups.skipped;
 
   // Compute progress
   const userTurnsCount = useMemo(() => {
@@ -167,13 +162,14 @@ export function ChatIntegrated() {
   }, [cardMessages]);
   
   // Track all suggestions that have ever been shown (for vote persistence)
-  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(() => {
-    const map = new Map();
+  const initialSuggestionsMap = (() => {
+    const map = new Map<string, typeof suggestions[0]>();
     // Restore from current suggestions (which were loaded from localStorage)
     suggestions.forEach(s => map.set(s.id, s));
     console.log('[ChatIntegrated] Initialized allSuggestionsRef with', map.size, 'suggestions');
     return map;
-  }());
+  })();
+  const allSuggestionsRef = useRef(initialSuggestionsMap);
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {

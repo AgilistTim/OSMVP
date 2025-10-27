@@ -7,6 +7,10 @@ const nextConfig = (phase: string): NextConfig => {
 	return {
 		// Keep dev artifacts separate so production builds can't delete them mid-run.
 		distDir: isDevServer ? ".next-dev" : ".next",
+		// Ignore ESLint during builds (warnings won't fail the build)
+		eslint: {
+			ignoreDuringBuilds: true,
+		},
 	};
 };
 

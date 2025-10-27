@@ -74,7 +74,7 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
       {!isExpanded && suggestion.whyItFits && suggestion.whyItFits.length > 0 && (
         <div className="ml-7 mb-3">
           <p className="text-xs text-gray-700 italic">
-            "{suggestion.whyItFits[0]}"
+            &ldquo;{suggestion.whyItFits[0]}&rdquo;
           </p>
         </div>
       )}

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { CareerSuggestion } from "@/components/session-provider";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -160,9 +161,11 @@ interface ExplorationBodyProps {
 	discoveryDate: string;
 	sessionId: string;
 	shareUrl: string;
+	suggestions: CareerSuggestion[];
+	votesByCareerId: Record<string, 1 | 0 | -1>;
 }
 
-function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUrl }: ExplorationBodyProps) {
+function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUrl, suggestions, votesByCareerId }: ExplorationBodyProps) {
 	const router = useRouter();
 	const passionSummary =
 		snapshot.themes.length > 0
@@ -479,13 +482,15 @@ export function ExplorationView() {
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
 
-	return (
-		<ExplorationBody
-			snapshot={snapshot}
-			userName={userName}
-			discoveryDate={discoveryDate}
-			sessionId={sessionId}
-			shareUrl={shareUrl}
+		return (
+			<ExplorationBody
+				snapshot={snapshot}
+				userName={userName}
+				discoveryDate={discoveryDate}
+				sessionId={sessionId}
+				shareUrl={shareUrl}
+				suggestions={suggestions}
+				votesByCareerId={votesByCareerId}
 		/>
 	);
 }
