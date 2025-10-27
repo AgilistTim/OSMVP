@@ -202,18 +202,18 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
         <Button
           size="sm"
           variant="outline"
-          className="h-8 text-xs shrink-0 px-2"
+          className="h-8 text-xs shrink-0 px-3 min-w-[70px]"
           onClick={() => setIsExpanded(!isExpanded)}
         >
           {isExpanded ? (
             <>
               <ChevronUp className="w-3 h-3 mr-1" />
-              Less
+              <span>Less</span>
             </>
           ) : (
             <>
               <ChevronDown className="w-3 h-3 mr-1" />
-              More
+              <span>More</span>
             </>
           )}
         </Button>

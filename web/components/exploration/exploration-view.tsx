@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { CareerSuggestion } from "@/components/session-provider";
+import { InlineCareerCard } from "@/components/inline-career-card-v2";
+import "@/components/inline-career-card-v2.css";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -163,9 +165,10 @@ interface ExplorationBodyProps {
 	shareUrl: string;
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
+	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
 }
 
-function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUrl, suggestions, votesByCareerId }: ExplorationBodyProps) {
+function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUrl, suggestions, votesByCareerId, voteCareer }: ExplorationBodyProps) {
 	const router = useRouter();
 	const passionSummary =
 		snapshot.themes.length > 0
@@ -233,24 +236,16 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#059669' }}>
 									✅ Saved ({savedCards.length})
 								</h3>
-								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-									{savedCards.map(card => (
-										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem' }}>
-											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
-											<p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.75rem' }}>{card.summary}</p>
-											{card.whyItFits && card.whyItFits.length > 0 && (
-												<div>
-													<p style={{ fontSize: '0.75rem', fontWeight: '500', color: '#4b5563', marginBottom: '0.25rem' }}>Why this fits:</p>
-													<ul style={{ fontSize: '0.75rem', color: '#6b7280', paddingLeft: '1.25rem' }}>
-														{card.whyItFits.slice(0, 3).map((reason, idx) => (
-															<li key={idx}>{reason}</li>
-														))}
-													</ul>
-												</div>
-											)}
-										</div>
-									))}
-								</div>
+							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+								{savedCards.map(card => (
+									<InlineCareerCard
+										key={card.id}
+										suggestion={card}
+										voteStatus={votesByCareerId[card.id]}
+										onVote={(value) => voteCareer(card.id, value)}
+									/>
+								))}
+							</div>
 							</div>
 						)}
 
@@ -259,24 +254,16 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#d97706' }}>
 									🤔 Maybe ({maybeCards.length})
 								</h3>
-								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-									{maybeCards.map(card => (
-										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem' }}>
-											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
-											<p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.75rem' }}>{card.summary}</p>
-											{card.whyItFits && card.whyItFits.length > 0 && (
-												<div>
-													<p style={{ fontSize: '0.75rem', fontWeight: '500', color: '#4b5563', marginBottom: '0.25rem' }}>Why this fits:</p>
-													<ul style={{ fontSize: '0.75rem', color: '#6b7280', paddingLeft: '1.25rem' }}>
-														{card.whyItFits.slice(0, 3).map((reason, idx) => (
-															<li key={idx}>{reason}</li>
-														))}
-													</ul>
-												</div>
-											)}
-										</div>
-									))}
-								</div>
+							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+								{maybeCards.map(card => (
+									<InlineCareerCard
+										key={card.id}
+										suggestion={card}
+										voteStatus={votesByCareerId[card.id]}
+										onVote={(value) => voteCareer(card.id, value)}
+									/>
+								))}
+							</div>
 							</div>
 						)}
 
@@ -285,14 +272,16 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#6b7280' }}>
 									👎 Skipped ({skippedCards.length})
 								</h3>
-								<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-									{skippedCards.map(card => (
-										<div key={card.id} className="tilted-card" style={{ padding: '1.5rem', opacity: 0.7 }}>
-											<h4 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>{card.title}</h4>
-											<p style={{ fontSize: '0.875rem', color: '#6b7280' }}>{card.summary}</p>
-										</div>
-									))}
-								</div>
+							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+								{skippedCards.map(card => (
+									<InlineCareerCard
+										key={card.id}
+										suggestion={card}
+										voteStatus={votesByCareerId[card.id]}
+										onVote={(value) => voteCareer(card.id, value)}
+									/>
+								))}
+							</div>
 							</div>
 						)}
 					</div>
@@ -464,7 +453,7 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 }
 
 export function ExplorationView() {
-	const { profile, suggestions, votesByCareerId, sessionId } = useSession();
+	const { profile, suggestions, votesByCareerId, sessionId, voteCareer } = useSession();
 
 	const snapshot = useMemo(() => buildExplorationSnapshot(profile, suggestions, votesByCareerId), [
 		profile,
@@ -482,15 +471,16 @@ export function ExplorationView() {
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
 
-		return (
-			<ExplorationBody
-				snapshot={snapshot}
-				userName={userName}
-				discoveryDate={discoveryDate}
-				sessionId={sessionId}
-				shareUrl={shareUrl}
-				suggestions={suggestions}
-				votesByCareerId={votesByCareerId}
-		/>
+			return (
+				<ExplorationBody
+					snapshot={snapshot}
+					userName={userName}
+					discoveryDate={discoveryDate}
+					sessionId={sessionId}
+					shareUrl={shareUrl}
+					suggestions={suggestions}
+					votesByCareerId={votesByCareerId}
+					voteCareer={voteCareer}
+			/>
 	);
 }
