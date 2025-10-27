@@ -102,6 +102,11 @@ export interface CareerSuggestion {
 	score: number;
 	neighborTerritories: string[];
 	distance: CardDistance;
+	externalLinks?: {
+		label: string;
+		url: string;
+		type: "course" | "volunteering" | "resource" | "other";
+	}[];
 }
 
 interface SessionState {

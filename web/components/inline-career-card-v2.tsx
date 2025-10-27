@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ThumbsUp, MessageCircle, ThumbsDown, ChevronDown, ChevronUp, Sparkles, Target, Lightbulb } from "lucide-react";
+import { ThumbsUp, MessageCircle, ThumbsDown, ChevronDown, ChevronUp, Sparkles, Target, Lightbulb, ExternalLink } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -133,6 +133,36 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
                   </li>
                 ))}
               </ol>
+            </div>
+          )}
+
+          {/* External links */}
+          {suggestion.externalLinks && suggestion.externalLinks.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-900 mb-1.5 flex items-center gap-1.5">
+                <span className="text-blue-500">🔗</span>
+                Resources to explore
+              </p>
+              <div className="space-y-1.5">
+                {suggestion.externalLinks.map((link, idx) => (
+                  <a
+                    key={idx}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2 text-xs text-blue-600 hover:text-blue-800 hover:underline group"
+                  >
+                    <span className="shrink-0 mt-0.5">
+                      {link.type === 'course' && '📚'}
+                      {link.type === 'volunteering' && '🤝'}
+                      {link.type === 'resource' && '📖'}
+                      {link.type === 'other' && '🔗'}
+                    </span>
+                    <span className="leading-relaxed">{link.label}</span>
+                    <ExternalLink className="w-3 h-3 shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 
