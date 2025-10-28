@@ -507,6 +507,7 @@ export function ChatIntegrated() {
             summary?: string;
             careerAngles?: string[];
             nextSteps?: string[];
+            microExperiments?: string[];
             whyItFits?: string[];
             confidence?: 'high' | 'medium' | 'low';
             score?: number;
@@ -528,6 +529,7 @@ export function ChatIntegrated() {
               summary: item.summary!,
               careerAngles: item.careerAngles ?? [],
               nextSteps: item.nextSteps ?? [],
+              microExperiments: item.microExperiments ?? [],
               whyItFits: item.whyItFits ?? [],
               confidence: item.confidence ?? 'medium',
               score: item.score ?? 0,

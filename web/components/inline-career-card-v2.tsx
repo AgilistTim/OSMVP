@@ -129,6 +129,24 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
             </div>
           )}
 
+          {/* Micro experiments */}
+          {suggestion.microExperiments && suggestion.microExperiments.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-900 mb-1.5 flex items-center gap-1.5">
+                <span className="text-amber-500">🧪</span>
+                Micro experiments (1-7 days)
+              </p>
+              <ul className="text-xs text-gray-700 space-y-1.5">
+                {suggestion.microExperiments.map((experiment, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="text-amber-500 shrink-0">•</span>
+                    <span className="leading-relaxed">{experiment}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* External links */}
           {suggestion.externalLinks && suggestion.externalLinks.length > 0 && (
             <div>

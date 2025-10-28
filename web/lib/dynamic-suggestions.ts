@@ -15,6 +15,7 @@ interface RawDynamicSuggestion {
     why_it_fits?: string[];
     pathways?: string[];
     next_steps?: string[];
+    micro_experiments?: string[];
     neighbor_tags?: string[];
     distance?: string;
 }
@@ -26,6 +27,7 @@ export interface DynamicSuggestion {
     whyItFits: string[];
     careerAngles: string[];
     nextSteps: string[];
+    microExperiments: string[];
     neighborTerritories: string[];
     confidence: "high" | "medium" | "low";
     score: number;
@@ -69,81 +71,7 @@ function truncateSentence(text: string, length: number) {
 	return `${slice.slice(0, lastSpace > 0 ? lastSpace : slice.length)}…`;
 }
 
-function buildFallbackSuggestions(
-	grouped: Map<InsightKind, string[]>,
-	limit: number
-): DynamicSuggestion[] {
-	const interests = grouped.get("interest") ?? [];
-	if (interests.length === 0) return [];
 
-	const strengths = grouped.get("strength") ?? [];
-	const hopes = grouped.get("hope") ?? [];
-
-	return interests.slice(0, limit).map((interest, index) => {
-		const cleanedInterest = truncateSentence(interest, 80);
-		const titleBase =
-			toTitleCase(cleanedInterest.replace(/[,.;:!?].*$/, "")) || "New Direction";
-		const strength = strengths.length > 0 ? strengths[index % strengths.length] : null;
-		const hope = hopes.length > 0 ? hopes[index % hopes.length] : null;
-
-		const whyItFits = [
-			`Keeps you close to ${cleanedInterest}`,
-			strength ? `Builds on how ${strength.toLowerCase()}` : null,
-			hope ? `Moves toward ${hope.toLowerCase()}` : null,
-		].filter((item): item is string => Boolean(item));
-
-		const summary = truncateSentence(
-			`Channel your ${cleanedInterest.toLowerCase()} energy into a remixable pathway.`,
-			120
-		);
-
-		const nextSteps = [
-			`Spend an hour exploring local or online spaces linked to ${cleanedInterest.toLowerCase()}.`,
-			`Draft a tiny project that lets you test ${cleanedInterest.toLowerCase()} with a real audience.`,
-		];
-
-		const careerAngles = [
-			`Lean into a community-facing role centred on ${cleanedInterest.toLowerCase()}.`,
-			`Prototype a self-led project that shows off your ${cleanedInterest.toLowerCase()} point of view.`,
-		];
-
-		const distance: CardDistance = index === 0 ? "core" : index === 1 ? "adjacent" : "unexpected";
-
-		let neighborTerritories: string[];
-		if (distance === "core") {
-			neighborTerritories = [
-				`${cleanedInterest} meetups`,
-				`${cleanedInterest} portfolio builds`,
-				"Freelance experiments",
-			];
-		} else if (distance === "adjacent") {
-			neighborTerritories = [
-				`Storytelling around ${cleanedInterest.toLowerCase()}`,
-				"Community teaching gigs",
-				"Strategy roles supporting similar scenes",
-			];
-		} else {
-			neighborTerritories = [
-				`Social impact remix of ${cleanedInterest.toLowerCase()}`,
-				"Emerging tech crossover",
-				"Mentoring pathways for younger creatives",
-			];
-		}
-
-		return {
-			id: `fallback-${index}`,
-			title: `${titleBase} Track`,
-			summary,
-			whyItFits,
-			careerAngles,
-			nextSteps,
-			neighborTerritories,
-			confidence: "low" as const,
-			score: Math.max(1, limit - index),
-			distance,
-		};
-	});
-}
 
 async function buildMotivationSummary(insights: DynamicSuggestionInput["insights"]) {
 	const apiKey = process.env.OPENAI_API_KEY;
@@ -183,10 +111,8 @@ export async function generateDynamicSuggestions({
 
 	const apiKey = process.env.PERPLEXITY_API_KEY;
 	if (!apiKey) {
-		if (process.env.NODE_ENV !== "production") {
-			console.warn("[dynamic-suggestions] PERPLEXITY_API_KEY missing");
-		}
-		return buildFallbackSuggestions(grouped, limit);
+		console.error("[dynamic-suggestions] CRITICAL: PERPLEXITY_API_KEY is not set in environment variables");
+		throw new Error("PERPLEXITY_API_KEY is required for card generation");
 	}
 
 	const profile = {
@@ -238,9 +164,12 @@ export async function generateDynamicSuggestions({
 	const systemPrompt = [
 		"You co-create career pathway cards that feel hand-built for the user.",
 		"Read the profile, motivation summary, and vote signals. Infer only from that data.",
-		"Return JSON: { \"cards\": [ { \"title\", \"summary\", \"why_it_fits\", \"pathways\", \"next_steps\", \"neighbor_tags\", \"distance\" } ] } where distance is one of \"core\", \"adjacent\", or \"unexpected\".",
-		"Max three cards. Keep each list to ≤3 items. Use the user’s own phrasing in why_it_fits.",
-		"Ensure at least one card is tagged \"unexpected\" with neighbor_tags that stretch beyond the obvious domain while still plausible.",
+		"Return JSON: { \"cards\": [ { \"title\", \"summary\", \"why_it_fits\", \"pathways\", \"next_steps\", \"neighbor_tags\", \"distance\", \"micro_experiments\" } ] } where distance is one of \"core\", \"adjacent\", or \"unexpected\".",
+		"CARD DISTRIBUTION: Generate exactly 3 cards with this mix: 1 core (in their identified domain), 1 adjacent (blindspot or related area), 1 unexpected (innovative crossover).",
+		"MICRO EXPERIMENTS: Each card MUST include 2-3 micro_experiments - small, low-risk actions they can try in 1-7 days to test the pathway (e.g., 'Interview someone in this role', 'Build a tiny prototype', 'Join a relevant Discord/Slack').",
+		"BLINDSPOTS & ADJACENT AREAS: For adjacent and unexpected cards, explicitly identify skills they haven't mentioned but would complement their strengths, or domains that intersect with their interests in non-obvious ways.",
+		"LEVERAGE CONTEXT: Use their specific strengths, frustrations, and hopes to explain why each pathway fits. Reference their actual words and patterns.",
+		"Keep each list to ≤3 items. Use the user's own phrasing in why_it_fits.",
 		"Make sure every card ladders into viable pathways (paid work, community leadership, indie projects, or further learning).",
 		"If evidence for collaboration vs. solo work is absent, stay neutral.",
 	].join(" ");
@@ -269,6 +198,7 @@ export async function generateDynamicSuggestions({
 
 		if (!response.ok) {
 			const text = await response.text();
+			console.error(`[dynamic-suggestions] Perplexity API error (${response.status}):`, text);
 			throw new Error(text || `Perplexity request failed with ${response.status}`);
 		}
 
@@ -277,21 +207,31 @@ export async function generateDynamicSuggestions({
 		};
 
 		const rawContent = result.choices?.[0]?.message?.content ?? "{}";
+		console.log("[dynamic-suggestions] Perplexity raw response:", rawContent);
+		
 		let parsed: { cards?: RawDynamicSuggestion[] };
 		try {
 			parsed = JSON.parse(rawContent) as { cards?: RawDynamicSuggestion[] };
-		} catch {
-			if (process.env.NODE_ENV !== "production") {
-				console.warn("[dynamic-suggestions] failed to parse response", rawContent);
-			}
-			return [];
+		} catch (parseError) {
+			console.error("[dynamic-suggestions] Failed to parse Perplexity response as JSON:", parseError);
+			console.error("[dynamic-suggestions] Raw content was:", rawContent);
+			throw new Error("Failed to parse card generation response");
 		}
 
 		const cards = Array.isArray(parsed.cards) ? parsed.cards.slice(0, limit) : [];
+		
+		if (cards.length === 0) {
+			console.error("[dynamic-suggestions] Perplexity returned empty cards array");
+			console.error("[dynamic-suggestions] Full parsed response:", JSON.stringify(parsed, null, 2));
+			console.error("[dynamic-suggestions] Input profile:", JSON.stringify(profile, null, 2));
+			throw new Error("Card generation returned no cards");
+		}
+		
 	const mapped = cards.reduce<DynamicSuggestion[]>((acc, card, index) => {
 		const title = (card.title ?? "").trim();
 		const summary = (card.summary ?? "").trim();
 		if (!title || !summary) {
+			console.warn(`[dynamic-suggestions] Skipping card ${index} - missing title or summary:`, card);
 			return acc;
 		}
 
@@ -303,6 +243,9 @@ export async function generateDynamicSuggestions({
 			: [];
 		const nextSteps = Array.isArray(card.next_steps)
 			? card.next_steps.map((item) => item.trim()).filter(Boolean)
+			: [];
+		const microExperiments = Array.isArray(card.micro_experiments)
+			? card.micro_experiments.map((item) => item.trim()).filter(Boolean)
 			: [];
 		const neighborTerritories = Array.isArray(card.neighbor_tags)
 			? card.neighbor_tags.map((item) => item.trim()).filter(Boolean)
@@ -316,6 +259,7 @@ export async function generateDynamicSuggestions({
 			whyItFits,
 			careerAngles,
 			nextSteps,
+			microExperiments,
 			neighborTerritories,
 			confidence: "medium",
 			score: 5 - index,
@@ -323,12 +267,13 @@ export async function generateDynamicSuggestions({
 		});
 		return acc;
 	}, []);
+		
+		console.log(`[dynamic-suggestions] Successfully generated ${mapped.length} cards`);
+		console.log("[dynamic-suggestions] Card titles:", mapped.map(c => c.title));
 
 		return mapped;
 	} catch (error) {
-		if (process.env.NODE_ENV !== "production") {
-			console.warn("[dynamic-suggestions] error", error);
-		}
-		return [];
+		console.error("[dynamic-suggestions] CRITICAL ERROR:", error);
+		throw error;
 	}
 }

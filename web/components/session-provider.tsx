@@ -97,6 +97,7 @@ export interface CareerSuggestion {
 	summary: string;
 	careerAngles: string[];
 	nextSteps: string[];
+	microExperiments: string[];
 	whyItFits: string[];
 	confidence: "high" | "medium" | "low";
 	score: number;

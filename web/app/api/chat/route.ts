@@ -88,7 +88,7 @@ Then continue the conversation naturally after the cards appear.`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
       messages,
       temperature: 0.7,
       max_tokens: 150,

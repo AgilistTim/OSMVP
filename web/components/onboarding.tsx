@@ -790,6 +790,7 @@ useEffect(() => {
 							summary?: string;
 							careerAngles?: string[];
 							nextSteps?: string[];
+							microExperiments?: string[];
 							whyItFits?: string[];
 							confidence?: "high" | "medium" | "low";
 							score?: number;
@@ -810,18 +811,19 @@ useEffect(() => {
 									item.distance === "adjacent" || item.distance === "unexpected"
 										? item.distance
 										: "core";
-								return {
-									id: item.id!,
-									title: item.title!,
-									summary: item.summary!,
-									careerAngles: item.careerAngles ?? [],
-									nextSteps: item.nextSteps ?? [],
-									whyItFits: item.whyItFits ?? [],
-									confidence: item.confidence ?? "medium",
-									score: item.score ?? 0,
-									neighborTerritories: item.neighborTerritories ?? [],
-									distance,
-								};
+							return {
+								id: item.id!,
+								title: item.title!,
+								summary: item.summary!,
+								careerAngles: item.careerAngles ?? [],
+								nextSteps: item.nextSteps ?? [],
+								microExperiments: item.microExperiments ?? [],
+								whyItFits: item.whyItFits ?? [],
+								confidence: item.confidence ?? "medium",
+								score: item.score ?? 0,
+								neighborTerritories: item.neighborTerritories ?? [],
+								distance,
+							};
 							})
 							.sort((a, b) => b.score - a.score);
 
