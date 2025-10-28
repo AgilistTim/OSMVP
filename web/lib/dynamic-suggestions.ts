@@ -87,7 +87,7 @@ async function buildMotivationSummary(insights: DynamicSuggestionInput["insights
 	].join(" ");
 
 	const result = await openai.chat.completions.create({
-		model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+		model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
 		temperature: 0.1,
 		messages: [
 			{ role: "system", content: motivationPrompt },

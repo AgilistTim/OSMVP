@@ -65,7 +65,7 @@ export async function personaliseSuggestions({
 		});
 
 		const completion = await openai.chat.completions.create({
-			model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+			model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
 			temperature: 0.4,
 			response_format: { type: "json_object" },
 			messages: [
