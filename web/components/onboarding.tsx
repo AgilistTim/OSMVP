@@ -25,7 +25,7 @@ type Turn = ConversationTurn;
 const MUTUAL_EXPRESSION_REGEX = /\b(i['’]m|i am|i've|i was|my\s|i also|same here|me too)/i;
 
 const DEFAULT_OPENING =
-	"Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share. To start, what should I call you?";
+	"Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share.";
 
 const REQUIRED_INSIGHT_KINDS: InsightKind[] = ["interest", "strength", "hope"];
 const FALLBACK_MIN_TURNS = 6;

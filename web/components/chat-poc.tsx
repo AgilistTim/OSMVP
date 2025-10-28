@@ -22,7 +22,7 @@ type MessageType = {
 export function ChatPOC() {
   const [messages, setMessages] = useState<MessageType[]>([
     {
-      message: "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share. To start, what should I call you?",
+      message: "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share.",
       sentTime: "just now",
       sender: "Guide",
       direction: "incoming" as const,

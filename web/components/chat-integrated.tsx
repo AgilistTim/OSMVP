@@ -36,7 +36,7 @@ type MessageType = {
 };
 
 const DEFAULT_OPENING =
-  "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share. To start, what should I call you?";
+  "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share.";
 
 export function ChatIntegrated() {
   const router = useRouter();
@@ -437,6 +437,30 @@ export function ChatIntegrated() {
       });
     }
   }, [realtimeState.status, realtimeControls, mode]);
+
+  // Make AI speak first when voice mode connects
+  const hasGreetedInVoiceRef = useRef(false);
+  useEffect(() => {
+    if (mode === 'voice' && realtimeState.status === 'connected' && !hasGreetedInVoiceRef.current) {
+      console.log('[Voice Mode] Connected, triggering AI greeting');
+      hasGreetedInVoiceRef.current = true;
+      
+      // Request AI to speak the greeting
+      setTimeout(() => {
+        realtimeControls.sendEvent({
+          type: 'response.create',
+          response: {
+            output_modalities: ['audio', 'text'],
+          },
+        });
+      }, 500); // Small delay to ensure connection is fully established
+    }
+    
+    // Reset flag when leaving voice mode
+    if (mode === 'text') {
+      hasGreetedInVoiceRef.current = false;
+    }
+  }, [mode, realtimeState.status, realtimeControls]);
 
   // Handle typing indicator based on Realtime state
   useEffect(() => {
