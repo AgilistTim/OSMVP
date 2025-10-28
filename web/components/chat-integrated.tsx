@@ -88,6 +88,7 @@ export function ChatIntegrated() {
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   // Basket drawer removed - voted cards now shown on MY PAGE
 
   // Realtime API session
@@ -480,13 +481,7 @@ export function ChatIntegrated() {
     }
 
     suggestionsFetchInFlightRef.current = true;
-    
-    // Add anticipation message
-    const anticipationTurn: ConversationTurn = {
-      role: 'assistant',
-      text: "I'm finding some career paths for you based on what you've shared. Give me a moment to pull the details together...",
-    };
-    setTurns((prev) => [...prev, anticipationTurn]);
+    setLoadingSuggestions(true);
     
     void (async () => {
       try {
@@ -580,6 +575,7 @@ export function ChatIntegrated() {
         console.error('Failed to load suggestions', error);
       } finally {
         suggestionsFetchInFlightRef.current = false;
+        setLoadingSuggestions(false);
       }
     })();
   }, [profile.insights.length, setSuggestions]);
@@ -751,13 +747,61 @@ export function ChatIntegrated() {
             ) : null;
           })()}
           
+          {/* Loading indicator for suggestions */}
+          {loadingSuggestions && (
+            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
+              <div
+                style={{
+                  padding: '1.5rem',
+                  backgroundColor: '#d8fdf0',
+                  borderRadius: '12px',
+                  fontSize: '1.1rem',
+                  lineHeight: '1.6',
+                  textAlign: 'center',
+                  maxWidth: '600px',
+                  margin: '0 auto',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: '3px solid #10b981',
+                      borderTopColor: 'transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                  <span>I'm finding some career paths for you based on what you've shared. Give me a moment to pull the details together...</span>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Show career cards in voice mode */}
-          {suggestions.length > 0 && (
-            <div style={{ marginTop: '2rem', maxWidth: '800px', margin: '2rem auto 0' }}>
-              <h4 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', textAlign: 'left' }}>
+          {!loadingSuggestions && suggestions.length > 0 && (
+            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
+              <h4
+                style={{
+                  fontSize: '1.25rem',
+                  fontWeight: '600',
+                  marginBottom: '1.5rem',
+                  textAlign: 'center',
+                  color: '#111827',
+                }}
+              >
                 Career Paths to Explore
               </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
+                  maxWidth: '800px',
+                  margin: '0 auto',
+                }}
+              >
                 {suggestions.map((suggestion) => (
                   <InlineCareerCard
                     key={suggestion.id}

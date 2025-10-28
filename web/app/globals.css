@@ -2587,3 +2587,15 @@ body {
 
 /* Mobile keyboard handling via visualViewport API in JavaScript */
 
+
+
+/* Spinner animation for loading states */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+

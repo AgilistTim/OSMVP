@@ -81,14 +81,7 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
 
       {/* Expanded details */}
       {isExpanded && (
-        <div className="ml-7 space-y-3 mb-3 pt-2 border-t border-gray-100">
-          {/* Full summary if it was truncated */}
-          <div>
-            <p className="text-xs text-gray-700 leading-relaxed">
-              {suggestion.summary}
-            </p>
-          </div>
-
+        <div className="ml-7 space-y-3 mb-3 pt-2 border-gray-100">
           {/* Why it fits */}
           {suggestion.whyItFits && suggestion.whyItFits.length > 0 && (
             <div>
