@@ -195,6 +195,7 @@ export function ChatIntegrated() {
       }
       cardsByInsertPoint.get(insertPoint)!.push(cardMsg);
     }
+    console.log('[ChatIntegrated] Cards by insertion point:', Array.from(cardsByInsertPoint.entries()).map(([point, cards]) => ({ point, count: cards.length })));
     
     // Interleave text messages and cards
     for (let i = 0; i < textMessages.length; i++) {
