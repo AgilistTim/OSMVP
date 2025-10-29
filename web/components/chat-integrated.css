@@ -1,11 +1,11 @@
-/* Offscript Chat Integrated Styling */
+/* Offscript Chat Integrated Styling - Bold Black & White Design */
 
 .chat-integrated-wrapper {
   display: flex;
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: white;
 }
 
 /* Profile Insights */
@@ -13,7 +13,7 @@
   flex-shrink: 0;
   padding: 12px 16px;
   background: white;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 2px solid #000000;
 }
 
 /* Custom Header */
@@ -21,7 +21,7 @@
   flex-shrink: 0;
   background: white;
   padding: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 2px solid #000000;
 }
 
 .progress-section {
@@ -37,13 +37,14 @@
 
 .progress-title {
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
+  color: #000000;
 }
 
 .progress-percentage {
   font-size: 16px;
   font-weight: 700;
-  color: #10b981;
+  color: #000000;
 }
 
 .progress-bar {
@@ -53,7 +54,8 @@
 
 .progress-subtitle {
   font-size: 14px;
-  color: #6b7280;
+  color: #000000;
+  font-weight: 500;
 }
 
 .action-buttons {
@@ -63,21 +65,30 @@
 }
 
 .btn-my-page {
-  background: #dbeafe;
-  border: 1px solid #3b82f6;
-  color: #1e40af;
-  font-weight: 600;
+  background: #8cc9ff;
+  border: 2px solid #000000;
+  color: #000000;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+.btn-my-page:hover {
+  background: #7ab8ef;
+}
+
 .btn-voice {
-  background: #1f2937;
+  background: #000000;
   color: white;
-  font-weight: 600;
+  font-weight: 700;
   flex: 1;
   min-width: 160px;
+  border: 2px solid #000000;
+}
+
+.btn-voice:hover {
+  background: #333333;
 }
 
 /* Suggestions Container */
@@ -86,7 +97,7 @@
   padding: 16px;
   padding-bottom: 24px; /* Extra padding for mobile to ensure buttons are reachable */
   background: white;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 2px solid #000000;
   max-height: 50vh; /* Use viewport height instead of fixed pixels */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
@@ -108,64 +119,71 @@
   min-height: 0;
 }
 
-/* Incoming messages (AI) - Yellow */
+/* Incoming messages (AI) - White with black border */
 .cs-message--incoming .cs-message__content {
-  background: #fef08a !important;
-  color: #1f2937 !important;
+  background: white !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
   border-radius: 16px !important;
   padding: 12px 16px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: none !important;
+  font-weight: 500;
 }
 
-/* Outgoing messages (User) - Mint to Coral Gradient */
+/* Outgoing messages (User) - Peach accent */
 .cs-message--outgoing .cs-message__content {
-  background: linear-gradient(135deg, #d1fae5 0%, #fecaca 100%) !important;
-  color: #1f2937 !important;
+  background: #fdc0a8 !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
   border-radius: 16px !important;
   padding: 12px 16px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: none !important;
+  font-weight: 500;
 }
 
 /* Message input styling */
 .cs-message-input {
   background: white !important;
-  border: 2px solid #e5e7eb !important;
+  border: 2px solid #000000 !important;
   border-radius: 24px !important;
   padding: 8px 16px !important;
 }
 
 .cs-message-input:focus-within {
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  border-color: #8cc9ff !important;
+  box-shadow: 0 0 0 3px rgba(140, 201, 255, 0.3) !important;
 }
 
 .cs-message-input__content-editor {
   font-size: 16px !important;
+  color: #000000 !important;
 }
 
-/* Send button */
+/* Send button - Blue accent */
 .cs-button--send {
-  background: #10b981 !important;
+  background: #8cc9ff !important;
+  border: 2px solid #000000 !important;
   border-radius: 50% !important;
   width: 40px !important;
   height: 40px !important;
 }
 
 .cs-button--send:hover {
-  background: #059669 !important;
+  background: #7ab8ef !important;
 }
 
 /* Typing indicator */
 .cs-typing-indicator {
-  background: #fef08a !important;
+  background: white !important;
+  border: 2px solid #000000 !important;
   border-radius: 16px !important;
   padding: 12px 16px !important;
 }
 
-/* Message list */
+/* Message list - White background */
 .cs-message-list {
   padding: 16px !important;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+  background: white !important;
 }
 
 /* Custom Input Wrapper */
@@ -173,7 +191,7 @@
   flex-shrink: 0;
   padding: 0;
   background: white;
-  border-top: 1px solid #e5e7eb;
+  border-top: 2px solid #000000;
 }
 
 /* Hide default MessageInput if present */
@@ -181,22 +199,23 @@
   display: none;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - Black and white */
 .cs-message-list__scroll-wrapper::-webkit-scrollbar {
   width: 8px;
 }
 
 .cs-message-list__scroll-wrapper::-webkit-scrollbar-track {
-  background: #f3f4f6;
+  background: white;
+  border: 1px solid #000000;
   border-radius: 4px;
 }
 
 .cs-message-list__scroll-wrapper::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #000000;
   border-radius: 4px;
 }
 
 .cs-message-list__scroll-wrapper::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #333333;
 }
 
