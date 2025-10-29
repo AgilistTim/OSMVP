@@ -205,13 +205,8 @@ export function ChatIntegrated() {
       const cardsAtThisPoint = cardsByInsertPoint.get(i + 1);
       if (cardsAtThisPoint) {
         combined.push(...cardsAtThisPoint);
+        console.log('[ChatIntegrated] Inserted', cardsAtThisPoint.length, 'cards after turn', i + 1);
       }
-    }
-    
-    // Add any remaining cards that should appear after all turns
-    const remainingCards = cardsByInsertPoint.get(textMessages.length);
-    if (remainingCards) {
-      combined.push(...remainingCards);
     }
     
     console.log('[ChatIntegrated] Combined messages:', {
