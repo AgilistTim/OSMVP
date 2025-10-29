@@ -540,6 +540,10 @@ export function ChatIntegrated() {
     suggestionsFetchInFlightRef.current = true;
     setLoadingSuggestions(true);
     
+    // Update lastCount BEFORE fetch to prevent duplicate fetches while this one is in flight
+    suggestionsLastInsightCountRef.current = insightCount;
+    console.log('[Suggestions] Updated lastCount to', insightCount, 'before fetch');
+    
     void (async () => {
       try {
         const response = await fetch('/api/suggestions', {
@@ -616,7 +620,7 @@ export function ChatIntegrated() {
           
           // Merge new suggestions with existing voted cards
           setSuggestions([...normalized, ...votedCardsNotInNewSet]);
-          suggestionsLastInsightCountRef.current = insightCount;
+          // Note: lastCount already updated before fetch to prevent duplicates
           
           // Persist last insight count to localStorage
           if (typeof window !== 'undefined') {
