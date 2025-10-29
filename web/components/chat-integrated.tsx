@@ -510,7 +510,19 @@ export function ChatIntegrated() {
   }, [realtimeState.transcripts, isTyping]);
 
   // Auto-scroll to bottom when new messages arrive
+  // But when cards are added, only scroll to show the intro message
   useEffect(() => {
+    const lastMessage = messages[messages.length - 1];
+    const isCardMessage = lastMessage?.type === 'career-card';
+    
+    if (isCardMessage) {
+      // Cards were just added - don't auto-scroll to bottom
+      // User should scroll down naturally to see cards
+      console.log('[ChatIntegrated] Cards added, skipping auto-scroll to bottom');
+      return;
+    }
+    
+    // Normal text message - scroll to bottom
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
