@@ -103,52 +103,49 @@ export function ChatIntegrated() {
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
   
-  // Initialize last insight count from localStorage
-  const initialLastInsightCount = (() => {
-    if (typeof window === 'undefined') return 0;
+  // Initialize last insight count from localStorage (only once on mount)
+  const suggestionsLastInsightCountRef = useRef<number>(0);
+  if (suggestionsLastInsightCountRef.current === 0 && typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem('osmvp_last_insight_count');
       if (stored) {
-        const count = parseInt(stored, 10);
-        console.log('[ChatIntegrated] Restored last insight count:', count);
-        return count;
+        suggestionsLastInsightCountRef.current = parseInt(stored, 10);
+        console.log('[ChatIntegrated] Restored last insight count:', suggestionsLastInsightCountRef.current);
       }
     } catch (error) {
       console.error('[ChatIntegrated] Failed to restore last insight count:', error);
     }
-    return 0;
-  })();
-  const suggestionsLastInsightCountRef = useRef(initialLastInsightCount);
+  }
   
-  // Initialize shown suggestion IDs from localStorage
-  const initialShownIds = (() => {
-    if (typeof window === 'undefined') return new Set<string>();
+  // Initialize shown suggestion IDs from localStorage (only once on mount)
+  const shownSuggestionIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedShownIds = useRef(false);
+  if (!hasInitializedShownIds.current && typeof window !== 'undefined') {
     try {
       const stored = localStorage.getItem('osmvp_shown_suggestion_ids');
       if (stored) {
         const ids = JSON.parse(stored) as string[];
+        shownSuggestionIdsRef.current = new Set(ids);
         console.log('[ChatIntegrated] Restored shown suggestion IDs:', ids.length);
-        return new Set(ids);
       }
     } catch (error) {
       console.error('[ChatIntegrated] Failed to restore shown suggestion IDs:', error);
     }
-    return new Set<string>();
-  })();
-  const shownSuggestionIdsRef = useRef(initialShownIds);
+    hasInitializedShownIds.current = true;
+  }
   
   // Store card messages separately (not persisted to avoid infinite loop issues)
   const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
   
-  // Track all suggestions that have ever been shown (for vote persistence)
-  const initialSuggestionsMap = (() => {
-    const map = new Map<string, typeof suggestions[0]>();
+  // Track all suggestions that have ever been shown (for vote persistence) - only once on mount
+  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
+  const hasInitializedAllSuggestions = useRef(false);
+  if (!hasInitializedAllSuggestions.current) {
     // Restore from current suggestions (which were loaded from localStorage)
-    suggestions.forEach(s => map.set(s.id, s));
-    console.log('[ChatIntegrated] Initialized allSuggestionsRef with', map.size, 'suggestions');
-    return map;
-  })();
-  const allSuggestionsRef = useRef(initialSuggestionsMap);
+    suggestions.forEach(s => allSuggestionsRef.current.set(s.id, s));
+    console.log('[ChatIntegrated] Initialized allSuggestionsRef with', allSuggestionsRef.current.size, 'suggestions');
+    hasInitializedAllSuggestions.current = true;
+  }
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {
