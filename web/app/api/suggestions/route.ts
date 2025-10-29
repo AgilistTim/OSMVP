@@ -45,9 +45,13 @@ export async function POST(req: NextRequest) {
 
 		return NextResponse.json({ suggestions: dynamic });
 	} catch (error) {
-		console.error("Failed to build suggestions", error);
+		console.error("[suggestions] Failed to build suggestions:", error);
+		if (error instanceof Error) {
+			console.error("[suggestions] Error message:", error.message);
+			console.error("[suggestions] Error stack:", error.stack);
+		}
 		return NextResponse.json(
-			{ suggestions: [], error: "failed_to_build_suggestions" },
+			{ suggestions: [], error: "failed_to_build_suggestions", details: error instanceof Error ? error.message : String(error) },
 			{ status: 500 }
 		);
 	}
