@@ -33,6 +33,7 @@ type MessageType = {
   direction: 'incoming' | 'outgoing';
   type?: 'text' | 'career-card';
   careerSuggestion?: CareerSuggestion;
+  insertAfterTurnIndex?: number; // For card messages, indicates where to insert in timeline
 };
 
 const DEFAULT_OPENING =
@@ -206,9 +207,39 @@ export function ChatIntegrated() {
     });
   }, [turns]);
   
-  // Combine text messages and card messages
+  // Combine text messages and card messages in chronological order
+  // Card messages are inserted after the turn count at which they were generated
   const messages: MessageType[] = useMemo(() => {
-    return [...textMessages, ...cardMessages];
+    const combined: MessageType[] = [];
+    
+    // Group card messages by their insertion point
+    const cardsByInsertPoint = new Map<number, MessageType[]>();
+    for (const cardMsg of cardMessages) {
+      const insertPoint = cardMsg.insertAfterTurnIndex ?? textMessages.length;
+      if (!cardsByInsertPoint.has(insertPoint)) {
+        cardsByInsertPoint.set(insertPoint, []);
+      }
+      cardsByInsertPoint.get(insertPoint)!.push(cardMsg);
+    }
+    
+    // Interleave text messages and cards
+    for (let i = 0; i < textMessages.length; i++) {
+      combined.push(textMessages[i]);
+      
+      // Insert any cards that should appear after this turn
+      const cardsAtThisPoint = cardsByInsertPoint.get(i + 1);
+      if (cardsAtThisPoint) {
+        combined.push(...cardsAtThisPoint);
+      }
+    }
+    
+    // Add any remaining cards that should appear after all turns
+    const remainingCards = cardsByInsertPoint.get(textMessages.length);
+    if (remainingCards) {
+      combined.push(...remainingCards);
+    }
+    
+    return combined;
   }, [textMessages, cardMessages]);
   
   // Add new card messages when new suggestions appear
@@ -230,6 +261,9 @@ export function ChatIntegrated() {
       }
     }
     
+    // Track current turn count for insertion point
+    const currentTurnCount = turns.length;
+    
     // Create intro message
     const introMessage: MessageType = {
       message: `Here are some career paths that might fit you:`,
@@ -237,6 +271,7 @@ export function ChatIntegrated() {
       sender: 'Guide',
       direction: 'incoming',
       type: 'text',
+      insertAfterTurnIndex: currentTurnCount,
     };
     
     // Create career card messages
@@ -247,6 +282,7 @@ export function ChatIntegrated() {
       direction: 'incoming',
       type: 'career-card',
       careerSuggestion: suggestion,
+      insertAfterTurnIndex: currentTurnCount,
     }));
     
     // Add intro + cards to card messages state
