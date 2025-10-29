@@ -242,7 +242,7 @@ export function ChatIntegrated() {
     return combined;
   }, [textMessages, cardMessages]);
   
-  // Add new card messages when new suggestions appear
+  // Add new card messages when new suggestions appear with progressive reveal
   useEffect(() => {
     const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
     if (newSuggestions.length === 0) return;
@@ -264,41 +264,59 @@ export function ChatIntegrated() {
     // Track current turn count for insertion point
     const currentTurnCount = turns.length;
     
-    // Create intro message with variation
-    const introMessages = [
-      "That triggers some ideas! Let me share a few career paths with you...",
-      "Based on what you've shared, I've got some paths that might fit. Here they are:",
-      "This is giving me some ideas. Let me pull together a few options for you...",
-      "I'm seeing some interesting directions here. Let me show you what I'm thinking:",
-      "That's helpful context! Here are some career paths that could work well for you:",
-    ];
-    
-    // Use turn count to vary the message (deterministic but varied)
-    const introText = introMessages[currentTurnCount % introMessages.length];
-    
-    const introMessage: MessageType = {
-      message: introText,
-      sentTime: 'just now',
-      sender: 'Guide',
-      direction: 'incoming',
-      type: 'text',
-      insertAfterTurnIndex: currentTurnCount,
+    // Progressive reveal: Show thinking messages, then cards one by one
+    const revealCardsProgressively = async () => {
+      // Step 1: Show intro message
+      const introMessages = [
+        "That triggers some ideas! Give me a moment to pull something together...",
+        "Based on what you've shared, let me find some paths that might fit...",
+        "This is giving me some ideas. Let me research a few options...",
+        "I'm seeing some interesting directions. Let me build some cards for you...",
+        "That's helpful context! Let me explore some career paths for you...",
+      ];
+      const introText = introMessages[currentTurnCount % introMessages.length];
+      
+      const introMessage: MessageType = {
+        message: introText,
+        sentTime: 'just now',
+        sender: 'Guide',
+        direction: 'incoming',
+        type: 'text',
+        insertAfterTurnIndex: currentTurnCount,
+      };
+      
+      setCardMessages(prev => [...prev, introMessage]);
+      
+      // Step 2: Wait 1.5 seconds (simulating thinking)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Step 3: Add cards one by one with delays
+      for (let i = 0; i < newSuggestions.length; i++) {
+        const suggestion = newSuggestions[i];
+        const cardMessage: MessageType = {
+          message: '',
+          sentTime: 'just now',
+          sender: 'Guide',
+          direction: 'incoming',
+          type: 'career-card',
+          careerSuggestion: suggestion,
+          insertAfterTurnIndex: currentTurnCount,
+        };
+        
+        setCardMessages(prev => [...prev, cardMessage]);
+        console.log('[ChatIntegrated] Revealed card', i + 1, 'of', newSuggestions.length);
+        
+        // Wait 800ms before next card (except for last card)
+        if (i < newSuggestions.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 800));
+        }
+      }
+      
+      console.log('[ChatIntegrated] Finished revealing', newSuggestions.length, 'cards');
     };
     
-    // Create career card messages
-    const newCardMessages: MessageType[] = newSuggestions.map((suggestion): MessageType => ({
-      message: '',
-      sentTime: 'just now',
-      sender: 'Guide',
-      direction: 'incoming',
-      type: 'career-card',
-      careerSuggestion: suggestion,
-      insertAfterTurnIndex: currentTurnCount,
-    }));
-    
-    // Add intro + cards to card messages state
-    setCardMessages(prev => [...prev, introMessage, ...newCardMessages]);
-    console.log('[ChatIntegrated] Added', newSuggestions.length, 'new card messages');
+    revealCardsProgressively();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions]);
 
   // Derive insights from conversation
