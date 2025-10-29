@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useMemo, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
 
 export type SessionMode = "text" | "voice" | null;
@@ -500,12 +500,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		}
 	}, [votesByCareerId]);
 
-	// Persist suggestions to localStorage
+	// Persist suggestions to localStorage (with deduplication)
+	const lastSavedSuggestionsRef = useRef<string>('');
 	useEffect(() => {
 		if (typeof window === 'undefined') return;
 		try {
-			localStorage.setItem('osmvp_suggestions', JSON.stringify(suggestions));
-			console.log('[SessionProvider] Saved suggestions to localStorage:', suggestions.length, 'cards');
+			const serialized = JSON.stringify(suggestions);
+			// Only save if actually changed
+			if (serialized !== lastSavedSuggestionsRef.current) {
+				localStorage.setItem('osmvp_suggestions', serialized);
+				lastSavedSuggestionsRef.current = serialized;
+				console.log('[SessionProvider] Saved suggestions to localStorage:', suggestions.length, 'cards');
+			}
 		} catch (error) {
 			console.error('[SessionProvider] Failed to save suggestions:', error);
 		}
