@@ -34,6 +34,7 @@ type MessageType = {
   type?: 'text' | 'career-card';
   careerSuggestion?: CareerSuggestion;
   insertAfterTurnIndex?: number; // For card messages, indicates where to insert in timeline
+  revealIndex?: number; // For staggered CSS animations (0 = intro, 1+ = cards)
 };
 
 const DEFAULT_OPENING =
@@ -218,7 +219,7 @@ export function ChatIntegrated() {
     return combined;
   }, [textMessages, cardMessages]);
   
-  // Add new card messages when new suggestions appear with progressive reveal
+  // Add new card messages when new suggestions appear
   useEffect(() => {
     const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
     if (newSuggestions.length === 0) return;
@@ -242,74 +243,41 @@ export function ChatIntegrated() {
     // Track current turn count for insertion point
     const currentTurnCount = turns.length;
     
-    // Use a flag to prevent multiple simultaneous reveals
-    let cancelled = false;
+    // Create intro message
+    const introMessages = [
+      "That triggers some ideas! Give me a moment to pull something together...",
+      "Based on what you've shared, let me find some paths that might fit...",
+      "This is giving me some ideas. Let me research a few options...",
+      "I'm seeing some interesting directions. Let me build some cards for you...",
+      "That's helpful context! Let me explore some career paths for you...",
+    ];
+    const introText = introMessages[currentTurnCount % introMessages.length];
     
-    // Progressive reveal: Show thinking messages, then cards one by one
-    const revealCardsProgressively = async () => {
-      if (cancelled) return;
-      
-      // Step 1: Show intro message
-      const introMessages = [
-        "That triggers some ideas! Give me a moment to pull something together...",
-        "Based on what you've shared, let me find some paths that might fit...",
-        "This is giving me some ideas. Let me research a few options...",
-        "I'm seeing some interesting directions. Let me build some cards for you...",
-        "That's helpful context! Let me explore some career paths for you...",
-      ];
-      const introText = introMessages[currentTurnCount % introMessages.length];
-      
-      const introMessage: MessageType = {
-        message: introText,
-        sentTime: 'just now',
-        sender: 'Guide',
-        direction: 'incoming',
-        type: 'text',
-        insertAfterTurnIndex: currentTurnCount,
-      };
-      
-      setCardMessages(prev => [...prev, introMessage]);
-      
-      // Step 2: Wait 1.5 seconds (simulating thinking)
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      if (cancelled) return;
-      
-      // Step 3: Add cards one by one with delays
-      for (let i = 0; i < newSuggestions.length; i++) {
-        if (cancelled) return;
-        
-        const suggestion = newSuggestions[i];
-        const cardMessage: MessageType = {
-          message: '',
-          sentTime: 'just now',
-          sender: 'Guide',
-          direction: 'incoming',
-          type: 'career-card',
-          careerSuggestion: suggestion,
-          insertAfterTurnIndex: currentTurnCount,
-        };
-        
-        setCardMessages(prev => [...prev, cardMessage]);
-        console.log('[ChatIntegrated] Revealed card', i + 1, 'of', newSuggestions.length);
-        
-        // Wait 800ms before next card (except for last card)
-        if (i < newSuggestions.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 800));
-        }
-      }
-      
-      if (!cancelled) {
-        console.log('[ChatIntegrated] Finished revealing', newSuggestions.length, 'cards');
-      }
+    const introMessage: MessageType = {
+      message: introText,
+      sentTime: 'just now',
+      sender: 'Guide',
+      direction: 'incoming',
+      type: 'text',
+      insertAfterTurnIndex: currentTurnCount,
+      revealIndex: 0, // Intro appears first
     };
     
-    revealCardsProgressively();
+    // Create all card messages with staggered reveal indices
+    const newCardMessages: MessageType[] = newSuggestions.map((suggestion, index): MessageType => ({
+      message: '',
+      sentTime: 'just now',
+      sender: 'Guide',
+      direction: 'incoming',
+      type: 'career-card',
+      careerSuggestion: suggestion,
+      insertAfterTurnIndex: currentTurnCount,
+      revealIndex: index + 1, // Cards appear after intro with stagger
+    }));
     
-    // Cleanup function to cancel reveal if component unmounts or suggestions change
-    return () => {
-      cancelled = true;
-      console.log('[ChatIntegrated] Cancelled progressive reveal');
-    };
+    // Add all messages in a single batch (CSS will handle staggered reveal)
+    setCardMessages(prev => [...prev, introMessage, ...newCardMessages]);
+    console.log('[ChatIntegrated] Added intro + ', newSuggestions.length, 'cards with staggered reveal');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions]);
 
@@ -717,8 +685,16 @@ export function ChatIntegrated() {
               >
                 {messages.map((msg, i) => {
                   if (msg.type === 'career-card' && msg.careerSuggestion) {
+                    const revealDelay = msg.revealIndex !== undefined ? msg.revealIndex * 0.8 : 0;
                     return (
-                      <div key={i} style={{ padding: '0.5rem 1rem' }}>
+                      <div 
+                        key={i} 
+                        className="card-reveal-container"
+                        style={{ 
+                          padding: '0.5rem 1rem',
+                          animationDelay: `${revealDelay}s`
+                        }}
+                      >
                         <InlineCareerCard
                           suggestion={msg.careerSuggestion}
                           voteStatus={votesByCareerId[msg.careerSuggestion.id] ?? null}
