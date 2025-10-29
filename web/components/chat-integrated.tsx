@@ -264,9 +264,20 @@ export function ChatIntegrated() {
     // Track current turn count for insertion point
     const currentTurnCount = turns.length;
     
-    // Create intro message
+    // Create intro message with variation
+    const introMessages = [
+      "That triggers some ideas! Let me share a few career paths with you...",
+      "Based on what you've shared, I've got some paths that might fit. Here they are:",
+      "This is giving me some ideas. Let me pull together a few options for you...",
+      "I'm seeing some interesting directions here. Let me show you what I'm thinking:",
+      "That's helpful context! Here are some career paths that could work well for you:",
+    ];
+    
+    // Use turn count to vary the message (deterministic but varied)
+    const introText = introMessages[currentTurnCount % introMessages.length];
+    
     const introMessage: MessageType = {
-      message: `Here are some career paths that might fit you:`,
+      message: introText,
       sentTime: 'just now',
       sender: 'Guide',
       direction: 'incoming',
