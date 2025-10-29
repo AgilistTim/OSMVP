@@ -213,6 +213,12 @@ export function ChatIntegrated() {
       combined.push(...remainingCards);
     }
     
+    console.log('[ChatIntegrated] Combined messages:', {
+      textCount: textMessages.length,
+      cardCount: cardMessages.length,
+      combinedCount: combined.length,
+      cardMessageIds: cardMessages.filter(m => m.type === 'career-card').map(m => m.careerSuggestion?.id)
+    });
     return combined;
   }, [textMessages, cardMessages]);
   
