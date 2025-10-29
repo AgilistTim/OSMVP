@@ -804,71 +804,7 @@ export function ChatIntegrated() {
               </div>
             </div>
           )}
-          
-          {/* Show career cards in voice mode */}
-          {!loadingSuggestions && suggestions.length > 0 && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <h4
-                style={{
-                  fontSize: '1.25rem',
-                  fontWeight: '600',
-                  marginBottom: '1.5rem',
-                  textAlign: 'center',
-                  color: '#111827',
-                }}
-              >
-                Career Paths to Explore
-              </h4>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                  maxWidth: '800px',
-                  margin: '0 auto',
-                }}
-              >
-                {suggestions.map((suggestion) => (
-                  <InlineCareerCard
-                    key={suggestion.id}
-                    suggestion={suggestion}
-                    voteStatus={votesByCareerId[suggestion.id] ?? null}
-                    onVote={(value) => {
-                      const current = votesByCareerId[suggestion.id];
-                      const cardTitle = suggestion.title;
-                      
-                      // Toggle vote: if clicking same value, remove vote
-                      if (current === value) {
-                        voteCareer(suggestion.id, null);
-                      } else {
-                        voteCareer(suggestion.id, value);
-                        
-                        // Add contextual follow-up message after voting
-                        setTimeout(() => {
-                          let followUpText = '';
-                          if (value === 1) {
-                            followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
-                          } else if (value === 0) {
-                            followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
-                          } else if (value === -1) {
-                            followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
-                          }
-                          
-                          if (followUpText) {
-                            const followUpTurn: ConversationTurn = {
-                              role: 'assistant',
-                              text: followUpText,
-                            };
-                            setTurns((prev) => [...prev, followUpTurn]);
-                          }
-                        }, 500);
-                      }
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+
         </div>
       )}
 
