@@ -162,17 +162,36 @@ export async function generateDynamicSuggestions({
 	};
 
 	const systemPrompt = [
-		"You co-create career pathway cards that feel hand-built for the user.",
-		"Read the profile, motivation summary, and vote signals. Infer only from that data.",
-		"Return JSON: { \"cards\": [ { \"title\", \"summary\", \"why_it_fits\", \"pathways\", \"next_steps\", \"neighbor_tags\", \"distance\", \"micro_experiments\" } ] } where distance is one of \"core\", \"adjacent\", or \"unexpected\".",
-		"CARD DISTRIBUTION: Generate exactly 3 cards with this mix: 1 core (in their identified domain), 1 adjacent (blindspot or related area), 1 unexpected (innovative crossover).",
-		"MICRO EXPERIMENTS: Each card MUST include 2-3 micro_experiments - small, low-risk actions they can try in 1-7 days to test the pathway (e.g., 'Interview someone in this role', 'Build a tiny prototype', 'Join a relevant Discord/Slack').",
-		"BLINDSPOTS & ADJACENT AREAS: For adjacent and unexpected cards, explicitly identify skills they haven't mentioned but would complement their strengths, or domains that intersect with their interests in non-obvious ways.",
-		"LEVERAGE CONTEXT: Use their specific strengths, frustrations, and hopes to explain why each pathway fits. Reference their actual words and patterns.",
-		"Keep each list to ≤3 items. Use the user's own phrasing in why_it_fits.",
-		"Make sure every card ladders into viable pathways (paid work, community leadership, indie projects, or further learning).",
-		"If evidence for collaboration vs. solo work is absent, stay neutral.",
-	].join(" ");
+		"You are a career pathway generator that creates personalized career cards.",
+		"Read the user profile, motivation summary, and vote signals. Base all suggestions on that data only.",
+		"",
+		"CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no code blocks, no explanations. Just raw JSON.",
+		"",
+		"JSON FORMAT:",
+		"{",
+		'  "cards": [',
+		"    {",
+		'      "title": "Career Title",',
+		'      "summary": "One sentence description",',
+		'      "why_it_fits": ["reason 1", "reason 2", "reason 3"],',
+		'      "pathways": ["angle 1", "angle 2", "angle 3"],',
+		'      "next_steps": ["step 1", "step 2", "step 3"],',
+		'      "micro_experiments": ["experiment 1", "experiment 2", "experiment 3"],',
+		'      "neighbor_tags": ["tag1", "tag2"],',
+		'      "distance": "core"',
+		"    }",
+		"  ]",
+		"}",
+		"",
+		"RULES:",
+		"- Generate exactly 3 cards: 1 core (their domain), 1 adjacent (blindspot/related), 1 unexpected (innovative crossover)",
+		"- distance must be \"core\", \"adjacent\", or \"unexpected\"",
+		"- micro_experiments: 2-3 small actions they can try in 1-7 days (e.g., 'Interview someone in this role', 'Build a tiny prototype')",
+		"- why_it_fits: Use their actual words and patterns from the profile",
+		"- Keep all arrays to ≤3 items",
+		"- Focus on viable pathways: paid work, community leadership, indie projects, or learning",
+		"- For adjacent/unexpected cards, identify skills they haven't mentioned that complement their strengths",
+	].join("\n");
 
 	const body = {
 		model: "sonar",
@@ -207,15 +226,24 @@ export async function generateDynamicSuggestions({
 		};
 
 		const rawContent = result.choices?.[0]?.message?.content ?? "{}";
-		console.log("[dynamic-suggestions] Perplexity raw response:", rawContent);
+		console.log("[dynamic-suggestions] Perplexity raw response:", rawContent.substring(0, 500));
+		
+		// Try to extract JSON from markdown code blocks if present
+		let jsonContent = rawContent;
+		const codeBlockMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+		if (codeBlockMatch) {
+			jsonContent = codeBlockMatch[1].trim();
+			console.log("[dynamic-suggestions] Extracted JSON from markdown code block");
+		}
 		
 		let parsed: { cards?: RawDynamicSuggestion[] };
 		try {
-			parsed = JSON.parse(rawContent) as { cards?: RawDynamicSuggestion[] };
+			parsed = JSON.parse(jsonContent) as { cards?: RawDynamicSuggestion[] };
 		} catch (parseError) {
 			console.error("[dynamic-suggestions] Failed to parse Perplexity response as JSON:", parseError);
-			console.error("[dynamic-suggestions] Raw content was:", rawContent);
-			throw new Error("Failed to parse card generation response");
+			console.error("[dynamic-suggestions] Raw content (first 1000 chars):", rawContent.substring(0, 1000));
+			console.error("[dynamic-suggestions] Attempted to parse:", jsonContent.substring(0, 1000));
+			throw new Error(`Failed to parse card generation response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
 		}
 
 		const cards = Array.isArray(parsed.cards) ? parsed.cards.slice(0, limit) : [];
