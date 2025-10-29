@@ -218,10 +218,19 @@ export function ChatIntegrated() {
   
   // Add new card messages when new suggestions appear
   useEffect(() => {
-    const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
-    if (newSuggestions.length === 0) return;
+    console.log('[ChatIntegrated] Suggestions changed:', {
+      totalSuggestions: suggestions.length,
+      suggestionIds: suggestions.map(s => s.id),
+      alreadyShown: Array.from(shownSuggestionIdsRef.current)
+    });
     
-    console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal');
+    const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
+    if (newSuggestions.length === 0) {
+      console.log('[ChatIntegrated] No new suggestions to reveal (all already shown)');
+      return;
+    }
+    
+    console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal:', newSuggestions.map(s => s.id));
     
     // Mark these suggestions as shown FIRST to prevent re-triggering
     newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
