@@ -136,32 +136,8 @@ export function ChatIntegrated() {
   })();
   const shownSuggestionIdsRef = useRef(initialShownIds);
   
-  // Store card messages separately so they persist across turn changes
-  const [cardMessages, setCardMessages] = useState<MessageType[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const stored = localStorage.getItem('osmvp_card_messages');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        console.log('[ChatIntegrated] Restored card messages from localStorage:', parsed.length);
-        return parsed;
-      }
-    } catch (error) {
-      console.error('[ChatIntegrated] Failed to restore card messages:', error);
-    }
-    return [];
-  });
-  
-  // Persist card messages to localStorage
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem('osmvp_card_messages', JSON.stringify(cardMessages));
-      console.log('[ChatIntegrated] Saved card messages to localStorage:', cardMessages.length);
-    } catch (error) {
-      console.error('[ChatIntegrated] Failed to save card messages:', error);
-    }
-  }, [cardMessages]);
+  // Store card messages separately (not persisted to avoid infinite loop issues)
+  const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
   
   // Track all suggestions that have ever been shown (for vote persistence)
   const initialSuggestionsMap = (() => {
@@ -247,7 +223,9 @@ export function ChatIntegrated() {
     const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
     if (newSuggestions.length === 0) return;
     
-    // Mark these suggestions as shown
+    console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal');
+    
+    // Mark these suggestions as shown FIRST to prevent re-triggering
     newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
     
     // Persist shown suggestion IDs to localStorage
@@ -264,8 +242,13 @@ export function ChatIntegrated() {
     // Track current turn count for insertion point
     const currentTurnCount = turns.length;
     
+    // Use a flag to prevent multiple simultaneous reveals
+    let cancelled = false;
+    
     // Progressive reveal: Show thinking messages, then cards one by one
     const revealCardsProgressively = async () => {
+      if (cancelled) return;
+      
       // Step 1: Show intro message
       const introMessages = [
         "That triggers some ideas! Give me a moment to pull something together...",
@@ -289,9 +272,12 @@ export function ChatIntegrated() {
       
       // Step 2: Wait 1.5 seconds (simulating thinking)
       await new Promise(resolve => setTimeout(resolve, 1500));
+      if (cancelled) return;
       
       // Step 3: Add cards one by one with delays
       for (let i = 0; i < newSuggestions.length; i++) {
+        if (cancelled) return;
+        
         const suggestion = newSuggestions[i];
         const cardMessage: MessageType = {
           message: '',
@@ -312,10 +298,18 @@ export function ChatIntegrated() {
         }
       }
       
-      console.log('[ChatIntegrated] Finished revealing', newSuggestions.length, 'cards');
+      if (!cancelled) {
+        console.log('[ChatIntegrated] Finished revealing', newSuggestions.length, 'cards');
+      }
     };
     
     revealCardsProgressively();
+    
+    // Cleanup function to cancel reveal if component unmounts or suggestions change
+    return () => {
+      cancelled = true;
+      console.log('[ChatIntegrated] Cancelled progressive reveal');
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions]);
 
