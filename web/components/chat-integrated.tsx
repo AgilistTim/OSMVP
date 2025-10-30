@@ -241,11 +241,15 @@ export function ChatIntegrated() {
       return suggestions;
     }
     const baseline = voiceSuggestionBaselineRef.current;
+    if (!voiceSessionStarted) {
+      return [];
+    }
     if (baseline.size === 0) {
       return suggestions;
     }
-    return suggestions.filter((suggestion) => !baseline.has(suggestion.id));
-  }, [mode, suggestions]);
+    const filtered = suggestions.filter((suggestion) => !baseline.has(suggestion.id));
+    return filtered.length > 0 ? filtered : suggestions;
+  }, [mode, suggestions, voiceSessionStarted]);
   
   // Add new card messages when new suggestions appear
   useEffect(() => {
