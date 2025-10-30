@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
+import { buildRealtimeInstructions } from "@/lib/conversation-instructions";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { CareerSuggestion, ConversationTurn } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
@@ -130,6 +131,10 @@ export function Onboarding() {
 		setSuggestions,
 		voteCareer,
 		votesByCareerId,
+		conversationPhase,
+		conversationRubric,
+		shouldSeedTeaserCard,
+		clearTeaserSeed,
 	sessionId,
 	turns,
 	setTurns,
@@ -538,20 +543,37 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 			}
 
 			const responsePayload: Record<string, unknown> = {
-				output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
+				output_modalities: mode === "voice" ? ["audio"] : ["text"],
 			};
-			const instructions: string[] = [];
+			const guidanceSegments: string[] = [];
 			if (initialGuidance) {
-				instructions.push(initialGuidance);
+				guidanceSegments.push(initialGuidance);
 			}
 			if (insightGuidance) {
-				instructions.push(insightGuidance);
+				guidanceSegments.push(insightGuidance);
 			}
 			if (suggestionGuidance) {
-				instructions.push(suggestionGuidance);
+				guidanceSegments.push(suggestionGuidance);
 			}
-			if (instructions.length > 0) {
-				responsePayload.instructions = instructions.join("\n\n");
+
+			const instructionText = buildRealtimeInstructions({
+				phase: conversationPhase,
+				rubric: conversationRubric,
+				baseGuidance: guidanceSegments,
+				seedTeaserCard: shouldSeedTeaserCard,
+			});
+			if (instructionText) {
+				if (process.env.NODE_ENV !== "production") {
+					console.info("[onboarding] Sending phase instructions", {
+						phase: conversationPhase,
+						length: instructionText.length,
+						preview: instructionText.slice(0, 160),
+					});
+				}
+				responsePayload.instructions = instructionText;
+			}
+			if (shouldSeedTeaserCard) {
+				clearTeaserSeed();
 			}
 
 			realtimeControls.sendEvent({
@@ -572,6 +594,10 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 			realtimeControls,
 			suggestionGuidance,
 			insightGuidance,
+			conversationPhase,
+			conversationRubric,
+			shouldSeedTeaserCard,
+			clearTeaserSeed,
 			setProfile,
 			setTurns,
 			turns,
@@ -600,27 +626,56 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 	void (async () => {
 		await ensureRealtimeConnected();
 		const responsePayload: Record<string, unknown> = {
-			output_modalities: mode === "voice" ? ["audio", "text"] : ["text"],
+			output_modalities: mode === "voice" ? ["audio"] : ["text"],
 		};
-	const instructions: string[] = [];
-	if (initialGuidance) {
-		instructions.push(initialGuidance);
-	}
-	if (insightGuidance) {
-		instructions.push(insightGuidance);
-	}
-		if (suggestionGuidance) {
-			instructions.push(suggestionGuidance);
+		const guidanceSegments: string[] = [];
+		if (initialGuidance) {
+			guidanceSegments.push(initialGuidance);
 		}
-		if (instructions.length > 0) {
-			responsePayload.instructions = instructions.join("\n\n");
+		if (insightGuidance) {
+			guidanceSegments.push(insightGuidance);
+		}
+		if (suggestionGuidance) {
+			guidanceSegments.push(suggestionGuidance);
+		}
+		const instructionText = buildRealtimeInstructions({
+			phase: conversationPhase,
+			rubric: conversationRubric,
+			baseGuidance: guidanceSegments,
+			seedTeaserCard: shouldSeedTeaserCard,
+		});
+		if (instructionText) {
+			if (process.env.NODE_ENV !== "production") {
+				console.info("[onboarding] Bootstrapping phase instructions", {
+					phase: conversationPhase,
+					length: instructionText.length,
+					preview: instructionText.slice(0, 160),
+				});
+			}
+			responsePayload.instructions = instructionText;
+		}
+		if (shouldSeedTeaserCard) {
+			clearTeaserSeed();
 		}
 		realtimeControls.sendEvent({
 			type: "response.create",
 			response: responsePayload,
 		});
 	})();
-}, [ensureRealtimeConnected, initialGuidance, insightGuidance, mode, realtimeControls, started, suggestionGuidance, turns.length]);
+}, [
+	clearTeaserSeed,
+	conversationPhase,
+	conversationRubric,
+	ensureRealtimeConnected,
+	initialGuidance,
+	insightGuidance,
+	mode,
+	realtimeControls,
+	shouldSeedTeaserCard,
+	started,
+	suggestionGuidance,
+	turns.length,
+]);
 
 useEffect(() => {
 	const behavior: ScrollBehavior = lastScrolledTurnCountRef.current > 0 ? "smooth" : "auto";
@@ -759,6 +814,7 @@ useEffect(() => {
 		const lastCount = suggestionsLastInsightCountRef.current;
 		const shouldFetch =
 			!suggestionsFetchInFlightRef.current &&
+			(conversationPhase === "option-seeding" || conversationPhase === "commitment") &&
 			(suggestions.length === 0 || insightCount > lastCount);
 
 		if (!shouldFetch) {
@@ -768,6 +824,14 @@ useEffect(() => {
 		suggestionsFetchInFlightRef.current = true;
 	void (async () => {
 		try {
+			if (process.env.NODE_ENV !== "production") {
+				console.info("[suggestions] Fetch triggered", {
+					phase: conversationPhase,
+					insightCount,
+					lastCount,
+					hasSuggestions: suggestions.length > 0,
+				});
+			}
 			const response = await fetch("/api/suggestions", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -799,6 +863,7 @@ useEffect(() => {
 						}>;
 					};
 					if (Array.isArray(data.suggestions)) {
+						const seenIds = new Set<string>();
 						const normalized = data.suggestions
 							.filter(
 								(item) =>
@@ -811,19 +876,26 @@ useEffect(() => {
 									item.distance === "adjacent" || item.distance === "unexpected"
 										? item.distance
 										: "core";
-							return {
-								id: item.id!,
-								title: item.title!,
-								summary: item.summary!,
-								careerAngles: item.careerAngles ?? [],
-								nextSteps: item.nextSteps ?? [],
-								microExperiments: item.microExperiments ?? [],
-								whyItFits: item.whyItFits ?? [],
-								confidence: item.confidence ?? "medium",
-								score: item.score ?? 0,
-								neighborTerritories: item.neighborTerritories ?? [],
-								distance,
-							};
+								return {
+									id: item.id!,
+									title: item.title!,
+									summary: item.summary!,
+									careerAngles: item.careerAngles ?? [],
+									nextSteps: item.nextSteps ?? [],
+									microExperiments: item.microExperiments ?? [],
+									whyItFits: item.whyItFits ?? [],
+									confidence: item.confidence ?? "medium",
+									score: item.score ?? 0,
+									neighborTerritories: item.neighborTerritories ?? [],
+									distance,
+								};
+							})
+							.filter((item) => {
+								if (seenIds.has(item.id)) {
+									return false;
+								}
+								seenIds.add(item.id);
+								return true;
 							})
 							.sort((a, b) => b.score - a.score);
 
@@ -836,7 +908,7 @@ useEffect(() => {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-		}, [insightCoverage.isReady, profile.insights, setSuggestions, votesByCareerId]);
+	}, [conversationPhase, insightCoverage.isReady, profile.insights, setSuggestions, votesByCareerId]);
 
 	useEffect(() => {
 		if (!insightCoverage.isReady) {

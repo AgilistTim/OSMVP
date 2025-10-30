@@ -13,6 +13,7 @@ import './chat-integrated.css';
 import { CustomMessageInput } from '@/components/custom-message-input';
 import '@/components/custom-message-input.css';
 import { useSession } from '@/components/session-provider';
+import { buildRealtimeInstructions } from '@/lib/conversation-instructions';
 import type { ConversationTurn, InsightKind } from '@/components/session-provider';
 
 import { ProfileInsightsBar } from '@/components/profile-insights-bar';
@@ -52,30 +53,11 @@ export function ChatIntegrated() {
     appendProfileInsights,
     setSuggestions,
     sessionId,
+    conversationPhase,
+    conversationRubric,
+    shouldSeedTeaserCard,
+    clearTeaserSeed,
   } = useSession();
-
-  // Compute suggestion groups from votes
-  const suggestionGroups = useMemo(() => {
-    const pending: typeof suggestions = [];
-    const saved: typeof suggestions = [];
-    const maybePile: typeof suggestions = [];
-    const skipped: typeof suggestions = [];
-
-    for (const suggestion of suggestions) {
-      const vote = votesByCareerId[suggestion.id];
-      if (vote === 1) {
-        saved.push(suggestion);
-      } else if (vote === 0) {
-        maybePile.push(suggestion);
-      } else if (vote === -1) {
-        skipped.push(suggestion);
-      } else {
-        pending.push(suggestion);
-      }
-    }
-
-    return { pending, saved, maybe: maybePile, skipped };
-  }, [suggestions, votesByCareerId]);
 
   // Compute progress
   const userTurnsCount = useMemo(() => {
@@ -284,8 +266,31 @@ export function ChatIntegrated() {
     }));
     
     // Add all messages in a single batch (CSS will handle staggered reveal)
-    setCardMessages(prev => [...prev, introMessage, ...newCardMessages]);
-    console.log('[ChatIntegrated] Added intro + ', newSuggestions.length, 'cards with staggered reveal');
+    setCardMessages(prev => {
+      const existingIds = new Set(
+        prev
+          .filter(m => m.type === 'career-card' && m.careerSuggestion)
+          .map(m => m.careerSuggestion!.id)
+      );
+
+      const filteredCards = newCardMessages.filter(msg => {
+        const id = msg.careerSuggestion?.id;
+        if (!id) return false;
+        if (existingIds.has(id)) {
+          return false;
+        }
+        existingIds.add(id);
+        return true;
+      });
+
+      if (filteredCards.length === 0) {
+        console.log('[ChatIntegrated] Skipping card injection; all suggestions already shown.');
+        return prev;
+      }
+
+      console.log('[ChatIntegrated] Added intro +', filteredCards.length, 'cards with staggered reveal');
+      return [...prev, introMessage, ...filteredCards];
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions]);
 
@@ -407,11 +412,32 @@ export function ChatIntegrated() {
       }
 
       // Request a response from the model
+      const guidanceText = buildRealtimeInstructions({
+        phase: conversationPhase,
+        rubric: conversationRubric,
+        seedTeaserCard: shouldSeedTeaserCard,
+      });
+
+      const responsePayload: Record<string, unknown> = {
+        output_modalities: mode === 'voice' ? ['audio'] : ['text'],
+      };
+      if (guidanceText) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.info('[chat-integrated] Sending phase instructions', {
+            phase: conversationPhase,
+            length: guidanceText.length,
+            preview: guidanceText.slice(0, 160),
+          });
+        }
+        responsePayload.instructions = guidanceText;
+      }
+      if (shouldSeedTeaserCard) {
+        clearTeaserSeed();
+      }
+
       realtimeControls.sendEvent({
         type: 'response.create',
-        response: {
-          output_modalities: mode === 'voice' ? ['audio', 'text'] : ['text'],
-        },
+        response: responsePayload,
       });
 
       console.log('[Realtime] Response requested');
@@ -426,7 +452,18 @@ export function ChatIntegrated() {
       };
       setTurns((prev) => [...prev, errorTurn]);
     }
-  }, [turns, setTurns, deriveInsights, realtimeState.status, realtimeControls, mode]);
+  }, [
+    turns,
+    setTurns,
+    deriveInsights,
+    realtimeState.status,
+    realtimeControls,
+    mode,
+    conversationPhase,
+    conversationRubric,
+    shouldSeedTeaserCard,
+    clearTeaserSeed,
+  ]);
 
   // Listen for assistant responses from Realtime API
   useEffect(() => {
@@ -482,11 +519,30 @@ export function ChatIntegrated() {
       
       // Request AI to speak the greeting
       setTimeout(() => {
+        const guidanceText = buildRealtimeInstructions({
+          phase: conversationPhase,
+          rubric: conversationRubric,
+          seedTeaserCard: shouldSeedTeaserCard,
+        });
+        const responsePayload: Record<string, unknown> = {
+          output_modalities: ['audio'],
+        };
+        if (guidanceText) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.info('[chat-integrated] Voice greet instructions', {
+              phase: conversationPhase,
+              length: guidanceText.length,
+              preview: guidanceText.slice(0, 160),
+            });
+          }
+          responsePayload.instructions = guidanceText;
+        }
+        if (shouldSeedTeaserCard) {
+          clearTeaserSeed();
+        }
         realtimeControls.sendEvent({
           type: 'response.create',
-          response: {
-            output_modalities: ['audio', 'text'],
-          },
+          response: responsePayload,
         });
       }, 500); // Small delay to ensure connection is fully established
     }
@@ -495,7 +551,7 @@ export function ChatIntegrated() {
     if (mode === 'text') {
       hasGreetedInVoiceRef.current = false;
     }
-  }, [mode, realtimeState.status, realtimeControls]);
+  }, [mode, realtimeState.status, realtimeControls, conversationPhase, conversationRubric, shouldSeedTeaserCard, clearTeaserSeed]);
 
   // Handle typing indicator based on Realtime state
   useEffect(() => {
@@ -858,7 +914,7 @@ export function ChatIntegrated() {
                       animation: 'spin 1s linear infinite',
                     }}
                   />
-                  <span>I'm finding some career paths for you based on what you've shared. Give me a moment to pull the details together...</span>
+                  <span>I&apos;m finding some career paths for you based on what you&apos;ve shared. Give me a moment to pull the details together...</span>
                 </div>
               </div>
             </div>
@@ -935,4 +991,3 @@ export function ChatIntegrated() {
     </div>
   );
 }
-

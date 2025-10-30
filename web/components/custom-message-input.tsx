@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, KeyboardEvent } from 'react';
+import { KeyboardEvent } from 'react';
 import { Mic, MicOff, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -74,4 +74,3 @@ export function CustomMessageInput({
     </div>
   );
 }
-

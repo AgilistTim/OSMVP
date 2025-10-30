@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ThumbsUp, MessageCircle, ThumbsDown, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { ThumbsUp, MessageCircle, ThumbsDown, ChevronDown, ChevronUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -203,4 +203,3 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
     </Card>
   );
 }
-

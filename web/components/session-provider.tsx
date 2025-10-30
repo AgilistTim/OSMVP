@@ -2,6 +2,12 @@
 
 import React, { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef } from "react";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
+import {
+	recommendConversationPhase,
+	type ConversationPhase,
+	type ConversationRubric,
+} from "@/lib/conversation-phases";
+import type { RubricEvaluationResponseBody } from "@/lib/conversation-rubric";
 
 export type SessionMode = "text" | "voice" | null;
 
@@ -127,6 +133,10 @@ interface SessionState {
 	};
 	onboardingStep: number;
 	turns: ConversationTurn[];
+	conversationPhase: ConversationPhase;
+	conversationPhaseRationale: string[];
+	conversationRubric: ConversationRubric | null;
+	shouldSeedTeaserCard: boolean;
 }
 
 interface SessionActions {
@@ -154,6 +164,8 @@ interface SessionActions {
 	setSuggestions: (suggestions: CareerSuggestion[]) => void;
 	clearSuggestions: () => void;
 	setTurns: React.Dispatch<React.SetStateAction<ConversationTurn[]>>;
+	overrideConversationPhase: (phase: ConversationPhase, rationale?: string[]) => void;
+	clearTeaserSeed: () => void;
 }
 
 const SessionContext = createContext<(SessionState & SessionActions) | null>(null);
@@ -206,6 +218,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle", microphone: "inactive" });
 	const [onboardingStep, updateOnboardingStep] = useState<number>(0);
 	const [turns, setTurnsState] = useState<ConversationTurn[]>([]);
+	const [conversationPhase, setConversationPhase] = useState<ConversationPhase>("warmup");
+	const [conversationPhaseRationale, setConversationPhaseRationale] = useState<string[]>([]);
+	const [conversationRubric, setConversationRubric] = useState<ConversationRubric | null>(null);
+	const [shouldSeedTeaserCard, setShouldSeedTeaserCard] = useState(false);
+	const rubricRequestIdRef = useRef(0);
 
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
@@ -380,6 +397,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		updateSuggestions([]);
 	}, []);
 
+	const overrideConversationPhase = useCallback<SessionActions["overrideConversationPhase"]>((phase, rationale) => {
+		setConversationPhase(phase);
+		if (Array.isArray(rationale)) {
+			setConversationPhaseRationale(rationale);
+		}
+		setShouldSeedTeaserCard(false);
+	}, []);
+
+	const clearTeaserSeed = useCallback(() => {
+		setShouldSeedTeaserCard(false);
+	}, []);
+
 	const resetProfile = useCallback(() => {
 		setProfile(createEmptyProfile());
 		setCandidates([]);
@@ -389,6 +418,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		updateOnboardingStep(0);
 		setVoiceState({ status: "idle", microphone: "inactive" });
 		setTurnsState([]);
+		setConversationPhase("warmup");
+		setConversationPhaseRationale([]);
+		setConversationRubric(null);
+		setShouldSeedTeaserCard(false);
 	}, [
 		setProfile,
 		setCandidates,
@@ -407,6 +440,107 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setStarted(true);
 	}, [resetProfile, setModeState, setSessionId, setStarted]);
 
+	useEffect(() => {
+		if (turns.length === 0) {
+			setConversationRubric(null);
+			setConversationPhase("warmup");
+			setConversationPhaseRationale([]);
+			setShouldSeedTeaserCard(false);
+			return;
+		}
+
+		const insightSnapshots = profile.insights.map((insight) => ({
+			kind: insight.kind,
+			value: insight.value,
+		}));
+
+		const voteCount = Object.values(votesByCareerId).filter((value) => value === 1 || value === -1).length;
+
+		const decision = recommendConversationPhase({
+			currentPhase: conversationPhase,
+			turns,
+			insights: insightSnapshots,
+			suggestionCount: suggestions.length,
+			voteCount,
+			rubric: conversationRubric,
+		});
+
+		if (decision.nextPhase !== conversationPhase) {
+			setConversationPhase(decision.nextPhase);
+		}
+
+		setConversationPhaseRationale(decision.rationale);
+		setShouldSeedTeaserCard(decision.shouldSeedTeaserCard);
+	}, [turns, profile.insights, votesByCareerId, suggestions.length, conversationRubric, conversationPhase]);
+
+	useEffect(() => {
+		if (turns.length === 0) {
+			setConversationRubric(null);
+			return;
+		}
+
+		const requestId = rubricRequestIdRef.current + 1;
+		rubricRequestIdRef.current = requestId;
+
+		const payload = {
+			turns: turns.slice(-12).map((turn) => ({
+				role: turn.role,
+				text: turn.text.trim(),
+			})),
+			insights: profile.insights.map((insight) => ({
+				kind: insight.kind,
+				value: insight.value,
+			})),
+			suggestions: suggestions.slice(-5).map((suggestion) => ({
+				id: suggestion.id,
+				title: suggestion.title,
+			})),
+			votes: votesByCareerId,
+		};
+
+		let cancelled = false;
+
+		(async () => {
+			try {
+				const response = await fetch("/api/rubric", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(payload),
+				});
+
+				if (rubricRequestIdRef.current !== requestId || cancelled) {
+					return;
+				}
+
+				if (!response.ok) {
+					const errorText = await response.text();
+					console.error("[SessionProvider] Rubric API request failed", {
+						status: response.status,
+						error: errorText,
+					});
+					setConversationRubric(null);
+					return;
+				}
+
+				const data = (await response.json()) as RubricEvaluationResponseBody;
+				setConversationRubric(data.rubric);
+				if (Array.isArray(data.reasoning) && data.reasoning.length > 0) {
+					console.info("[SessionProvider] Rubric reasoning", data.reasoning);
+				}
+			} catch (error) {
+				if (rubricRequestIdRef.current !== requestId || cancelled) {
+					return;
+				}
+				console.error("[SessionProvider] Rubric evaluation error", error);
+				setConversationRubric(null);
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [turns, profile.insights, suggestions, votesByCareerId]);
+
 	const value = useMemo<SessionState & SessionActions>(
 		() => ({
 			mode,
@@ -419,6 +553,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			sessionId,
 			voice,
 			onboardingStep,
+			conversationPhase,
+			conversationPhaseRationale,
+			conversationRubric,
+			shouldSeedTeaserCard,
 			setMode: (m) => setModeState(m),
 			setProfile,
 			appendProfileInsights,
@@ -441,51 +579,59 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 					return newVotes;
 				});
 			},
-		setSummary: (s) => setSummaryState(s),
+			setSummary: (s) => setSummaryState(s),
+			beginSession,
+			setVoice,
+			setOnboardingStep: (value) =>
+				updateOnboardingStep((prev) =>
+					typeof value === "function" ? (value as (current: number) => number)(prev) : value
+				),
+			addMutualMoment,
+			removeMutualMoment,
+			clearMutualMoments,
+			setSuggestions,
+			clearSuggestions,
+			turns,
+			setTurns: (updater) => setTurnsState(updater),
+			overrideConversationPhase,
+			clearTeaserSeed,
+		}),
+	[
+		mode,
+		profile,
+		candidates,
+		votesByCareerId,
+		suggestions,
+		summary,
+		started,
+		sessionId,
+		voice,
+		onboardingStep,
+		conversationPhase,
+		conversationPhaseRationale,
+		conversationRubric,
+		shouldSeedTeaserCard,
+		setModeState,
+		setProfile,
+		appendProfileInsights,
+		updateProfileInsight,
+		removeProfileInsight,
+		resetProfile,
+		setCandidates,
+		setVotes,
+		setSummaryState,
 		beginSession,
 		setVoice,
-		setOnboardingStep: (value) =>
-			updateOnboardingStep((prev) =>
-				typeof value === "function" ? (value as (current: number) => number)(prev) : value
-			),
+		updateOnboardingStep,
 		addMutualMoment,
 		removeMutualMoment,
 		clearMutualMoments,
 		setSuggestions,
 		clearSuggestions,
 		turns,
-		setTurns: (updater) => setTurnsState(updater),
-	}),
-	[
-		mode,
-		profile,
-		candidates,
-			votesByCareerId,
-			suggestions,
-			summary,
-			started,
-			sessionId,
-			voice,
-			onboardingStep,
-			setProfile,
-			appendProfileInsights,
-			updateProfileInsight,
-			removeProfileInsight,
-			resetProfile,
-			beginSession,
-			addMutualMoment,
-		removeMutualMoment,
-		clearMutualMoments,
-		setSuggestions,
-		clearSuggestions,
-		setModeState,
-		setCandidates,
-		setSummaryState,
-		setVoice,
-		setVotes,
-		updateOnboardingStep,
-		turns,
 		setTurnsState,
+		overrideConversationPhase,
+		clearTeaserSeed,
 	]
 );
 

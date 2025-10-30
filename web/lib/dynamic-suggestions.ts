@@ -53,26 +53,6 @@ function coerceDistance(value: string | undefined): CardDistance {
 	return "core";
 }
 
-function toTitleCase(text: string) {
-	return text
-		.toLowerCase()
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 5)
-		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-		.join(" ");
-}
-
-function truncateSentence(text: string, length: number) {
-	const trimmed = text.trim();
-	if (trimmed.length <= length) return trimmed;
-	const slice = trimmed.slice(0, length);
-	const lastSpace = slice.lastIndexOf(" ");
-	return `${slice.slice(0, lastSpace > 0 ? lastSpace : slice.length)}…`;
-}
-
-
-
 async function buildMotivationSummary(insights: DynamicSuggestionInput["insights"]) {
 	const apiKey = process.env.OPENAI_API_KEY;
 	if (!apiKey) return null;
