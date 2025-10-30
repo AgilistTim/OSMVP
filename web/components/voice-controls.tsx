@@ -10,9 +10,10 @@ import type {
 interface VoiceControlsProps {
 	state: RealtimeSessionState;
 	controls: RealtimeSessionControls;
+	onStart?: () => void;
 }
 
-export function VoiceControls({ state, controls }: VoiceControlsProps) {
+export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) {
 	const statusMessage = (() => {
 		switch (state.status) {
 			case "requesting-token":
@@ -32,6 +33,14 @@ export function VoiceControls({ state, controls }: VoiceControlsProps) {
 	const canResume = state.status === "connected" && state.microphone === "paused";
 	const canStop = state.status === "connected" || state.status === "error";
 
+	const handleStart = () => {
+		if (state.status === "requesting-token" || state.status === "connecting") {
+			return;
+		}
+		onStart?.();
+		void controls.connect();
+	};
+
 	return (
 		<div className="voice-controls-card">
 			<div className="voice-controls-status">{statusMessage}</div>
@@ -43,7 +52,7 @@ export function VoiceControls({ state, controls }: VoiceControlsProps) {
 						"voice-control-button",
 						state.status === "connected" ? "voice-control-button--outline" : "voice-control-button--primary"
 					)}
-					onClick={() => controls.connect()}
+					onClick={handleStart}
 					disabled={state.status === "requesting-token" || state.status === "connecting"}
 					type="button"
 				>

@@ -73,6 +73,22 @@ export function ChatIntegrated() {
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
+  const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
+  const voiceBaselineCapturedRef = useRef(false);
+  const handleModeToggle = useCallback(() => {
+    if (mode === 'text') {
+      voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+      voiceBaselineCapturedRef.current = true;
+      setVoiceSessionStarted(false);
+      setMode('voice');
+    } else {
+      voiceSuggestionBaselineRef.current = new Set();
+      voiceBaselineCapturedRef.current = false;
+      setVoiceSessionStarted(false);
+      setMode('text');
+    }
+  }, [mode, suggestions]);
   // Basket drawer removed - voted cards now shown on MY PAGE
 
   // Realtime API session
@@ -128,6 +144,22 @@ export function ChatIntegrated() {
     console.log('[ChatIntegrated] Initialized allSuggestionsRef with', allSuggestionsRef.current.size, 'suggestions');
     hasInitializedAllSuggestions.current = true;
   }
+
+  useEffect(() => {
+    if (mode !== 'voice') {
+      voiceSuggestionBaselineRef.current = new Set();
+      voiceBaselineCapturedRef.current = false;
+      setVoiceSessionStarted(false);
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode === 'voice' && (realtimeState.status === 'idle' || realtimeState.status === 'error')) {
+      setVoiceSessionStarted(false);
+      voiceBaselineCapturedRef.current = false;
+      voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+    }
+  }, [mode, realtimeState.status, suggestions]);
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {
@@ -199,6 +231,17 @@ export function ChatIntegrated() {
     });
     return combined;
   }, [textMessages, cardMessages]);
+
+  const voiceSuggestions = useMemo(() => {
+    if (mode !== 'voice') {
+      return suggestions;
+    }
+    const baseline = voiceSuggestionBaselineRef.current;
+    if (baseline.size === 0) {
+      return suggestions;
+    }
+    return suggestions.filter((suggestion) => !baseline.has(suggestion.id));
+  }, [mode, suggestions]);
   
   // Add new card messages when new suggestions appear
   useEffect(() => {
@@ -513,45 +556,59 @@ export function ChatIntegrated() {
   // Make AI speak first when voice mode connects
   const hasGreetedInVoiceRef = useRef(false);
   useEffect(() => {
-    if (mode === 'voice' && realtimeState.status === 'connected' && !hasGreetedInVoiceRef.current) {
-      console.log('[Voice Mode] Connected, triggering AI greeting');
-      hasGreetedInVoiceRef.current = true;
-      
-      // Request AI to speak the greeting
-      setTimeout(() => {
-        const guidanceText = buildRealtimeInstructions({
-          phase: conversationPhase,
-          rubric: conversationRubric,
-          seedTeaserCard: shouldSeedTeaserCard,
-        });
-        const responsePayload: Record<string, unknown> = {
-          output_modalities: ['audio'],
-        };
-        if (guidanceText) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.info('[chat-integrated] Voice greet instructions', {
-              phase: conversationPhase,
-              length: guidanceText.length,
-              preview: guidanceText.slice(0, 160),
-            });
-          }
-          responsePayload.instructions = guidanceText;
-        }
-        if (shouldSeedTeaserCard) {
-          clearTeaserSeed();
-        }
-        realtimeControls.sendEvent({
-          type: 'response.create',
-          response: responsePayload,
-        });
-      }, 500); // Small delay to ensure connection is fully established
-    }
-    
-    // Reset flag when leaving voice mode
-    if (mode === 'text') {
+    if (mode !== 'voice') {
       hasGreetedInVoiceRef.current = false;
+      return;
     }
-  }, [mode, realtimeState.status, realtimeControls, conversationPhase, conversationRubric, shouldSeedTeaserCard, clearTeaserSeed]);
+    if (!voiceSessionStarted) {
+      hasGreetedInVoiceRef.current = false;
+      return;
+    }
+    if (realtimeState.status !== 'connected') {
+      return;
+    }
+    if (hasGreetedInVoiceRef.current) {
+      return;
+    }
+
+    hasGreetedInVoiceRef.current = true;
+    console.log('[Voice Mode] Connected, triggering AI greeting');
+
+    const guidanceText = buildRealtimeInstructions({
+      phase: conversationPhase,
+      rubric: conversationRubric,
+      seedTeaserCard: shouldSeedTeaserCard,
+    });
+    const responsePayload: Record<string, unknown> = {
+      output_modalities: ['audio'],
+    };
+    if (guidanceText) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[chat-integrated] Voice greet instructions', {
+          phase: conversationPhase,
+          length: guidanceText.length,
+          preview: guidanceText.slice(0, 160),
+        });
+      }
+      responsePayload.instructions = guidanceText;
+    }
+    if (shouldSeedTeaserCard) {
+      clearTeaserSeed();
+    }
+    realtimeControls.sendEvent({
+      type: 'response.create',
+      response: responsePayload,
+    });
+  }, [
+    mode,
+    voiceSessionStarted,
+    realtimeState.status,
+    realtimeControls,
+    conversationPhase,
+    conversationRubric,
+    shouldSeedTeaserCard,
+    clearTeaserSeed,
+  ]);
 
   // Handle typing indicator based on Realtime state
   useEffect(() => {
@@ -596,7 +653,10 @@ export function ChatIntegrated() {
       currentSuggestions: suggestions.length
     });
 
+    const isVoiceActive = mode === 'voice' ? voiceSessionStarted : true;
+
     const shouldFetch =
+      isVoiceActive &&
       hasEnoughInsights &&
       !suggestionsFetchInFlightRef.current &&
       (suggestions.length === 0 || insightCount > lastCount);
@@ -711,7 +771,7 @@ export function ChatIntegrated() {
         setLoadingSuggestions(false);
       }
     })();
-  }, [profile.insights, suggestions, votesByCareerId, setSuggestions]);
+  }, [profile.insights, suggestions, votesByCareerId, setSuggestions, mode, voiceSessionStarted]);
 
   const showProgressBar = progress < 100;
 
@@ -838,7 +898,7 @@ export function ChatIntegrated() {
               onChange={setInput}
               onSend={handleSend}
               mode={mode}
-              onModeToggle={() => setMode(mode === 'text' ? 'voice' : 'text')}
+              onModeToggle={handleModeToggle}
             />
           </div>
         </>
@@ -852,7 +912,7 @@ export function ChatIntegrated() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setMode('text')}
+                onClick={handleModeToggle}
                 style={{ gap: '0.5rem' }}
               >
                 <FileText className="w-4 h-4" />
@@ -865,11 +925,21 @@ export function ChatIntegrated() {
             <VoiceControls
               state={realtimeState}
               controls={realtimeControls}
+              onStart={() => {
+                if (!voiceBaselineCapturedRef.current) {
+                  voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+                  voiceBaselineCapturedRef.current = true;
+                }
+                setVoiceSessionStarted(true);
+              }}
             />
           </div>
           
           {/* Show only last assistant message in voice mode */}
           {(() => {
+            if (!voiceSessionStarted) {
+              return null;
+            }
             const lastAssistantTurn = turns.filter(t => t.role === 'assistant').slice(-1)[0];
             return lastAssistantTurn ? (
               <div style={{ marginTop: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto 0' }}>
@@ -921,7 +991,7 @@ export function ChatIntegrated() {
           )}
           
           {/* Show career cards in voice mode */}
-          {!loadingSuggestions && suggestions.length > 0 && (
+          {!loadingSuggestions && voiceSessionStarted && voiceSuggestions.length > 0 && (
             <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
               <h4
                 style={{
@@ -943,7 +1013,7 @@ export function ChatIntegrated() {
                   margin: '0 auto',
                 }}
               >
-                {suggestions.map((suggestion) => (
+                {voiceSuggestions.map((suggestion) => (
                   <InlineCareerCard
                     key={suggestion.id}
                     suggestion={suggestion}
