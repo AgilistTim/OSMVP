@@ -176,6 +176,9 @@ export function ChatIntegrated() {
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
+    if (mode !== 'text') {
+      return;
+    }
     if (turns.length === 0) {
       const initialTurn: ConversationTurn = {
         role: 'assistant',
@@ -183,7 +186,7 @@ export function ChatIntegrated() {
       };
       setTurns([initialTurn]);
     }
-  }, [setTurns, turns.length]);
+  }, [mode, setTurns, turns.length]);
 
   // Convert turns to chat-ui-kit message format
   const textMessages: MessageType[] = useMemo(() => {

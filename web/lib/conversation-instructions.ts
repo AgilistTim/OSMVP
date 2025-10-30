@@ -9,7 +9,7 @@ interface BuildRealtimeInstructionsInput {
 
 const PHASE_TIPS: Record<ConversationPhase, string> = {
 	warmup:
-		"Stay in warmup mode: keep the opener short, ask for their preferred name, then use a single open question like \"What's been keeping you busy when you're not in school or work?\"",
+		"Stay in warmup mode: keep the opener short, ask for their preferred name, then use a single open question like \"What's been keeping you busy when you're not in school or work?\". Deliver the greeting once and wait for the user to reply before continuing.",
 	"story-mining":
 		"Focus on story mining. Ask short, open follow-ups about what they build, notice, and struggle with. Avoid pitching ideas yet.",
 	"pattern-mapping":
