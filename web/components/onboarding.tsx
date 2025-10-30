@@ -908,7 +908,7 @@ useEffect(() => {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [conversationPhase, insightCoverage.isReady, profile.insights, setSuggestions, votesByCareerId]);
+	}, [conversationPhase, insightCoverage.isReady, profile.insights, setSuggestions, suggestions, votesByCareerId]);
 
 	useEffect(() => {
 		if (!insightCoverage.isReady) {
@@ -951,7 +951,7 @@ useEffect(() => {
 				suggestionRevealTimeoutRef.current = null;
 			}
 		};
-	}, [insightCoverage.isReady, setSuggestionReveal, suggestionsKey]);
+	}, [insightCoverage.isReady, setSuggestionReveal, suggestions.length, suggestionsKey]);
 
 	useEffect(() => {
 		if (!mode) {
@@ -1013,7 +1013,7 @@ useEffect(() => {
 				})();
 			}
 		}
-	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls]);
+	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls, setTurns]);
 
 	// Simple auto-scroll to bottom when new messages arrive
 	useEffect(() => {

@@ -169,6 +169,7 @@ export function SuggestionCards({
 		}
 
 		let rafId: number | null = null;
+		const cardCount = isInline ? displayCards.length : suggestions.length;
 
 		const computeFadeState = () => {
 			rafId = null;
@@ -193,7 +194,7 @@ export function SuggestionCards({
 			const cardWidth = container.querySelector('.suggestion-card')?.clientWidth || 300;
 			const gap = 16; // approximate gap
 			const newIndex = Math.round(scrollLeft / (cardWidth + gap));
-			setActiveCardIndex(Math.max(0, Math.min(newIndex, cardsToRender.length - 1)));
+			setActiveCardIndex(Math.max(0, Math.min(newIndex, Math.max(cardCount - 1, 0))));
 		};
 
 		const scheduleUpdate = () => {
@@ -217,7 +218,7 @@ export function SuggestionCards({
 			}
 			resizeObserver?.disconnect();
 		};
-	}, [suggestions, isInline, isCarouselLayout]);
+	}, [suggestions, displayCards, isInline, isCarouselLayout]);
 
 	useEffect(() => {
 		if (!isInline) return;

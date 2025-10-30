@@ -147,7 +147,7 @@ export function ChatIntegrated() {
       };
       setTurns([initialTurn]);
     }
-  }, []); // Only run once on mount
+  }, [setTurns, turns.length]);
 
   // Convert turns to chat-ui-kit message format
   const textMessages: MessageType[] = useMemo(() => {
@@ -580,7 +580,7 @@ export function ChatIntegrated() {
     
     // Normal text message - scroll to bottom
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages]);
 
   // Fetch career suggestions based on insights
   useEffect(() => {
@@ -711,7 +711,7 @@ export function ChatIntegrated() {
         setLoadingSuggestions(false);
       }
     })();
-  }, [profile.insights.length, setSuggestions]);
+  }, [profile.insights, suggestions, votesByCareerId, setSuggestions]);
 
   const showProgressBar = progress < 100;
 
