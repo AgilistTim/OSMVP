@@ -959,61 +959,15 @@ useEffect(() => {
 		}
 	}, [mode, setMode]);
 
-	// Auto-scroll to top when entering voice mode and speak opening message
+	// Auto-scroll to top when entering voice mode (voice greeting handled in chat-integrated)
 	useEffect(() => {
 		if (mode === 'voice') {
-			// Scroll window to top
 			window.scrollTo({ top: 0, behavior: 'smooth' });
-			
-			// Also scroll transcript container to top
 			if (transcriptContainerRef.current) {
 				transcriptContainerRef.current.scrollTop = 0;
 			}
-			
-			// If no conversation has started yet, have the agent speak first
-			if (turns.length === 0) {
-				const openingMessage = DEFAULT_OPENING;
-				
-				// Add assistant's opening message to turns
-				const assistantTurn: Turn = { role: 'assistant', text: openingMessage };
-				setTurns([assistantTurn]);
-				
-				// Connect to realtime and have it speak the message
-				void (async () => {
-					try {
-						await ensureRealtimeConnected();
-						
-						// Send the opening message as an assistant message
-						const messageId = createRealtimeId();
-						realtimeControls.sendEvent({
-							type: 'conversation.item.create',
-							item: {
-								id: messageId,
-								type: 'message',
-								role: 'assistant',
-								content: [
-									{
-										type: 'input_text',
-										text: openingMessage,
-									},
-								],
-							},
-						});
-						
-						// Trigger response generation to speak it
-						realtimeControls.sendEvent({
-							type: 'response.create',
-							response: {
-								output_modalities: ['audio', 'text'],
-							},
-						});
-					} catch (err) {
-						console.error('Failed to send opening voice message', err);
-					}
-				})();
-			}
 		}
-	}, [mode, turns.length, ensureRealtimeConnected, createRealtimeId, realtimeControls, setTurns]);
+	}, [mode]);
 
 	// Simple auto-scroll to bottom when new messages arrive
 	useEffect(() => {
