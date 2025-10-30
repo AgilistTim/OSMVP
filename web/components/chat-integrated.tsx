@@ -76,19 +76,6 @@ export function ChatIntegrated() {
   const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
-  const handleModeToggle = useCallback(() => {
-    if (mode === 'text') {
-      voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
-      voiceBaselineCapturedRef.current = true;
-      setVoiceSessionStarted(false);
-      setMode('voice');
-    } else {
-      voiceSuggestionBaselineRef.current = new Set();
-      voiceBaselineCapturedRef.current = false;
-      setVoiceSessionStarted(false);
-      setMode('text');
-    }
-  }, [mode, suggestions]);
   // Basket drawer removed - voted cards now shown on MY PAGE
 
   // Realtime API session
@@ -97,6 +84,23 @@ export function ChatIntegrated() {
     enableMicrophone: mode === 'voice',
     enableAudioOutput: mode === 'voice',
   });
+
+  const handleModeToggle = useCallback(() => {
+    if (mode === 'text') {
+      voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+      voiceBaselineCapturedRef.current = true;
+      setVoiceSessionStarted(false);
+      void realtimeControls.disconnect();
+      setMode('voice');
+    } else {
+      voiceSuggestionBaselineRef.current = new Set();
+      voiceBaselineCapturedRef.current = false;
+      setVoiceSessionStarted(false);
+      void realtimeControls.disconnect();
+      setMode('text');
+    }
+  }, [mode, suggestions, realtimeControls]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
