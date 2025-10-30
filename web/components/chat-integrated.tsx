@@ -934,6 +934,8 @@ export function ChatIntegrated() {
                   voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
                   voiceBaselineCapturedRef.current = true;
                 }
+                suggestionsLastInsightCountRef.current = 0;
+                suggestionsFetchInFlightRef.current = false;
                 setVoiceSessionStarted(true);
               }}
             />
@@ -1055,6 +1057,25 @@ export function ChatIntegrated() {
                     }}
                   />
                 ))}
+              </div>
+            </div>
+          )}
+
+          {!loadingSuggestions && voiceSessionStarted && voiceSuggestions.length === 0 && (
+            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
+              <div
+                style={{
+                  padding: '1.5rem',
+                  backgroundColor: '#eef2ff',
+                  borderRadius: '12px',
+                  fontSize: '1rem',
+                  lineHeight: '1.6',
+                  textAlign: 'center',
+                  maxWidth: '600px',
+                  margin: '0 auto',
+                }}
+              >
+                I’m still listening and gathering more of your story—keep talking and I’ll surface fresh cards as soon as they’re ready.
               </div>
             </div>
           )}
