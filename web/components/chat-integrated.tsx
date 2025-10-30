@@ -472,6 +472,8 @@ export function ChatIntegrated() {
         seedTeaserCard: shouldSeedTeaserCard,
       });
 
+      realtimeControls.cancelActiveResponse();
+
       const responsePayload: Record<string, unknown> = {
         output_modalities: mode === 'voice' ? ['audio'] : ['text'],
       };
@@ -584,6 +586,8 @@ export function ChatIntegrated() {
 
     hasGreetedInVoiceRef.current = true;
     console.log('[Voice Mode] Connected, triggering AI greeting');
+
+    realtimeControls.cancelActiveResponse();
 
     const guidanceText = buildRealtimeInstructions({
       phase: conversationPhase,

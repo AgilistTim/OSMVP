@@ -625,6 +625,7 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 
 	void (async () => {
 		await ensureRealtimeConnected();
+		realtimeControls.cancelActiveResponse();
 		const responsePayload: Record<string, unknown> = {
 			output_modalities: mode === "voice" ? ["audio"] : ["text"],
 		};

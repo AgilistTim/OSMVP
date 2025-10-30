@@ -43,6 +43,7 @@ export interface RealtimeSessionControls {
   waitForConversationItem: (id: string) => Promise<void>;
   pauseMicrophone: () => void;
   resumeMicrophone: () => void;
+  cancelActiveResponse: () => void;
 }
 
 const VERBOSE_REALTIME_LOGS = process.env.NEXT_PUBLIC_REALTIME_VERBOSE === "1";
@@ -63,6 +64,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const responseStartTimesRef = useRef<Map<string, number>>(new Map());
   const onResponseCompletedRef = useRef<(() => void) | null>(null);
+  const activeResponseIdRef = useRef<string | null>(null);
   const statusRef = useRef<RealtimeStatus>("idle");
   const pendingEventsRef = useRef<unknown[]>([]);
   const pendingItemResolversRef = useRef<
@@ -279,6 +281,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         case "response.created": {
           if (event.response?.id) {
             responseStartTimesRef.current.set(event.response.id, Date.now());
+            activeResponseIdRef.current = event.response.id;
           }
           break;
         }
@@ -291,6 +294,9 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           }
 
           onResponseCompletedRef.current?.();
+          if (responseId && activeResponseIdRef.current === responseId) {
+            activeResponseIdRef.current = null;
+          }
           break;
         }
         case "response.audio_transcript.delta":
@@ -321,6 +327,9 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               id,
               clientId: (event as { client_id?: string }).client_id,
             });
+          }
+          if (event.response_id && activeResponseIdRef.current === event.response_id) {
+            activeResponseIdRef.current = null;
           }
           break;
         }
@@ -392,6 +401,15 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     },
     []
   );
+
+  const cancelActiveResponse = useCallback(() => {
+    const responseId = activeResponseIdRef.current;
+    if (!responseId) {
+      return;
+    }
+    sendEvent({ type: "response.cancel", response_id: responseId });
+    activeResponseIdRef.current = null;
+  }, [sendEvent]);
 
   const connect = useCallback(
     async (overrideConfig?: Partial<RealtimeSessionConfig>) => {
@@ -624,8 +642,17 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
       waitForConversationItem,
       pauseMicrophone,
       resumeMicrophone,
+      cancelActiveResponse,
     }),
-    [connect, disconnect, pauseMicrophone, resumeMicrophone, sendEvent, waitForConversationItem]
+    [
+      cancelActiveResponse,
+      connect,
+      disconnect,
+      pauseMicrophone,
+      resumeMicrophone,
+      sendEvent,
+      waitForConversationItem,
+    ]
   );
 
   return [state, controls];
