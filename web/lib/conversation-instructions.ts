@@ -34,6 +34,13 @@ export function buildRealtimeInstructions({
 	}
 
 	if (rubric) {
+		const gapPrompts: Record<keyof ConversationRubric["insightCoverage"], string> = {
+			interests: "Draw out what they tinker with or learn for fun so we can anchor ideas.",
+			aptitudes: "Ask about strengths or skills they rely on when things go well.",
+			goals: "Surface a hope or mission they want to move toward.",
+			constraints: "Check for boundaries that would make an idea a non-starter.",
+		};
+
 		if (rubric.engagementStyle === "blocked") {
 			lines.push("User energy seems low. Keep prompts lightweight and specific to coax a fresh detail.");
 		}
@@ -42,6 +49,28 @@ export function buildRealtimeInstructions({
 		}
 		if (rubric.readinessBias === "deciding") {
 			lines.push("They are edging toward a decision. Firm up their next steps using their own language.");
+		}
+
+		if (rubric.cardReadiness.status !== "ready") {
+			const missingSignals = rubric.insightGaps ?? [];
+			if (missingSignals.length > 0) {
+				const prompts = missingSignals
+					.map((gap) => gapPrompts[gap])
+					.filter(Boolean);
+				if (prompts.length > 0) {
+					lines.push(
+						"Hold off on ideas for now. Ask follow-ups like: " +
+							prompts.join(" ")
+					);
+				}
+			} else {
+				lines.push("Keep building the story with concrete examples before floating options.");
+			}
+		} else {
+			lines.push(
+				"You now have enough context to introduce three pathways: start with a core fit, then an adjacent remix, and finish with an experimental idea. Tie each one to their words and mention a realistic way to try it."
+			);
+			lines.push("Keep each suggestion grounded in routes they could test within the next few months; skip hyper-niche titles unless they named them.");
 		}
 	}
 

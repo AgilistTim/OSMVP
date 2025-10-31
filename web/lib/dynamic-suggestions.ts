@@ -133,7 +133,10 @@ export async function generateDynamicSuggestions({
 				"Base every pathway on the user’s own words and motivations.",
 				"Translate hobbies or interests into viable roles, projects, or emerging pathways that can create income or impact.",
 				"Highlight whether the pathway suits solo flow, partnership, or community building—only if we have evidence.",
+				"Ensure the three cards cover distinct lanes: (1) deepen the current project, (2) channel their skills into broader community impact or supporting others, (3) stretch into an experimental or unexpected medium/audience.",
 				"Do not invent generic corporate titles; coin language that still makes sense to a teen/young adult.",
+				"Ground every card in realistic roles or pathways (freelance, employment, or community) and mention how someone would credibly enter that space.",
+				"Vary target audiences and industries—avoid repeating the same niche (e.g. the exact same community) across multiple cards unless the user explicitly insisted.",
 				"Show how the pathway could scale with experimentation, community, or paid opportunities.",
 				"Provide next steps that nudge the user into motion within 1–2 weeks.",
 				"If the user rejected a similar idea, pivot to a different theme.",
@@ -275,11 +278,23 @@ export async function generateDynamicSuggestions({
 		});
 		return acc;
 	}, []);
-		
-		console.log(`[dynamic-suggestions] Successfully generated ${mapped.length} cards`);
-		console.log("[dynamic-suggestions] Card titles:", mapped.map(c => c.title));
 
-		return mapped;
+		const uniqueCards = mapped.filter((card, index, array) => {
+			const normalisedTitle = card.title.toLowerCase();
+			return array.findIndex((candidate) => candidate.title.toLowerCase() === normalisedTitle) === index;
+		});
+
+		if (uniqueCards.length < mapped.length) {
+			console.warn("[dynamic-suggestions] Removed duplicate card titles", {
+				originalTitles: mapped.map((card) => card.title),
+				uniqueTitles: uniqueCards.map((card) => card.title),
+			});
+		}
+
+		console.log(`[dynamic-suggestions] Successfully generated ${uniqueCards.length} cards`);
+		console.log("[dynamic-suggestions] Card titles:", uniqueCards.map(c => c.title));
+
+		return uniqueCards;
 	} catch (error) {
 		console.error("[dynamic-suggestions] CRITICAL ERROR:", error);
 		throw error;

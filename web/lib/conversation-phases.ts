@@ -11,12 +11,33 @@ export type EngagementStyle = "leaning-in" | "hesitant" | "blocked" | "seeking-o
 export type EnergyLevel = "low" | "medium" | "high";
 export type ReadinessBias = "exploring" | "seeking-options" | "deciding";
 
+export type CardReadinessStatus = "blocked" | "context-light" | "ready";
+
+export interface InsightCoverageSnapshot {
+	interests: boolean;
+	aptitudes: boolean;
+	goals: boolean;
+	constraints: boolean;
+}
+
+export interface CardReadinessSnapshot {
+	status: CardReadinessStatus;
+	reason?: string;
+	missingSignals?: Array<keyof InsightCoverageSnapshot>;
+}
+
+export type ConversationFocus = "rapport" | "story" | "pattern" | "ideation" | "decision";
+
 export interface ConversationRubric {
 	engagementStyle: EngagementStyle;
 	contextDepth: 0 | 1 | 2 | 3;
 	energyLevel: EnergyLevel;
 	readinessBias: ReadinessBias;
 	explicitIdeasRequest: boolean;
+	insightCoverage: InsightCoverageSnapshot;
+	insightGaps: Array<keyof InsightCoverageSnapshot>;
+	cardReadiness: CardReadinessSnapshot;
+	recommendedFocus: ConversationFocus;
 	lastUpdatedAt: number;
 }
 
@@ -176,12 +197,43 @@ export function inferRubricFromTranscript(turns: ConversationTurn[]): Conversati
 	const contextDepth: 0 | 1 | 2 | 3 =
 		userTextLength > 400 ? 3 : userTextLength > 220 ? 2 : userTextLength > 120 ? 1 : 0;
 
+	const defaultCoverage: InsightCoverageSnapshot = {
+		interests: contextDepth >= 1,
+		aptitudes: contextDepth >= 2,
+		goals: contextDepth >= 2,
+		constraints: contextDepth >= 2,
+	};
+
+	const missingSignals = (Object.keys(defaultCoverage) as Array<keyof InsightCoverageSnapshot>).filter(
+		(key) => !defaultCoverage[key]
+	);
+
+	const cardReadiness: CardReadinessSnapshot =
+		contextDepth >= 2 && (containsIdeaRequest || engagementStyle === "leaning-in")
+			? { status: "ready", missingSignals: [] }
+			: contextDepth >= 1
+			? { status: "context-light", missingSignals }
+			: { status: "blocked", missingSignals };
+
+	const recommendedFocus: ConversationFocus =
+		cardReadiness.status === "ready"
+			? "ideation"
+			: contextDepth >= 2
+			? "pattern"
+			: contextDepth >= 1
+			? "story"
+			: "rapport";
+
 	return {
 		engagementStyle,
 		contextDepth,
 		energyLevel,
 		readinessBias,
 		explicitIdeasRequest: containsIdeaRequest,
+		insightCoverage: defaultCoverage,
+		insightGaps: missingSignals,
+		cardReadiness,
+		recommendedFocus,
 		lastUpdatedAt: Date.now(),
 	};
 }

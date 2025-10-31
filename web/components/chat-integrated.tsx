@@ -25,7 +25,6 @@ import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
 import { InlineCareerCard } from '@/components/inline-career-card-v2';
 import type { CareerSuggestion } from '@/components/session-provider';
-import { appendUnique } from '@/lib/utils';
 import '@/components/inline-career-card-v2.css';
 
 type MessageType = {
@@ -77,42 +76,33 @@ export function ChatIntegrated() {
   const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
-  const voiceShownSuggestionIdsRef = useRef<Set<string>>(new Set());
-  const [voiceCardIds, setVoiceCardIds] = useState<string[]>([]);
-  const processedTranscriptIdsRef = useRef<Set<string>>(new Set());
   // Basket drawer removed - voted cards now shown on MY PAGE
 
   // Realtime API session
   const [realtimeState, realtimeControls] = useRealtimeSession({
     sessionId,
     enableMicrophone: mode === 'voice',
-    enableAudioOutput: mode === 'voice',
+    enableAudioOutput: true,
   });
 
   const handleModeToggle = useCallback(() => {
     if (mode === 'text') {
-      const baselineIds = suggestions.map((s) => s.id);
-      voiceSuggestionBaselineRef.current = new Set(baselineIds);
-      voiceShownSuggestionIdsRef.current = new Set(baselineIds);
-      setVoiceCardIds(baselineIds);
-      voiceBaselineCapturedRef.current = true;
+      // Switch to voice UI, do not auto-connect or resume mic yet.
+      // VoiceControls will connect/resume mic on Start Voice.
       setVoiceSessionStarted(false);
-      void realtimeControls.disconnect();
       setMode('voice');
     } else {
-      voiceSuggestionBaselineRef.current = new Set();
-      voiceBaselineCapturedRef.current = false;
-      voiceShownSuggestionIdsRef.current = new Set();
-      setVoiceCardIds([]);
+      // Switch to text: pause mic if connected, keep session alive.
+      try { realtimeControls.pauseMicrophone(); } catch { /* noop */ }
       setVoiceSessionStarted(false);
-      void realtimeControls.disconnect();
       setMode('text');
     }
-  }, [mode, suggestions, realtimeControls]);
+  }, [mode, realtimeControls]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
+  const lastSuggestionsFetchAtRef = useRef<number>(0);
   
   // Initialize last insight count from localStorage (only once on mount)
   const suggestionsLastInsightCountRef = useRef<number>(0);
@@ -162,8 +152,6 @@ export function ChatIntegrated() {
     if (mode !== 'voice') {
       voiceSuggestionBaselineRef.current = new Set();
       voiceBaselineCapturedRef.current = false;
-      voiceShownSuggestionIdsRef.current = new Set();
-      setVoiceCardIds([]);
       setVoiceSessionStarted(false);
     }
   }, [mode]);
@@ -172,10 +160,7 @@ export function ChatIntegrated() {
     if (mode === 'voice' && (realtimeState.status === 'idle' || realtimeState.status === 'error')) {
       setVoiceSessionStarted(false);
       voiceBaselineCapturedRef.current = false;
-      const baselineIds = suggestions.map((s) => s.id);
-      voiceSuggestionBaselineRef.current = new Set(baselineIds);
-      voiceShownSuggestionIdsRef.current = new Set(baselineIds);
-      setVoiceCardIds(baselineIds);
+      voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
     }
   }, [mode, realtimeState.status, suggestions]);
   
@@ -255,44 +240,18 @@ export function ChatIntegrated() {
 
   const voiceSuggestions = useMemo(() => {
     if (mode !== 'voice') {
+      return suggestions;
+    }
+    const baseline = voiceSuggestionBaselineRef.current;
+    if (!voiceSessionStarted) {
       return [];
     }
-    return voiceCardIds
-      .map((id) => allSuggestionsRef.current.get(id))
-      .filter((suggestion): suggestion is CareerSuggestion => Boolean(suggestion));
-  }, [mode, voiceCardIds]);
-
-  const voiceLatestExchange = useMemo(() => {
-    if (!voiceSessionStarted) {
-      return { user: undefined, assistant: undefined } as const;
+    if (baseline.size === 0) {
+      return suggestions;
     }
-
-    let lastUserIndex = -1;
-    for (let index = turns.length - 1; index >= 0; index -= 1) {
-      if (turns[index].role === 'user') {
-        lastUserIndex = index;
-        break;
-      }
-    }
-
-    if (lastUserIndex === -1) {
-      const lastAssistantOnly = [...turns].reverse().find((turn) => turn.role === 'assistant');
-      return { user: undefined, assistant: lastAssistantOnly } as const;
-    }
-
-    let assistantAfterUser: ConversationTurn | undefined;
-    for (let index = turns.length - 1; index > lastUserIndex; index -= 1) {
-      if (turns[index].role === 'assistant') {
-        assistantAfterUser = turns[index];
-        break;
-      }
-    }
-
-    return {
-      user: turns[lastUserIndex],
-      assistant: assistantAfterUser,
-    } as const;
-  }, [turns, voiceSessionStarted]);
+    const filtered = suggestions.filter((suggestion) => !baseline.has(suggestion.id));
+    return filtered.length > 0 ? filtered : suggestions;
+  }, [mode, suggestions, voiceSessionStarted]);
   
   // Add new card messages when new suggestions appear
   useEffect(() => {
@@ -301,26 +260,17 @@ export function ChatIntegrated() {
       suggestionIds: suggestions.map(s => s.id),
       alreadyShown: Array.from(shownSuggestionIdsRef.current)
     });
-
-    const revealAllowance = shownSuggestionIdsRef.current.size === 0 ? 3 : 1;
-    const unseenSuggestions = suggestions.filter(
-      (s) => !shownSuggestionIdsRef.current.has(s.id)
-    );
-    const newSuggestions = unseenSuggestions.slice(0, revealAllowance);
-
+    
+    const newSuggestions = suggestions.filter(s => !shownSuggestionIdsRef.current.has(s.id));
     if (newSuggestions.length === 0) {
       console.log('[ChatIntegrated] No new suggestions to reveal (all already shown)');
       return;
     }
-
+    
     console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal:', newSuggestions.map(s => s.id));
     
     // Mark these suggestions as shown FIRST to prevent re-triggering
-    newSuggestions.forEach((s) => shownSuggestionIdsRef.current.add(s.id));
-    if (mode === 'voice') {
-      newSuggestions.forEach((s) => voiceShownSuggestionIdsRef.current.add(s.id));
-      setVoiceCardIds((prev) => appendUnique(prev, newSuggestions.map((s) => s.id)));
-    }
+    newSuggestions.forEach(s => shownSuggestionIdsRef.current.add(s.id));
     
     // Persist shown suggestion IDs to localStorage
     if (typeof window !== 'undefined') {
@@ -335,6 +285,12 @@ export function ChatIntegrated() {
     
     // Track current turn count for insertion point
     const currentTurnCount = turns.length;
+    // Prevent re-injecting another intro+cards for the same insertion point
+    const alreadyInjectedHere = cardMessages.some(m => (m.insertAfterTurnIndex ?? -1) === currentTurnCount);
+    if (alreadyInjectedHere) {
+      console.log('[ChatIntegrated] Skipping injection; already injected at this turn index', currentTurnCount);
+      return;
+    }
     
     // Create intro message
     const introMessages = [
@@ -472,19 +428,13 @@ export function ChatIntegrated() {
     void deriveInsights(nextTurns);
 
     try {
-      if (realtimeState.activeResponseId) {
-        console.log('[Realtime] Active response in progress, cancelling before new user turn', {
-          activeResponseId: realtimeState.activeResponseId,
-        });
-        realtimeControls.cancelActiveResponse();
-      }
-
       // Ensure Realtime connection is active
       if (realtimeState.status !== 'connected') {
         console.log('[Realtime] Connection not active, connecting...', { status: realtimeState.status });
         await realtimeControls.connect({
+          // Text mode connects without mic but with audio sink so we keep one session
           enableMicrophone: mode === 'voice',
-          enableAudioOutput: mode === 'voice',
+          enableAudioOutput: true,
         });
         
         // Wait a bit for connection to stabilize
@@ -527,6 +477,8 @@ export function ChatIntegrated() {
         rubric: conversationRubric,
         seedTeaserCard: shouldSeedTeaserCard,
       });
+
+      realtimeControls.cancelActiveResponse();
 
       const responsePayload: Record<string, unknown> = {
         output_modalities: mode === 'voice' ? ['audio'] : ['text'],
@@ -573,70 +525,56 @@ export function ChatIntegrated() {
     conversationRubric,
     shouldSeedTeaserCard,
     clearTeaserSeed,
-    realtimeState.activeResponseId,
   ]);
 
-  // Listen for finalised realtime transcripts (user + assistant) to sync turns
+  // Listen for finalized transcripts from Realtime API
   useEffect(() => {
     const latestTranscript = realtimeState.transcripts[0];
+    
     if (!latestTranscript || !latestTranscript.isFinal) {
       return;
     }
 
-    const transcriptId = latestTranscript.id;
-    if (!transcriptId) {
-      return;
-    }
-    if (processedTranscriptIdsRef.current.has(transcriptId)) {
-      return;
-    }
-    processedTranscriptIdsRef.current.add(transcriptId);
-
-    const trimmedText = (latestTranscript.text ?? "").trim();
-    if (!trimmedText) {
+    // In voice mode, add final user voice to transcript so history stays complete
+    if (mode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
+      const exists = turns.some(
+        (t) => t.role === 'user' && t.text === latestTranscript.text
+      );
+      if (!exists && latestTranscript.text.trim()) {
+        const userVoiceTurn: ConversationTurn = {
+          role: 'user',
+          text: latestTranscript.text,
+        };
+        setTurns((prev) => [...prev, userVoiceTurn]);
+        // We don't trigger deriveInsights here; assistant reply will handle it.
+      }
       return;
     }
 
     if (latestTranscript.role === 'assistant') {
-      console.log('[Realtime] Adding assistant response:', trimmedText);
-      const assistantTurn: ConversationTurn = {
-        role: 'assistant',
-        text: trimmedText,
-      };
-      setTurns((prev) => [...prev, assistantTurn]);
-      setIsTyping(false);
-      void deriveInsights([...turns, assistantTurn]);
-      return;
-    }
+      // Check if we already have this message in our turns
+      const alreadyExists = turns.some(
+        (t) => t.role === 'assistant' && t.text === latestTranscript.text
+      );
 
-    if (latestTranscript.role === 'user') {
-      if (!voiceSessionStarted) {
-        return;
+      if (!alreadyExists && latestTranscript.text.trim()) {
+        console.log('[Realtime] Adding assistant response:', latestTranscript.text);
+        
+        const assistantTurn: ConversationTurn = {
+          role: 'assistant',
+          text: latestTranscript.text,
+        };
+        
+        setTurns((prev) => [...prev, assistantTurn]);
+        setIsTyping(false);
+        
+        // Derive insights after assistant responds
+        void deriveInsights([...turns, assistantTurn]);
       }
-      console.log('[Realtime] Adding user voice turn:', trimmedText);
-      const userTurn: ConversationTurn = {
-        role: 'user',
-        text: trimmedText,
-      };
-      setTurns((prev) => [...prev, userTurn]);
-      setIsTyping(true);
-      void deriveInsights([...turns, userTurn]);
     }
-  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, voiceSessionStarted]);
+  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted]);
 
-  // Auto-connect Realtime session for text mode only
-  // Voice mode requires explicit user action (START VOICE button)
-  useEffect(() => {
-    if (realtimeState.status === 'idle' && mode === 'text') {
-      console.log('[Realtime] Auto-connecting session for text mode');
-      realtimeControls.connect({
-        enableMicrophone: false,
-        enableAudioOutput: false,
-      }).catch((err) => {
-        console.error('[Realtime] Connection error:', err);
-      });
-    }
-  }, [realtimeState.status, realtimeControls, mode]);
+  // Do not auto-connect in text mode; connect on-demand in handleSend, and via Start Voice.
 
   // Make AI speak first when voice mode connects
   const hasGreetedInVoiceRef = useRef(false);
@@ -656,16 +594,10 @@ export function ChatIntegrated() {
       return;
     }
 
-    if (realtimeState.activeResponseId) {
-      console.log('[Voice Mode] Active response in progress, skipping greeting', {
-        activeResponseId: realtimeState.activeResponseId,
-      });
-      return;
-    }
-
+    hasGreetedInVoiceRef.current = true;
     console.log('[Voice Mode] Connected, triggering AI greeting');
 
-    hasGreetedInVoiceRef.current = true;
+    realtimeControls.cancelActiveResponse();
 
     const guidanceText = buildRealtimeInstructions({
       phase: conversationPhase,
@@ -696,7 +628,6 @@ export function ChatIntegrated() {
     mode,
     voiceSessionStarted,
     realtimeState.status,
-    realtimeState.activeResponseId,
     realtimeControls,
     conversationPhase,
     conversationRubric,
@@ -738,84 +669,32 @@ export function ChatIntegrated() {
     const insightCount = profile.insights.length;
     const lastCount = suggestionsLastInsightCountRef.current;
     const hasEnoughInsights = insightCount >= 3;
-    const rubric = conversationRubric;
-    const contextDepth = rubric?.contextDepth ?? 0;
-    const engagementStyle = rubric?.engagementStyle ?? 'unknown';
-    const readinessBias = rubric?.readinessBias ?? 'unknown';
-    const explicitIdeasRequest = rubric?.explicitIdeasRequest ?? false;
-
-    const insightKinds = new Set(profile.insights.map((insight) => insight.kind));
-    const insightKindCount = insightKinds.size;
-    const hasInsightDiversity = insightKindCount >= 2;
-    const hasInterestInsight = insightKinds.has('interest');
-    const aspirationKinds = new Set(['goal', 'hope', 'highlight']);
-    const constraintKinds = new Set(['constraint', 'frustration', 'boundary']);
-    const hasAspirationInsight = profile.insights.some((insight) => aspirationKinds.has(insight.kind));
-    const hasConstraintInsight = profile.insights.some((insight) => constraintKinds.has(insight.kind));
-
-    const explorationPhaseReady =
-      conversationPhase === 'option-seeding' || conversationPhase === 'commitment';
-    const readinessForOptions =
-      explicitIdeasRequest || readinessBias === 'seeking-options' || readinessBias === 'deciding';
-    const deepContextForOptions =
-      contextDepth >= 3 && hasAspirationInsight && (hasConstraintInsight || insightKindCount >= 4);
-
-    const allowExplorationSuggestions =
-      (explorationPhaseReady || readinessForOptions || deepContextForOptions) &&
-      hasEnoughInsights &&
-      hasInsightDiversity &&
-      hasInterestInsight &&
-      hasAspirationInsight;
-
-    const allowLowEngagementOverride = shouldSeedTeaserCard && insightCount >= 2;
-
-    const canServeCareerCards = allowExplorationSuggestions || allowLowEngagementOverride;
-    const alreadyShownSuggestions = shownSuggestionIdsRef.current.size;
-    const fetchLimit = alreadyShownSuggestions === 0 ? 3 : 1;
 
     console.log('[Suggestions Effect] Triggered:', {
       insightCount,
       lastCount,
       hasEnoughInsights,
-      insightKindCount,
-      hasInsightDiversity,
-      hasInterestInsight,
-      hasAspirationInsight,
-      hasConstraintInsight,
-      explorationPhaseReady,
-      readinessForOptions,
-      deepContextForOptions,
-      contextDepth,
-      explicitIdeasRequest,
-      readinessBias,
-      engagementStyle,
-      allowExplorationSuggestions,
-      allowLowEngagementOverride,
-      shouldSeedTeaserCard,
       inFlight: suggestionsFetchInFlightRef.current,
-      currentSuggestions: suggestions.length,
-      canServeCareerCards,
-      phase: conversationPhase,
-      userTurnsCount,
-      fetchLimit,
+      currentSuggestions: suggestions.length
     });
 
-    if (!canServeCareerCards) {
-      console.log('[Suggestions Effect] Gating prevented fetch');
-      return;
-    }
-
-    if (fetchLimit <= 0) {
-      console.log('[Suggestions Effect] No fetch limit available; skipping');
-      return;
-    }
-
     const isVoiceActive = mode === 'voice' ? voiceSessionStarted : true;
+    const readinessOk = (conversationRubric?.cardReadiness?.status === 'ready') ||
+      Boolean(conversationRubric?.explicitIdeasRequest) ||
+      conversationRubric?.readinessBias === 'seeking-options';
+    const minInsightDelta = 2;
+    const deltaOk = suggestions.length === 0 || insightCount >= lastCount + minInsightDelta;
+    const cooldownMs = 45000; // avoid rapid refreshes; wait 45s between fetches
+    const now = Date.now();
+    const cooldownOk = now - lastSuggestionsFetchAtRef.current >= cooldownMs;
 
     const shouldFetch =
       isVoiceActive &&
+      hasEnoughInsights &&
+      readinessOk &&
+      cooldownOk &&
       !suggestionsFetchInFlightRef.current &&
-      (suggestions.length === 0 || insightCount > lastCount);
+      (deltaOk);
 
     console.log('[Suggestions Effect] Should fetch:', shouldFetch);
 
@@ -829,6 +708,7 @@ export function ChatIntegrated() {
     // Update lastCount BEFORE fetch to prevent duplicate fetches while this one is in flight
     suggestionsLastInsightCountRef.current = insightCount;
     console.log('[Suggestions] Updated lastCount to', insightCount, 'before fetch');
+    lastSuggestionsFetchAtRef.current = Date.now();
     
     void (async () => {
       try {
@@ -840,7 +720,7 @@ export function ChatIntegrated() {
               kind: insight.kind,
               value: insight.value,
             })),
-            limit: fetchLimit,
+            limit: 3,
             votes: votesByCareerId,
           }),
         });
@@ -863,6 +743,10 @@ export function ChatIntegrated() {
           }>;
         };
         if (Array.isArray(data.suggestions)) {
+          const normalizeTitle = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          const existingTitleKeys = new Set(
+            suggestions.map((s) => normalizeTitle(s.title))
+          );
           const normalized = data.suggestions
             .filter(
               (item) =>
@@ -883,6 +767,7 @@ export function ChatIntegrated() {
               neighborTerritories: item.neighborTerritories ?? [],
               distance: item.distance === 'adjacent' || item.distance === 'unexpected' ? item.distance : 'core' as const,
             }))
+            .filter((s) => !existingTitleKeys.has(normalizeTitle(s.title)))
             .sort((a, b) => b.score - a.score);
 
           // Store all new suggestions in our persistent map
@@ -904,8 +789,22 @@ export function ChatIntegrated() {
             }
           });
           
-          // Merge new suggestions with existing voted cards
-          setSuggestions([...normalized, ...votedCardsNotInNewSet]);
+          // Merge new suggestions with existing suggestions, preserving order and removing title duplicates
+          const titleSeen = new Set<string>();
+          const merged: typeof normalized = [];
+          const addUniqueByTitle = (arr: typeof normalized) => {
+            for (const s of arr) {
+              const key = normalizeTitle(s.title);
+              if (titleSeen.has(key)) continue;
+              titleSeen.add(key);
+              merged.push(s);
+            }
+          };
+          addUniqueByTitle(suggestions as any);
+          addUniqueByTitle(normalized);
+          addUniqueByTitle(votedCardsNotInNewSet);
+
+          setSuggestions(merged);
           // Note: lastCount already updated before fetch to prevent duplicates
           
           // Persist last insight count to localStorage
@@ -927,18 +826,7 @@ export function ChatIntegrated() {
         setLoadingSuggestions(false);
       }
     })();
-  }, [
-    profile.insights,
-    suggestions,
-    votesByCareerId,
-    setSuggestions,
-    mode,
-    voiceSessionStarted,
-    conversationPhase,
-    conversationRubric,
-    shouldSeedTeaserCard,
-    userTurnsCount,
-  ]);
+  }, [profile.insights, suggestions, votesByCareerId, setSuggestions, mode, voiceSessionStarted, conversationRubric]);
 
   const showProgressBar = progress < 100;
 
@@ -1079,9 +967,9 @@ export function ChatIntegrated() {
               <Button
                 variant="outline"
                 size="sm"
-              onClick={handleModeToggle}
-              style={{ gap: '0.5rem' }}
-            >
+                onClick={handleModeToggle}
+                style={{ gap: '0.5rem' }}
+              >
                 <FileText className="w-4 h-4" />
                 Switch to Text
               </Button>
@@ -1094,15 +982,8 @@ export function ChatIntegrated() {
               controls={realtimeControls}
               onStart={() => {
                 if (!voiceBaselineCapturedRef.current) {
-                  const baselineIds = suggestions.map((s) => s.id);
-                  voiceSuggestionBaselineRef.current = new Set(baselineIds);
-                  voiceShownSuggestionIdsRef.current = new Set(baselineIds);
-                  setVoiceCardIds(baselineIds);
+                  voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
                   voiceBaselineCapturedRef.current = true;
-                } else if (suggestions.length > 0) {
-                  const baselineIds = suggestions.map((s) => s.id);
-                  baselineIds.forEach((id) => voiceShownSuggestionIdsRef.current.add(id));
-                  setVoiceCardIds((prev) => appendUnique(prev, baselineIds));
                 }
                 suggestionsLastInsightCountRef.current = 0;
                 suggestionsFetchInFlightRef.current = false;
@@ -1111,58 +992,28 @@ export function ChatIntegrated() {
             />
           </div>
           
-          {/* Voice transcript summary: show the most recent exchange */}
-          {voiceSessionStarted && (voiceLatestExchange.user || voiceLatestExchange.assistant) && (
-            <div style={{ marginTop: '2rem', maxWidth: '640px', marginInline: 'auto' }}>
-              {voiceLatestExchange.user && (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    marginBottom: '1rem',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '1.25rem 1.5rem',
-                      backgroundColor: '#ffe4e6',
-                      borderRadius: '16px',
-                      fontSize: '1.05rem',
-                      lineHeight: '1.6',
-                      maxWidth: '80%',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                    }}
-                  >
-                    {voiceLatestExchange.user.text}
-                  </div>
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-start',
-                }}
-              >
+          {/* Show only last assistant message in voice mode */}
+          {(() => {
+            if (!voiceSessionStarted) {
+              return null;
+            }
+            const lastAssistantTurn = turns.filter(t => t.role === 'assistant').slice(-1)[0];
+            return lastAssistantTurn ? (
+              <div style={{ marginTop: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto 0' }}>
                 <div
                   style={{
                     padding: '1.5rem',
                     backgroundColor: '#d8fdf0',
-                    borderRadius: '16px',
+                    borderRadius: '12px',
                     fontSize: '1.1rem',
                     lineHeight: '1.6',
-                    maxWidth: '80%',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                    minHeight: '3.5rem',
-                    display: 'flex',
-                    alignItems: 'center',
                   }}
                 >
-                  {voiceLatestExchange.assistant?.text ?? "Hang tight—I'm pulling together a response."}
+                  {lastAssistantTurn.text}
                 </div>
               </div>
-            </div>
-          )}
+            ) : null;
+          })()}
           
           {/* Loading indicator for suggestions */}
           {loadingSuggestions && (

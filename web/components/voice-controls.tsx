@@ -33,12 +33,29 @@ export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) 
 	const canResume = state.status === "connected" && state.microphone === "paused";
 	const canStop = state.status === "connected" || state.status === "error";
 
-	const handleStart = () => {
+	const handleStart = async () => {
 		if (state.status === "requesting-token" || state.status === "connecting") {
 			return;
 		}
+		if (state.status === "connected") {
+			if (state.microphone === "paused") {
+				onStart?.();
+				controls.resumeMicrophone();
+				return;
+			}
+			if (state.microphone === "inactive") {
+				onStart?.();
+				await controls.disconnect();
+				await controls.connect({ enableMicrophone: true, enableAudioOutput: true });
+				return;
+			}
+			// Already connected + active mic; nothing to do beyond marking start
+			onStart?.();
+			return;
+		}
+
 		onStart?.();
-		void controls.connect();
+		await controls.connect({ enableMicrophone: true, enableAudioOutput: true });
 	};
 
 	return (

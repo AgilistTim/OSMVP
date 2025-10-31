@@ -72,6 +72,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const pendingItemResolversRef = useRef<
     Map<string, (status: "added" | "closed") => void>
   >(new Map());
+  const pendingUserSpeechRef = useRef<boolean>(false);
+  const speechStartTimestampRef = useRef<number | null>(null);
+  // Debounce timer for cancelling active response after user speech begins
+  const cancelDebounceTimerRef = useRef<number | null>(null);
 
   const enableMicrophoneDefault = baseConfig.enableMicrophone ?? true;
   const enableAudioOutputDefault = baseConfig.enableAudioOutput ?? true;
@@ -111,6 +115,12 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     pendingEventsRef.current = [];
     pendingItemResolversRef.current.forEach((resolve) => resolve("closed"));
     pendingItemResolversRef.current.clear();
+    pendingUserSpeechRef.current = false;
+    speechStartTimestampRef.current = null;
+    if (cancelDebounceTimerRef.current !== null) {
+      clearTimeout(cancelDebounceTimerRef.current);
+      cancelDebounceTimerRef.current = null;
+    }
     setMicrophoneState("inactive");
     activeResponseIdRef.current = null;
     setActiveResponseIdSnapshot(null);
@@ -338,6 +348,17 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.delta, event.text, event.transcript);
           handleTranscriptDelta(id, text, "assistant");
+          // Fallback: if audio element exists but we didn't see a buffer-start, try to
+          // ensure playback is unmuted and kicked off on first audio transcript.
+          if (
+            (type === "response.audio_transcript.delta" || type === "response.output_audio_transcript.delta") &&
+            audioRef.current
+          ) {
+            audioRef.current.muted = false;
+            void audioRef.current.play().catch(() => {
+              /* may still be blocked; will retry on buffer started */
+            });
+          }
           break;
         }
         case "response.audio_transcript.done":
@@ -346,6 +367,15 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.transcript, event.text, event.delta);
           handleTranscriptFinal(id, text?.trim(), "assistant");
+          if (
+            (type === "response.audio_transcript.done" || type === "response.output_audio_transcript.done") &&
+            audioRef.current
+          ) {
+            audioRef.current.muted = false;
+            void audioRef.current.play().catch(() => {
+              /* ignore */
+            });
+          }
           if (
             !resolvePendingItem(id) &&
             !resolvePendingItem((event as { client_id?: string }).client_id)
@@ -370,25 +400,18 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           if (audioRef.current) {
             audioRef.current.muted = false;
             void audioRef.current.play().catch(() => {
-              /* ignore play errors */
+              /* autoplay may still be blocked; will retry on next buffer */
             });
           }
           break;
         }
         case "input_audio_buffer.speech_started": {
-          if (activeResponseIdRef.current) {
-            const responseId = activeResponseIdRef.current;
-            if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-              console.info("[realtime:input-audio-started-cancelling]", { responseId });
-            }
-            sendEvent({ type: "response.cancel", response_id: responseId });
-            activeResponseIdRef.current = null;
-            setActiveResponseIdSnapshot(null);
-            if (audioRef.current) {
-              audioRef.current.muted = true;
-              audioRef.current.pause();
-              audioRef.current.currentTime = 0;
-            }
+          pendingUserSpeechRef.current = true;
+          speechStartTimestampRef.current = Date.now();
+          // Reset any in-flight cancel debounce when a new speech segment starts
+          if (cancelDebounceTimerRef.current !== null) {
+            clearTimeout(cancelDebounceTimerRef.current);
+            cancelDebounceTimerRef.current = null;
           }
           break;
         }
@@ -396,6 +419,32 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.delta, event.text, event.transcript);
           handleTranscriptDelta(id, text, "user");
+          if (pendingUserSpeechRef.current && cancelDebounceTimerRef.current === null) {
+            const scheduledResponseId = activeResponseIdRef.current ?? null;
+            cancelDebounceTimerRef.current = window.setTimeout(() => {
+              cancelDebounceTimerRef.current = null;
+              if (!pendingUserSpeechRef.current) return;
+              const responseId = activeResponseIdRef.current;
+              if (responseId && responseId === scheduledResponseId) {
+                const elapsed = speechStartTimestampRef.current
+                  ? Date.now() - speechStartTimestampRef.current
+                  : undefined;
+                if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+                  console.info("[realtime:user-speech-cancelling]", { responseId, elapsed, debounced: true });
+                }
+                sendEvent({ type: "response.cancel", response_id: responseId });
+                activeResponseIdRef.current = null;
+                setActiveResponseIdSnapshot(null);
+                if (audioRef.current) {
+                  audioRef.current.muted = true;
+                  audioRef.current.pause();
+                  // Avoid resetting currentTime to preserve next buffer continuity
+                }
+              }
+              pendingUserSpeechRef.current = false;
+              speechStartTimestampRef.current = null;
+            }, 200);
+          }
           break;
         }
         case "conversation.item.input_audio_transcription.completed":
@@ -421,6 +470,12 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
             activeResponseIdRef.current = null;
             setActiveResponseIdSnapshot(null);
           }
+          if (cancelDebounceTimerRef.current !== null) {
+            clearTimeout(cancelDebounceTimerRef.current);
+            cancelDebounceTimerRef.current = null;
+          }
+          pendingUserSpeechRef.current = false;
+          speechStartTimestampRef.current = null;
           break;
         }
         default:
@@ -529,7 +584,13 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
 
         if (enableAudioOutput) {
           const audio = document.createElement("audio");
+          // Keep element in DOM for autoplay policies; start muted and inline
           audio.autoplay = true;
+          (audio as any).playsInline = true;
+          audio.muted = true;
+          audio.style.display = "none";
+          audio.setAttribute("aria-hidden", "true");
+          try { document.body.appendChild(audio); } catch { /* noop */ }
           audioRef.current = audio;
           pc.ontrack = (event) => {
             if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
@@ -541,6 +602,8 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
             }
             if (audioRef.current) {
               audioRef.current.srcObject = event.streams[0];
+              // Try to prime playback as soon as media arrives
+              void audioRef.current.play().catch(() => { /* may need unmute */ });
             }
           };
         }

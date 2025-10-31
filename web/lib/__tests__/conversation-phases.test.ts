@@ -16,6 +16,31 @@ const baseContext: Omit<PhaseContext, "currentPhase"> = {
 	rubric: null as ConversationRubric | null,
 };
 
+function createRubric(overrides: Partial<ConversationRubric> = {}): ConversationRubric {
+	return {
+		engagementStyle: overrides.engagementStyle ?? "blocked",
+		contextDepth: overrides.contextDepth ?? 0,
+		energyLevel: overrides.energyLevel ?? "low",
+		readinessBias: overrides.readinessBias ?? "exploring",
+		explicitIdeasRequest: overrides.explicitIdeasRequest ?? false,
+		insightCoverage: {
+			interests: overrides.insightCoverage?.interests ?? false,
+			aptitudes: overrides.insightCoverage?.aptitudes ?? false,
+			goals: overrides.insightCoverage?.goals ?? false,
+			constraints: overrides.insightCoverage?.constraints ?? false,
+		},
+		insightGaps: overrides.insightGaps ?? ["interests", "aptitudes", "goals", "constraints"],
+		cardReadiness: {
+			status: overrides.cardReadiness?.status ?? "blocked",
+			reason: overrides.cardReadiness?.reason,
+			missingSignals:
+				overrides.cardReadiness?.missingSignals ?? ["interests", "aptitudes", "goals", "constraints"],
+		},
+		recommendedFocus: overrides.recommendedFocus ?? "story",
+		lastUpdatedAt: overrides.lastUpdatedAt ?? Date.now(),
+	};
+}
+
 describe("conversation phase recommendation", () => {
 	it("remains in warmup until the first user turn", () => {
 		const decision = recommendConversationPhase({
@@ -66,14 +91,21 @@ describe("conversation phase recommendation", () => {
 				{ kind: "hope", value: "turn my hobby into gigs" },
 				{ kind: "constraint", value: "balancing with college" },
 			],
-			rubric: {
+			rubric: createRubric({
 				engagementStyle: "leaning-in",
 				contextDepth: 2,
 				energyLevel: "high",
-				readinessBias: "exploring",
-				explicitIdeasRequest: false,
-				lastUpdatedAt: Date.now(),
-			},
+				insightCoverage: {
+					interests: true,
+					aptitudes: true,
+					goals: true,
+					constraints: true,
+				},
+				cardReadiness: {
+					status: "context-light",
+					missingSignals: [],
+				},
+			}),
 		});
 		expect(decision.nextPhase).toBe("pattern-mapping");
 	});
@@ -90,14 +122,11 @@ describe("conversation phase recommendation", () => {
 				{ role: "assistant", text: "Okay, anything you're curious about?" },
 				{ role: "user", text: "No idea" },
 			],
-			rubric: {
+			rubric: createRubric({
 				engagementStyle: "blocked",
 				contextDepth: 0,
 				energyLevel: "low",
-				readinessBias: "exploring",
-				explicitIdeasRequest: false,
-				lastUpdatedAt: Date.now(),
-			},
+			}),
 		});
 		expect(decision.nextPhase).toBe("story-mining");
 		expect(decision.shouldSeedTeaserCard).toBe(true);
@@ -123,14 +152,23 @@ describe("conversation phase recommendation", () => {
 				{ kind: "constraint", value: "little budget" },
 				{ kind: "hope", value: "build a freelance pipeline" },
 			],
-			rubric: {
+			rubric: createRubric({
 				engagementStyle: "leaning-in",
 				contextDepth: 2,
 				energyLevel: "medium",
 				readinessBias: "seeking-options",
 				explicitIdeasRequest: true,
-				lastUpdatedAt: Date.now(),
-			},
+				cardReadiness: {
+					status: "ready",
+					missingSignals: [],
+				},
+				insightCoverage: {
+					interests: true,
+					aptitudes: true,
+					goals: true,
+					constraints: true,
+				},
+			}),
 		});
 		expect(decision.nextPhase).toBe("option-seeding");
 	});
@@ -140,14 +178,15 @@ describe("conversation phase recommendation", () => {
 			...baseContext,
 			currentPhase: "commitment",
 			voteCount: 0,
-			rubric: {
+			rubric: createRubric({
 				engagementStyle: "blocked",
 				contextDepth: 1,
 				energyLevel: "low",
-				readinessBias: "exploring",
-				explicitIdeasRequest: false,
-				lastUpdatedAt: Date.now(),
-			},
+				cardReadiness: {
+					status: "context-light",
+					missingSignals: ["goals", "constraints"],
+				},
+			}),
 		});
 		expect(decision.nextPhase).toBe("pattern-mapping");
 	});
@@ -161,6 +200,7 @@ describe("rubric inference heuristics", () => {
 		]);
 		expect(rubric.explicitIdeasRequest).toBe(true);
 		expect(rubric.readinessBias).toBe("seeking-options");
+		expect(rubric.cardReadiness.status).toBe("blocked");
 	});
 
 	it("marks blocked when no user turns present", () => {
@@ -169,5 +209,6 @@ describe("rubric inference heuristics", () => {
 		]);
 		expect(rubric.engagementStyle).toBe("blocked");
 		expect(rubric.energyLevel).toBe("low");
+		expect(rubric.cardReadiness.status).toBe("blocked");
 	});
 });
