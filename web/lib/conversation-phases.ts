@@ -283,8 +283,57 @@ export function computeRubricScores({
         readinessBias = "seeking-options";
     }
 
+    const currentPhaseFromPrev: ConversationPhase = prevRubric
+        ? prevRubric.recommendedFocus === "ideation"
+            ? "option-seeding"
+            : prevRubric.recommendedFocus === "decision"
+            ? "commitment"
+            : prevRubric.recommendedFocus === "pattern"
+            ? "pattern-mapping"
+            : prevRubric.recommendedFocus === "rapport"
+            ? "warmup"
+            : "story-mining"
+        : "warmup";
+
+    // Provisional card readiness to inform phase decision
+    const provisionalCardReadiness = contextDepth >= 1
+        ? {
+            status: contextDepth >= 2 ? (coverage.interests ? "context-light" : "blocked") : "context-light",
+            reason: undefined,
+            missingSignals: gaps as Array<keyof typeof coverage>,
+        }
+        : {
+            status: "blocked" as const,
+            reason: undefined,
+            missingSignals: gaps as Array<keyof typeof coverage>,
+        };
+
+    const provisionalPhaseDecision = recommendConversationPhase({
+        currentPhase: currentPhaseFromPrev,
+        turns,
+        insights,
+        suggestionCount,
+        voteCount,
+        rubric: {
+            ...base,
+            contextDepth,
+            insightCoverage: coverage,
+            insightGaps: gaps,
+            readinessBias,
+            cardReadiness: provisionalCardReadiness,
+        },
+    });
+
+    if (provisionalPhaseDecision.nextPhase === "option-seeding" && readinessBias === "exploring") {
+        readinessBias = "seeking-options";
+    }
+
+    const intent =
+        base.explicitIdeasRequest ||
+        readinessBias === "seeking-options" ||
+        provisionalPhaseDecision.nextPhase === "option-seeding";
+
     // Card readiness: ready only with sufficient depth + signals + intent
-    const intent = base.explicitIdeasRequest || readinessBias === "seeking-options";
     let cardStatus: "blocked" | "context-light" | "ready" = "blocked";
     let cardReason: string | undefined;
     if (contextDepth >= 2 && coverage.interests && (coverage.aptitudes || coverage.goals) && intent) {
@@ -303,9 +352,8 @@ export function computeRubricScores({
         missingSignals: cardStatus === "ready" ? [] : (gaps as Array<keyof typeof coverage>),
     };
 
-    // Recommended focus via existing phase logic
     const phaseDecision = recommendConversationPhase({
-        currentPhase: prevRubric ? prevRubric.recommendedFocus === "ideation" ? "option-seeding" : prevRubric.recommendedFocus === "decision" ? "commitment" : prevRubric.recommendedFocus === "pattern" ? "pattern-mapping" : prevRubric.recommendedFocus === "rapport" ? "warmup" : "story-mining" : "warmup",
+        currentPhase: currentPhaseFromPrev,
         turns,
         insights,
         suggestionCount,

@@ -68,7 +68,10 @@ export function buildRealtimeInstructions({
 			}
 		} else {
 			lines.push(
-				"You now have enough context to surface three pathways via the career cards: a core fit, an adjacent remix, and a stretch/experimental idea. Point out that the cards are appearing rather than listing each option in the transcript."
+				"You now have enough context to surface three pathways via the career cards: a core fit, an adjacent remix, and a stretch/experimental idea. Point out that the cards just popped in rather than listing each option in your message."
+			);
+			lines.push(
+				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, briefly preview why they matter (one sentence) and invite the user to check the cards." 
 			);
 			lines.push(
 				"Keep the spoken response tight—set up why the cards matter, invite reactions, and let the detailed copy live in the cards themselves."
