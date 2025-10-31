@@ -45,12 +45,49 @@ function groupInsightsByKind(insights: DynamicSuggestionInput["insights"]) {
 }
 
 function coerceDistance(value: string | undefined): CardDistance {
-	if (!value) return "core";
-	const normalized = value.toLowerCase();
-	if (normalized === "adjacent" || normalized === "unexpected") {
-		return normalized;
-	}
-	return "core";
+    if (!value) return "core";
+    const normalized = value.toLowerCase();
+    if (normalized === "adjacent" || normalized === "unexpected") {
+        return normalized;
+    }
+    return "core";
+}
+
+function tokenize(text: string): string[] {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+}
+
+const STOPWORDS = new Set<string>([
+    "the","and","for","with","that","this","from","into","about","your","their","they","you","are","our","use","using","build","based","help","guide","create","maker","builder","design","designer","consultant","coach","educator","teacher","content","curator","community","connector","ai","poc","proof","concept","business","startup","founder","small","medium","enterprise","sme","tool","tools","voice"
+]);
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+    let inter = 0;
+    for (const t of a) if (b.has(t)) inter++;
+    const union = a.size + b.size - inter;
+    return union === 0 ? 0 : inter / union;
+}
+
+function isSimilarSuggestion(a: DynamicSuggestion, b: DynamicSuggestion): boolean {
+    const ta = new Set([
+        ...tokenize(a.title),
+        ...tokenize(a.summary),
+        ...a.whyItFits.flatMap(tokenize),
+        ...a.careerAngles.flatMap(tokenize),
+    ]);
+    const tb = new Set([
+        ...tokenize(b.title),
+        ...tokenize(b.summary),
+        ...b.whyItFits.flatMap(tokenize),
+        ...b.careerAngles.flatMap(tokenize),
+    ]);
+    const sim = jaccard(ta, tb);
+    return sim >= 0.6; // consider near-duplicates as the same intent/scope
 }
 
 async function buildMotivationSummary(insights: DynamicSuggestionInput["insights"]) {
@@ -204,9 +241,9 @@ export async function generateDynamicSuggestions({
 			throw new Error(text || `Perplexity request failed with ${response.status}`);
 		}
 
-		const result = (await response.json()) as {
-			choices?: Array<{ message?: { content?: string } }>;
-		};
+    const result = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+    };
 
 		const rawContent = result.choices?.[0]?.message?.content ?? "{}";
 		console.log("[dynamic-suggestions] Perplexity raw response:", rawContent.substring(0, 500));
@@ -238,13 +275,14 @@ export async function generateDynamicSuggestions({
 			throw new Error("Card generation returned no cards");
 		}
 		
-	const mapped = cards.reduce<DynamicSuggestion[]>((acc, card, index) => {
-		const title = (card.title ?? "").trim();
-		const summary = (card.summary ?? "").trim();
-		if (!title || !summary) {
-			console.warn(`[dynamic-suggestions] Skipping card ${index} - missing title or summary:`, card);
-			return acc;
-		}
+    let invalidDistanceCount = 0;
+    const mapped = cards.reduce<DynamicSuggestion[]>((acc, card, index) => {
+        const title = (card.title ?? "").trim();
+        const summary = (card.summary ?? "").trim();
+        if (!title || !summary) {
+            console.warn(`[dynamic-suggestions] Skipping card ${index} - missing title or summary:`, card);
+            return acc;
+        }
 
 		const whyItFits = Array.isArray(card.why_it_fits)
 			? card.why_it_fits.map((item) => item.trim()).filter(Boolean)
@@ -261,40 +299,86 @@ export async function generateDynamicSuggestions({
 		const neighborTerritories = Array.isArray(card.neighbor_tags)
 			? card.neighbor_tags.map((item) => item.trim()).filter(Boolean)
 			: [];
-		const distance = coerceDistance(card.distance);
+        const rawDistance = coerceDistance(card.distance);
+        if (!card.distance || (card.distance !== 'core' && card.distance !== 'adjacent' && card.distance !== 'unexpected')) {
+            invalidDistanceCount++;
+        }
 
-		acc.push({
-			id: `dynamic-${index}-${title.toLowerCase().replace(/\s+/g, "-").slice(0, 32)}`,
-			title,
-			summary,
-			whyItFits,
-			careerAngles,
-			nextSteps,
-			microExperiments,
-			neighborTerritories,
-			confidence: "medium",
-			score: 5 - index,
-			distance,
-		});
-		return acc;
-	}, []);
+        acc.push({
+            id: `dynamic-${index}-${title.toLowerCase().replace(/\s+/g, "-").slice(0, 32)}`,
+            title,
+            summary,
+            whyItFits,
+            careerAngles,
+            nextSteps,
+            microExperiments,
+            neighborTerritories,
+            confidence: "medium",
+            score: 5 - index,
+            distance: rawDistance,
+        });
+        return acc;
+    }, []);
 
-		const uniqueCards = mapped.filter((card, index, array) => {
-			const normalisedTitle = card.title.toLowerCase();
-			return array.findIndex((candidate) => candidate.title.toLowerCase() === normalisedTitle) === index;
-		});
+        let uniqueCards = mapped.filter((card, index, array) => {
+            const normalisedTitle = card.title.toLowerCase();
+            return array.findIndex((candidate) => candidate.title.toLowerCase() === normalisedTitle) === index;
+        });
 
-		if (uniqueCards.length < mapped.length) {
-			console.warn("[dynamic-suggestions] Removed duplicate card titles", {
-				originalTitles: mapped.map((card) => card.title),
-				uniqueTitles: uniqueCards.map((card) => card.title),
-			});
-		}
+        if (uniqueCards.length < mapped.length) {
+            console.warn("[dynamic-suggestions] Removed duplicate card titles", {
+                originalTitles: mapped.map((card) => card.title),
+                uniqueTitles: uniqueCards.map((card) => card.title),
+            });
+        }
 
-		console.log(`[dynamic-suggestions] Successfully generated ${uniqueCards.length} cards`);
-		console.log("[dynamic-suggestions] Card titles:", uniqueCards.map(c => c.title));
+        // Extra semantic dedupe by intent/scope
+        const semanticallyDeduped: DynamicSuggestion[] = [];
+        for (const cand of uniqueCards) {
+            if (semanticallyDeduped.some((keep) => isSimilarSuggestion(keep, cand))) {
+                console.warn('[dynamic-suggestions] Dropping near-duplicate by intent/scope', { title: cand.title });
+                continue;
+            }
+            semanticallyDeduped.push(cand);
+        }
+        uniqueCards = semanticallyDeduped;
 
-		return uniqueCards;
+        // Distance distribution logging and light rebalancing to ensure variety
+        const distCounts = uniqueCards.reduce<Record<CardDistance, number>>((acc, c) => {
+            acc[c.distance] = (acc[c.distance] ?? 0) + 1;
+            return acc;
+        }, { core: 0, adjacent: 0, unexpected: 0 });
+        if (invalidDistanceCount > 0) {
+            console.warn('[dynamic-suggestions] Cards missing/invalid distance tagged by model', { invalidDistanceCount });
+        }
+        console.log('[dynamic-suggestions] Distance distribution', distCounts);
+
+        // If we got all core, try to label at least one adjacent and one unexpected based on neighbor tags and novelty
+        if (uniqueCards.length >= 3 && distCounts.core === uniqueCards.length) {
+            let changed = false;
+            // Pick candidate with most neighbor territories for 'adjacent'
+            const withNeighbors = [...uniqueCards]
+                .map((c, i) => ({ c, i, n: c.neighborTerritories?.length ?? 0 }))
+                .sort((a, b) => b.n - a.n);
+            if (withNeighbors[0]?.n > 0) {
+                uniqueCards[withNeighbors[0].i] = { ...uniqueCards[withNeighbors[0].i], distance: 'adjacent' };
+                changed = true;
+            }
+            // Choose the lowest scored card as 'unexpected' to diversify
+            const lowestIndex = uniqueCards.reduce((minI, c, i, arr) => (c.score < arr[minI].score ? i : minI), 0);
+            if (lowestIndex >= 0 && uniqueCards[lowestIndex].distance === 'core') {
+                uniqueCards[lowestIndex] = { ...uniqueCards[lowestIndex], distance: 'unexpected' };
+                changed = true;
+            }
+            if (changed) {
+                console.warn('[dynamic-suggestions] Rebalanced distances to ensure variety', uniqueCards.map(c => ({ title: c.title, distance: c.distance })));
+            }
+        }
+
+        console.log(`[dynamic-suggestions] Successfully generated ${uniqueCards.length} cards`);
+        console.log("[dynamic-suggestions] Cards:", uniqueCards.map(c => ({ title: c.title, distance: c.distance })));
+
+        return uniqueCards;
 	} catch (error) {
 		console.error("[dynamic-suggestions] CRITICAL ERROR:", error);
 		throw error;

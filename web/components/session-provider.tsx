@@ -7,6 +7,7 @@ import {
 	type ConversationPhase,
 	type ConversationRubric,
 } from "@/lib/conversation-phases";
+import { computeRubricScores } from "@/lib/conversation-phases";
 import type { RubricEvaluationResponseBody } from "@/lib/conversation-rubric";
 
 export type SessionMode = "text" | "voice" | null;
@@ -473,73 +474,32 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setShouldSeedTeaserCard(decision.shouldSeedTeaserCard);
 	}, [turns, profile.insights, votesByCareerId, suggestions.length, conversationRubric, conversationPhase]);
 
+	// Local rubric scoring (static dimensions + dynamic scores) — no network
 	useEffect(() => {
 		if (turns.length === 0) {
 			setConversationRubric(null);
 			return;
 		}
-
-		const requestId = rubricRequestIdRef.current + 1;
-		rubricRequestIdRef.current = requestId;
-
-		const payload = {
-			turns: turns.slice(-12).map((turn) => ({
-				role: turn.role,
-				text: turn.text.trim(),
-			})),
-			insights: profile.insights.map((insight) => ({
-				kind: insight.kind,
-				value: insight.value,
-			})),
-			suggestions: suggestions.slice(-5).map((suggestion) => ({
-				id: suggestion.id,
-				title: suggestion.title,
-			})),
+		const insightSnapshots = profile.insights.map((i) => ({ kind: i.kind, value: i.value }));
+		const rubric = computeRubricScores({
+			turns: turns.slice(-12),
+			insights: insightSnapshots,
 			votes: votesByCareerId,
-		};
-
-		let cancelled = false;
-
-		(async () => {
-			try {
-				const response = await fetch("/api/rubric", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(payload),
-				});
-
-				if (rubricRequestIdRef.current !== requestId || cancelled) {
-					return;
-				}
-
-				if (!response.ok) {
-					const errorText = await response.text();
-					console.error("[SessionProvider] Rubric API request failed", {
-						status: response.status,
-						error: errorText,
-					});
-					setConversationRubric(null);
-					return;
-				}
-
-				const data = (await response.json()) as RubricEvaluationResponseBody;
-				setConversationRubric(data.rubric);
-				if (Array.isArray(data.reasoning) && data.reasoning.length > 0) {
-					console.info("[SessionProvider] Rubric reasoning", data.reasoning);
-				}
-			} catch (error) {
-				if (rubricRequestIdRef.current !== requestId || cancelled) {
-					return;
-				}
-				console.error("[SessionProvider] Rubric evaluation error", error);
-				setConversationRubric(null);
-			}
-		})();
-
-		return () => {
-			cancelled = true;
-		};
-	}, [turns, profile.insights, suggestions, votesByCareerId]);
+			suggestionCount: suggestions.length,
+			prevRubric: conversationRubric,
+		});
+		setConversationRubric(rubric);
+		if (process.env.NODE_ENV !== 'production') {
+			console.info('[SessionProvider] Local rubric', {
+				engagementStyle: rubric.engagementStyle,
+				contextDepth: rubric.contextDepth,
+				readinessBias: rubric.readinessBias,
+				cardStatus: rubric.cardReadiness.status,
+				gaps: rubric.insightGaps,
+				recommendedFocus: rubric.recommendedFocus,
+			});
+		}
+	}, [turns, profile.insights, votesByCareerId, suggestions.length]);
 
 	const value = useMemo<SessionState & SessionActions>(
 		() => ({

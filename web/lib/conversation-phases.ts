@@ -56,9 +56,9 @@ export interface PhaseContext {
 }
 
 export interface PhaseDecision {
-	nextPhase: ConversationPhase;
-	rationale: string[];
-	shouldSeedTeaserCard: boolean;
+    nextPhase: ConversationPhase;
+    rationale: string[];
+    shouldSeedTeaserCard: boolean;
 }
 
 const REQUIRED_BASE_KINDS: InsightKind[] = ["interest", "strength"];
@@ -236,4 +236,107 @@ export function inferRubricFromTranscript(turns: ConversationTurn[]): Conversati
 		recommendedFocus,
 		lastUpdatedAt: Date.now(),
 	};
+}
+
+// Compute rubric scores locally from transcript and insights, using the same static rubric
+// dimensions as the server schema. This yields a stable, deterministic assessment that we
+// can update on each final turn/insight/vote change without round-tripping to the LLM.
+export function computeRubricScores({
+    turns,
+    insights,
+    votes,
+    suggestionCount,
+    prevRubric,
+}: {
+    turns: ConversationTurn[];
+    insights: InsightSnapshot[];
+    votes: Record<string, 1 | 0 | -1 | undefined>;
+    suggestionCount: number;
+    prevRubric?: ConversationRubric | null;
+}): ConversationRubric {
+    // Start with transcript heuristics
+    const base = inferRubricFromTranscript(turns);
+
+    // Coverage from explicit insights
+    const has = (kinds: InsightKind[]) => insights.some((i) => kinds.includes(i.kind));
+    const coverage = {
+        interests: has(["interest"]),
+        aptitudes: has(["strength"]),
+        goals: has(["goal", "hope", "highlight"]),
+        constraints: has(["constraint", "frustration", "boundary"]),
+    };
+    const gaps = (Object.keys(coverage) as Array<keyof typeof coverage>).filter((k) => !coverage[k]);
+
+    // Refine context depth using coverage richness
+    let contextDepth: 0 | 1 | 2 | 3 = base.contextDepth;
+    const uniqueKinds = new Set(insights.map((i) => i.kind)).size;
+    if (uniqueKinds >= 2 && contextDepth < 1) contextDepth = 1;
+    if (coverage.interests && (coverage.aptitudes || coverage.goals) && contextDepth < 2) contextDepth = 2;
+    if (coverage.interests && coverage.aptitudes && coverage.goals && coverage.constraints && uniqueKinds >= 5) {
+        contextDepth = 3;
+    }
+
+    // Readiness bias and explicit request from base; votes can nudge toward deciding
+    const voteCount = Object.values(votes).filter((v) => v === 1 || v === -1).length;
+    let readinessBias = base.readinessBias;
+    if (voteCount > 0 && base.readinessBias === "exploring") {
+        readinessBias = "seeking-options";
+    }
+
+    // Card readiness: ready only with sufficient depth + signals + intent
+    const intent = base.explicitIdeasRequest || readinessBias === "seeking-options";
+    let cardStatus: "blocked" | "context-light" | "ready" = "blocked";
+    let cardReason: string | undefined;
+    if (contextDepth >= 2 && coverage.interests && (coverage.aptitudes || coverage.goals) && intent) {
+        cardStatus = "ready";
+    } else if (contextDepth >= 1) {
+        cardStatus = "context-light";
+        cardReason = "Gather one of aptitudes/goals with a concrete example before ideas.";
+    } else {
+        cardStatus = "blocked";
+        cardReason = "Surface interests first with specific examples.";
+    }
+
+    const cardReadiness = {
+        status: cardStatus,
+        reason: cardReason,
+        missingSignals: cardStatus === "ready" ? [] : (gaps as Array<keyof typeof coverage>),
+    };
+
+    // Recommended focus via existing phase logic
+    const phaseDecision = recommendConversationPhase({
+        currentPhase: prevRubric ? prevRubric.recommendedFocus === "ideation" ? "option-seeding" : prevRubric.recommendedFocus === "decision" ? "commitment" : prevRubric.recommendedFocus === "pattern" ? "pattern-mapping" : prevRubric.recommendedFocus === "rapport" ? "warmup" : "story-mining" : "warmup",
+        turns,
+        insights,
+        suggestionCount,
+        voteCount,
+        rubric: {
+            ...base,
+            contextDepth,
+            insightCoverage: coverage,
+            insightGaps: gaps,
+            readinessBias,
+            cardReadiness,
+        },
+    });
+    const focusMap: Record<ConversationPhase, ConversationFocus> = {
+        warmup: "rapport",
+        "story-mining": "story",
+        "pattern-mapping": "pattern",
+        "option-seeding": "ideation",
+        commitment: "decision",
+    };
+
+    return {
+        engagementStyle: base.engagementStyle,
+        contextDepth,
+        energyLevel: base.energyLevel,
+        readinessBias,
+        explicitIdeasRequest: base.explicitIdeasRequest,
+        insightCoverage: coverage,
+        insightGaps: gaps,
+        cardReadiness,
+        recommendedFocus: focusMap[phaseDecision.nextPhase],
+        lastUpdatedAt: Date.now(),
+    };
 }
