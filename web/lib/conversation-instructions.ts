@@ -68,9 +68,14 @@ export function buildRealtimeInstructions({
 			}
 		} else {
 			lines.push(
-				"You now have enough context to introduce three pathways: start with a core fit, then an adjacent remix, and finish with an experimental idea. Tie each one to their words and mention a realistic way to try it."
+				"You now have enough context to surface three pathways via the career cards: a core fit, an adjacent remix, and a stretch/experimental idea. Point out that the cards are appearing rather than listing each option in the transcript."
 			);
-			lines.push("Keep each suggestion grounded in routes they could test within the next few months; skip hyper-niche titles unless they named them.");
+			lines.push(
+				"Keep the spoken response tight—set up why the cards matter, invite reactions, and let the detailed copy live in the cards themselves."
+			);
+			lines.push(
+				"Keep each suggestion grounded in routes they could test within the next few months; skip hyper-niche titles unless they named them."
+			);
 		}
 	}
 
