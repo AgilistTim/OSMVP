@@ -668,7 +668,9 @@ export function ChatIntegrated() {
   useEffect(() => {
     const insightCount = profile.insights.length;
     const lastCount = suggestionsLastInsightCountRef.current;
-    const hasEnoughInsights = insightCount >= 3;
+    const rubricReady = conversationRubric?.cardReadiness?.status === 'ready';
+    const requiredInsightThreshold = rubricReady ? 2 : 3;
+    const hasEnoughInsights = insightCount >= requiredInsightThreshold;
 
     console.log('[Suggestions Effect] Triggered:', {
       insightCount,
@@ -682,7 +684,7 @@ export function ChatIntegrated() {
     const readinessOk = (conversationRubric?.cardReadiness?.status === 'ready') ||
       Boolean(conversationRubric?.explicitIdeasRequest) ||
       conversationRubric?.readinessBias === 'seeking-options';
-    const minInsightDelta = 2;
+    const minInsightDelta = rubricReady ? 1 : 2;
     const deltaOk = suggestions.length === 0 || insightCount >= lastCount + minInsightDelta;
     const cooldownMs = 45000; // avoid rapid refreshes; wait 45s between fetches
     const now = Date.now();
