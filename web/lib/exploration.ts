@@ -13,6 +13,7 @@ export interface DiscoveryInsight {
 }
 
 export interface OpportunityLane {
+	id: string;
 	title: string;
 	description: string;
 	highlights: string[];
@@ -302,7 +303,7 @@ export function buildOpportunityMap(
 		const highlights = suggestion.whyItFits.slice(0, 3);
 		const cta = suggestion.nextSteps[0];
 		const distance = suggestion.distance ?? "core";
-		const baseLane: OpportunityLane = {
+		const baseLane = {
 			title: suggestion.title,
 			description: summary,
 			highlights,
@@ -312,6 +313,7 @@ export function buildOpportunityMap(
 		if (vote === -1) {
 			// use disliked items to illustrate boundaries in transferable section
 			transferable.push({
+				id: `${suggestion.id}-transferable`,
 				title: `Skills from ${suggestion.title}`,
 				description: "If you repurpose the bits that worked:",
 				highlights: suggestion.whyItFits.slice(0, 3),
@@ -320,13 +322,17 @@ export function buildOpportunityMap(
 		}
 
 		if (distance === "core") {
-			direct.push(baseLane);
+			direct.push({
+				id: `${suggestion.id}-direct`,
+				...baseLane,
+			});
 		} else {
 			const adjacentHighlights =
 				suggestion.neighborTerritories.length > 0
 					? suggestion.neighborTerritories.slice(0, 3)
 					: suggestion.careerAngles.slice(0, 3);
 			adjacent.push({
+				id: `${suggestion.id}-adjacent`,
 				...baseLane,
 				highlights: adjacentHighlights,
 			});
@@ -334,6 +340,7 @@ export function buildOpportunityMap(
 
 		if (suggestion.careerAngles.length > 0) {
 			innovation.push({
+				id: `${suggestion.id}-innovation`,
 				title: `${suggestion.title.split(" ").slice(0, 3).join(" ")} experiments`,
 				description: "Ways to remix this into your own project:",
 				highlights: suggestion.careerAngles.slice(0, 3),

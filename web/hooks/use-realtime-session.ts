@@ -33,6 +33,7 @@ export interface RealtimeSessionState {
   transcripts: RealtimeTranscriptItem[];
   lastLatencyMs?: number;
   microphone: MicrophoneState;
+  activeResponseId: string | null;
 }
 
 export interface RealtimeSessionControls {
@@ -57,6 +58,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const [transcripts, setTranscripts] = useState<RealtimeTranscriptItem[]>([]);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | undefined>();
   const [microphoneState, setMicrophoneState] = useState<MicrophoneState>("inactive");
+  const [activeResponseIdSnapshot, setActiveResponseIdSnapshot] = useState<string | null>(null);
 
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -110,12 +112,34 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     pendingItemResolversRef.current.forEach((resolve) => resolve("closed"));
     pendingItemResolversRef.current.clear();
     setMicrophoneState("inactive");
+    activeResponseIdRef.current = null;
+    setActiveResponseIdSnapshot(null);
   }, []);
 
   const disconnect = useCallback(async () => {
     await cleanup();
+    statusRef.current = "idle";
     setStatus("idle");
   }, [cleanup]);
+
+  const sendEvent = useCallback(
+    (event: unknown) => {
+      const channel = dataChannelRef.current;
+      if (channel?.readyState === "open") {
+        if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+          console.info("[realtime:send-event]", { event });
+        }
+        channel.send(JSON.stringify(event));
+        return;
+      }
+
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+        console.info("[realtime:queue-event]", { event });
+      }
+      pendingEventsRef.current = [...pendingEventsRef.current, event];
+    },
+    []
+  );
 
   const handleServerEvent = useCallback((raw: MessageEvent<string>) => {
     try {
@@ -282,6 +306,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           if (event.response?.id) {
             responseStartTimesRef.current.set(event.response.id, Date.now());
             activeResponseIdRef.current = event.response.id;
+            setActiveResponseIdSnapshot(event.response.id);
+            if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+              console.info("[realtime:response-created]", { responseId: event.response.id });
+            }
           }
           break;
         }
@@ -296,6 +324,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           onResponseCompletedRef.current?.();
           if (responseId && activeResponseIdRef.current === responseId) {
             activeResponseIdRef.current = null;
+            setActiveResponseIdSnapshot(null);
+            if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+              console.info("[realtime:response-completed]", { responseId });
+            }
           }
           break;
         }
@@ -330,6 +362,33 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           }
           if (event.response_id && activeResponseIdRef.current === event.response_id) {
             activeResponseIdRef.current = null;
+            setActiveResponseIdSnapshot(null);
+          }
+          break;
+        }
+        case "output_audio_buffer.started": {
+          if (audioRef.current) {
+            audioRef.current.muted = false;
+            void audioRef.current.play().catch(() => {
+              /* ignore play errors */
+            });
+          }
+          break;
+        }
+        case "input_audio_buffer.speech_started": {
+          if (activeResponseIdRef.current) {
+            const responseId = activeResponseIdRef.current;
+            if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+              console.info("[realtime:input-audio-started-cancelling]", { responseId });
+            }
+            sendEvent({ type: "response.cancel", response_id: responseId });
+            activeResponseIdRef.current = null;
+            setActiveResponseIdSnapshot(null);
+            if (audioRef.current) {
+              audioRef.current.muted = true;
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
           }
           break;
         }
@@ -358,6 +417,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               clientId: (event as { client_id?: string }).client_id,
             });
           }
+          if (event.response_id && activeResponseIdRef.current === event.response_id) {
+            activeResponseIdRef.current = null;
+            setActiveResponseIdSnapshot(null);
+          }
           break;
         }
         default:
@@ -366,7 +429,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     } catch (err) {
       console.error("Failed to parse realtime event", err);
     }
-  }, []);
+  }, [sendEvent]);
 
   const flushPendingEvents = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -383,24 +446,6 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     pendingEventsRef.current = [];
   }, []);
 
-  const sendEvent = useCallback(
-    (event: unknown) => {
-      const channel = dataChannelRef.current;
-      if (channel?.readyState === "open") {
-      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-        console.info("[realtime:send-event]", { event });
-      }
-        channel.send(JSON.stringify(event));
-        return;
-      }
-
-      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-        console.info("[realtime:queue-event]", { event });
-      }
-      pendingEventsRef.current = [...pendingEventsRef.current, event];
-    },
-    []
-  );
 
   const cancelActiveResponse = useCallback(() => {
     const responseId = activeResponseIdRef.current;
@@ -409,6 +454,10 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
     sendEvent({ type: "response.cancel", response_id: responseId });
     activeResponseIdRef.current = null;
+    setActiveResponseIdSnapshot(null);
+    if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+      console.info("[realtime:response-cancelled]", { responseId });
+    }
   }, [sendEvent]);
 
   const connect = useCallback(
@@ -417,6 +466,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
       const effectiveSessionId = overrideConfig?.sessionId ?? baseConfig.sessionId;
       if (!effectiveSessionId) {
         setError("Session ID is required for realtime connection");
+        statusRef.current = "error";
         setStatus("error");
         return;
       }
@@ -430,6 +480,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         return;
       }
 
+      statusRef.current = "requesting-token";
       setStatus("requesting-token");
 
       try {
@@ -457,6 +508,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           throw new Error("Missing client secret in response");
         }
 
+        statusRef.current = "connecting";
         setStatus("connecting");
 
         const pc = new RTCPeerConnection();
@@ -480,6 +532,13 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           audio.autoplay = true;
           audioRef.current = audio;
           pc.ontrack = (event) => {
+            if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+              console.info("[realtime:ontrack]", {
+                streamId: event.streams?.[0]?.id,
+                trackId: event.track?.id,
+                trackKind: event.track?.kind,
+              });
+            }
             if (audioRef.current) {
               audioRef.current.srcObject = event.streams[0];
             }
@@ -491,15 +550,49 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         dataChannel.addEventListener("message", handleServerEvent);
         dataChannel.addEventListener("open", flushPendingEvents);
 
+        const flushSenders = () => {
+          pc.getSenders().forEach((sender) => {
+            try {
+              pc.removeTrack(sender);
+            } catch (err) {
+              if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+                console.warn("[realtime:sender-remove-error]", err);
+              }
+            }
+          });
+        };
+
         if (enableMicrophone) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+
+          flushSenders();
+
+          stream.getTracks().forEach((track) => {
+            pc.addTrack(track, stream);
+          });
           microphoneStreamRef.current = stream;
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+            console.info("[realtime:mic-tracks-attached]", {
+              senderCount: pc.getSenders().length,
+            });
+          }
           stream.getAudioTracks().forEach((track) => {
             track.enabled = true;
           });
           setMicrophoneState("active");
         } else {
+          flushSenders();
+          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+            console.info("[realtime:mic-disabled]", {
+              senderCount: pc.getSenders().length,
+            });
+          }
           setMicrophoneState("inactive");
         }
 
@@ -530,13 +623,16 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           if (!peerRef.current) return;
           const state = peerRef.current.connectionState;
           if (state === "connected") {
+            statusRef.current = "connected";
             setStatus("connected");
           } else if (state === "failed" || state === "disconnected") {
+            statusRef.current = "error";
             setStatus("error");
             setError(`Connection ${state}`);
           }
         };
 
+        statusRef.current = "connected";
         setStatus("connected");
         logEvent("connected");
       } catch (err) {
@@ -548,6 +644,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         }
 
         setError(errorMessage);
+        statusRef.current = "error";
         setStatus("error");
         logEvent("error", { message: errorMessage });
         await cleanup();
@@ -571,8 +668,15 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   }, [cleanup]);
 
   const state = useMemo<RealtimeSessionState>(
-    () => ({ status, error, transcripts, lastLatencyMs, microphone: microphoneState }),
-    [status, error, transcripts, lastLatencyMs, microphoneState]
+    () => ({
+      status,
+      error,
+      transcripts,
+      lastLatencyMs,
+      microphone: microphoneState,
+      activeResponseId: activeResponseIdSnapshot,
+    }),
+    [status, error, transcripts, lastLatencyMs, microphoneState, activeResponseIdSnapshot]
   );
 
   useEffect(() => {

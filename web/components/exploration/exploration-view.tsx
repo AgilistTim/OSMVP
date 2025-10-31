@@ -51,7 +51,7 @@ function OpportunityColumn({ title, lanes }: { title: string; lanes: Opportunity
 			<h3>{title}</h3>
 			<div className="opportunity-stack">
 				{lanes.map((lane) => (
-					<article key={`${title}-${lane.title}`} className="tilted-card opportunity-card">
+					<article key={lane.id} className="tilted-card opportunity-card">
 						<h4>{lane.title}</h4>
 						<p>{lane.description}</p>
 						<ul>
