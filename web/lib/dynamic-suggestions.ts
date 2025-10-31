@@ -351,32 +351,41 @@ export async function generateDynamicSuggestions({
         if (invalidDistanceCount > 0) {
             console.warn('[dynamic-suggestions] Cards missing/invalid distance tagged by model', { invalidDistanceCount });
         }
-        console.log('[dynamic-suggestions] Distance distribution', distCounts);
+        console.log('[dynamic-suggestions] Distance distribution before rebalancing', distCounts);
 
-        // If we got all core, try to label at least one adjacent and one unexpected based on neighbor tags and novelty
-        if (uniqueCards.length >= 3 && distCounts.core === uniqueCards.length) {
-            let changed = false;
-            // Pick candidate with most neighbor territories for 'adjacent'
-            const withNeighbors = [...uniqueCards]
-                .map((c, i) => ({ c, i, n: c.neighborTerritories?.length ?? 0 }))
-                .sort((a, b) => b.n - a.n);
-            if (withNeighbors[0]?.n > 0) {
-                uniqueCards[withNeighbors[0].i] = { ...uniqueCards[withNeighbors[0].i], distance: 'adjacent' };
-                changed = true;
+        // If all cards are still core, force diversification so UI gets core/adjacent/unexpected mix.
+        if (uniqueCards.length >= 2 && distCounts.core === uniqueCards.length) {
+            const rebalanceLog: Array<{ title: string; from: CardDistance; to: CardDistance }> = [];
+
+            const clone = (idx: number, distance: CardDistance) => {
+                const before = uniqueCards[idx].distance;
+                if (before === distance) return;
+                uniqueCards[idx] = { ...uniqueCards[idx], distance };
+                rebalanceLog.push({ title: uniqueCards[idx].title, from: before, to: distance });
+            };
+
+            // Candidate with most neighbor territories becomes adjacent (if any)
+            const withNeighbors = uniqueCards
+                .map((c, i) => ({ index: i, neighbors: c.neighborTerritories?.length ?? 0 }))
+                .sort((a, b) => b.neighbors - a.neighbors);
+            let adjacentIndex = withNeighbors.find((item) => item.neighbors > 0)?.index;
+            if (adjacentIndex === undefined) {
+                adjacentIndex = uniqueCards.length > 1 ? 1 : 0;
             }
-            // Choose the lowest scored card as 'unexpected' to diversify
-            const lowestIndex = uniqueCards.reduce((minI, c, i, arr) => (c.score < arr[minI].score ? i : minI), 0);
-            if (lowestIndex >= 0 && uniqueCards[lowestIndex].distance === 'core') {
-                uniqueCards[lowestIndex] = { ...uniqueCards[lowestIndex], distance: 'unexpected' };
-                changed = true;
+            clone(adjacentIndex, 'adjacent');
+
+            // Lowest-scored card becomes unexpected (different index from adjacent)
+            let unexpectedIndex = uniqueCards.reduce((minIdx, card, idx, arr) => (card.score < arr[minIdx].score ? idx : minIdx), 0);
+            if (unexpectedIndex === adjacentIndex) {
+                unexpectedIndex = (unexpectedIndex + 1) % uniqueCards.length;
             }
-            if (changed) {
-                console.warn('[dynamic-suggestions] Rebalanced distances to ensure variety', uniqueCards.map(c => ({ title: c.title, distance: c.distance })));
-            }
+            clone(unexpectedIndex, 'unexpected');
+
+            console.warn('[dynamic-suggestions] Rebalanced distances to ensure variety', rebalanceLog);
         }
 
         console.log(`[dynamic-suggestions] Successfully generated ${uniqueCards.length} cards`);
-        console.log("[dynamic-suggestions] Cards:", uniqueCards.map(c => ({ title: c.title, distance: c.distance })));
+        console.log('[dynamic-suggestions] Cards after rebalancing:', uniqueCards.map(c => ({ title: c.title, distance: c.distance })));
 
         return uniqueCards;
 	} catch (error) {
