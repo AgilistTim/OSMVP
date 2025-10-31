@@ -296,17 +296,23 @@ export function computeRubricScores({
         : "warmup";
 
     // Provisional card readiness to inform phase decision
-    const provisionalCardReadiness = contextDepth >= 1
-        ? {
-            status: contextDepth >= 2 ? (coverage.interests ? "context-light" : "blocked") : "context-light",
-            reason: undefined,
-            missingSignals: gaps as Array<keyof typeof coverage>,
-        }
-        : {
-            status: "blocked" as const,
+    let provisionalCardReadiness: CardReadinessSnapshot;
+    if (contextDepth >= 1) {
+        const status: CardReadinessStatus = contextDepth >= 2
+            ? (coverage.interests ? "context-light" : "blocked")
+            : "context-light";
+        provisionalCardReadiness = {
+            status,
             reason: undefined,
             missingSignals: gaps as Array<keyof typeof coverage>,
         };
+    } else {
+        provisionalCardReadiness = {
+            status: "blocked",
+            reason: undefined,
+            missingSignals: gaps as Array<keyof typeof coverage>,
+        };
+    }
 
     const provisionalPhaseDecision = recommendConversationPhase({
         currentPhase: currentPhaseFromPrev,

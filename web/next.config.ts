@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
+if (!process.env.NEXT_FONT_IGNORE_FAILED_DOWNLOADS) {
+	process.env.NEXT_FONT_IGNORE_FAILED_DOWNLOADS = "1";
+}
+
 const nextConfig = (phase: string): NextConfig => {
 	const isDevServer = phase === PHASE_DEVELOPMENT_SERVER;
 
