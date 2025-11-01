@@ -684,7 +684,7 @@ export function ChatIntegrated() {
     const readinessOk = (conversationRubric?.cardReadiness?.status === 'ready') ||
       Boolean(conversationRubric?.explicitIdeasRequest) ||
       conversationRubric?.readinessBias === 'seeking-options';
-    const minInsightDelta = rubricReady ? 1 : 2;
+    const minInsightDelta = suggestions.length === 0 ? (rubricReady ? 1 : 2) : 2;
     const deltaOk = suggestions.length === 0 || insightCount >= lastCount + minInsightDelta;
     const cooldownMs = 45000; // avoid rapid refreshes; wait 45s between fetches
     const now = Date.now();
