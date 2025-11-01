@@ -10,7 +10,7 @@ export interface DynamicSuggestionInput {
 	limit?: number;
 	recentTurns?: Array<{ role: string; text: string }>;
 	transcriptSummary?: string;
-	existingSuggestions?: Array<{ id?: string; title: string; distance?: string }>;
+    previousSuggestions?: Array<{ title: string; summary?: string; distance?: CardDistance }>;
 }
 
 export type CardDistance = "core" | "adjacent" | "unexpected";
@@ -145,7 +145,7 @@ export async function generateDynamicSuggestions({
     limit = 3,
     recentTurns = [],
     transcriptSummary,
-    existingSuggestions = [],
+    previousSuggestions = [],
 }: DynamicSuggestionInput): Promise<DynamicSuggestion[]> {
     if (insights.length === 0) {
         return [];
@@ -191,8 +191,8 @@ export async function generateDynamicSuggestions({
 
     const dominantKeywords = computeDominantKeywords(insights, transcriptSummary);
     const avoidTitles = new Set<string>(
-        existingSuggestions
-            .map((item) => item.title?.toLowerCase())
+        previousSuggestions
+            .map((item) => item.title.toLowerCase())
             .filter((title): title is string => Boolean(title))
     );
 
@@ -214,6 +214,7 @@ export async function generateDynamicSuggestions({
             distance,
             existing: suggestions,
             avoidTitles,
+            previousSuggestions,
         });
 
         if (candidate) {
@@ -240,6 +241,7 @@ interface PerplexityContext {
     distance: CardDistance;
     existing: DynamicSuggestion[];
     avoidTitles: Set<string>;
+    previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
 }
 
 async function generateCardForDistance(context: PerplexityContext): Promise<DynamicSuggestion | null> {
@@ -258,10 +260,10 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         distance,
         existing,
         avoidTitles,
+        previousSuggestions,
     } = context;
 
     const maxAttempts = distance === "unexpected" ? 5 : 3;
-    let bannedKeywords = distance === "unexpected" ? new Set(dominantKeywords.slice(0, 50)) : new Set<string>();
     let novelDomains: string[] = [];
 
     if (distance === "unexpected") {
@@ -271,6 +273,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             useOpenAI,
             dominantKeywords,
             existing,
+            previousSuggestions,
             recentTurns,
             transcriptSummary,
         });
@@ -292,9 +295,15 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             distance,
             avoidTitles,
             existing,
-            bannedKeywords: Array.from(bannedKeywords),
+            previousSuggestions,
             attempt,
             novelDomains,
+        });
+
+        console.info("[suggestions] requesting card", {
+            distance,
+            provider: useOpenAI ? "openai" : "perplexity",
+            attempt,
         });
 
         if (!rawCard) continue;
@@ -313,8 +322,6 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         }
 
         if (distance === "unexpected" && isTooCloseToKeywords(candidate, dominantKeywords)) {
-            const extra = extractCandidateKeywords(candidate);
-            extra.forEach((kw) => bannedKeywords.add(kw));
             novelDomains = await fetchNovelDomains({
                 openaiKey,
                 perplexityKey,
@@ -323,12 +330,10 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
                 existing: [...existing, candidate],
                 recentTurns,
                 transcriptSummary,
-                bannedKeywords: Array.from(trimKeywordSet(bannedKeywords)),
+                previousSuggestions,
             });
             console.warn("[dynamic-suggestions] Unexpected card overlapped with dominant keywords, retrying", {
                 title: candidate.title,
-                bannedKeywords: Array.from(trimKeywordSet(bannedKeywords)),
-                candidateTokens: Array.from(extra).slice(0, 10),
                 distance,
                 attempt,
             });
@@ -357,9 +362,9 @@ interface ModelRequestInput {
     distance: CardDistance;
     avoidTitles: Set<string>;
     existing: DynamicSuggestion[];
-    bannedKeywords: string[];
     attempt: number;
     novelDomains?: string[];
+    previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
 }
 
 async function requestCardFromModel(params: ModelRequestInput): Promise<RawDynamicSuggestion | null> {
@@ -383,9 +388,9 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         distance,
         avoidTitles,
         existing,
-        bannedKeywords,
         attempt,
         novelDomains,
+        previousSuggestions,
     } = params;
 
     if (!openaiKey) {
@@ -405,12 +410,15 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         recent_turns: recentTurns,
         transcript_summary: transcriptSummary,
         avoid_titles: Array.from(avoidTitles),
-        previous_cards: existing.map((card) => ({
+        previous_cards: previousSuggestions.map((card) => ({
             title: card.title,
+            summary: card.summary,
             distance: card.distance,
         })),
+        already_provided_cards: previousSuggestions
+            .map((card) => `${card.title}${card.summary ? ` — ${card.summary}` : ''}`)
+            .join("\n"),
         dominant_keywords: dominantKeywords,
-        banned_keywords: bannedKeywords,
         target_domains: novelDomains,
     };
 
@@ -481,9 +489,9 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         distance,
         avoidTitles,
         existing,
-        bannedKeywords,
         attempt,
         novelDomains,
+        previousSuggestions,
     } = params;
 
     const apiKey = perplexityKey;
@@ -504,12 +512,15 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         recent_turns: recentTurns,
         transcript_summary: transcriptSummary,
         avoid_titles: Array.from(avoidTitles),
-        previous_cards: existing.map((card) => ({
+        previous_cards: previousSuggestions.map((card) => ({
             title: card.title,
+            summary: card.summary,
             distance: card.distance,
         })),
+        already_provided_cards: previousSuggestions
+            .map((card) => `${card.title}${card.summary ? ` — ${card.summary}` : ''}`)
+            .join("\n"),
         dominant_keywords: dominantKeywords,
-        banned_keywords: bannedKeywords,
         target_domains: novelDomains,
     };
 
@@ -571,6 +582,8 @@ function buildSystemPrompt(distance: CardDistance): string {
         "Required card fields: title, summary, why_it_fits[], pathways[], next_steps[], micro_experiments[], neighbor_tags[], distance.",
         "Each array field must contain 1-3 concise bullet strings (no numbering).",
         "Keep copy concrete, based on the provided context.",
+        "Never reuse any titles from avoid_titles or previous_cards; invent new concepts.",
+        "Do not recreate or lightly remix entries listed in already_provided_cards.",
         "Avoid repetition and do not invent personal details that were not provided.",
         "Use sentence case and avoid emoji or markdown formatting.",
     ];
@@ -766,27 +779,33 @@ interface NovelDomainParams {
     useOpenAI: boolean;
     dominantKeywords: string[];
     existing: DynamicSuggestion[];
+    previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
     recentTurns: Array<{ role: string; text: string }>;
     transcriptSummary?: string;
-    bannedKeywords?: string[];
 }
 
 async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
-    const { openaiKey, perplexityKey, useOpenAI, dominantKeywords, existing, recentTurns, transcriptSummary, bannedKeywords = [] } = params;
+    const { openaiKey, perplexityKey, useOpenAI, dominantKeywords, existing, previousSuggestions, recentTurns, transcriptSummary } = params;
 
-    const avoidTokens = new Set<string>([...dominantKeywords, ...bannedKeywords]);
+    const avoidTokens = new Set<string>(dominantKeywords);
     existing.forEach((card) => extractCandidateKeywords(card).forEach((token) => avoidTokens.add(token)));
+    previousSuggestions.forEach((card) => {
+        tokenize(card.title).forEach((token) => avoidTokens.add(token));
+        if (card.summary) {
+            tokenize(card.summary).forEach((token) => avoidTokens.add(token));
+        }
+    });
 
     const systemPrompt = [
         "You suggest fresh domains or audiences the user has NOT mentioned.",
         "Respond with strict JSON: { \"domains\": [string, ...] } and nothing else.",
         "Each domain must be 2-5 words and feel like a vivid frontier (e.g., 'culinary travel residencies').",
-        "Avoid overlapping with the provided dominant or banned keywords.",
+        "Avoid overlapping with the provided dominant keywords or previously shared card titles.",
         "Do NOT include markdown, bullet points, or commentary—JSON only.",
     ].join("\n");
 
     const userPayload = {
-        dominant_keywords: Array.from(trimKeywordSet(avoidTokens)),
+        dominant_keywords: Array.from(avoidTokens).slice(0, 60),
         recent_turns: recentTurns.slice(-4),
         transcript_summary: transcriptSummary,
     };
@@ -905,16 +924,6 @@ function extractDomainsFromResponse(raw: string): string[] {
     }
 
     return results.slice(0, 5);
-}
-
-function trimKeywordSet(tokens: Set<string> | string[], limit = 60): Set<string> {
-    const result = new Set<string>();
-    const iterator = Array.isArray(tokens) ? tokens : Array.from(tokens);
-    for (const token of iterator) {
-        if (result.size >= limit) break;
-        result.add(token);
-    }
-    return result;
 }
 
 type OpenAIResponse = {

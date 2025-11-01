@@ -172,14 +172,15 @@ export function inferRubricFromTranscript(turns: ConversationTurn[]): Conversati
 	const userTextLength = userTurns.reduce((total, turn) => total + turn.text.trim().length, 0);
 	const assistantTextLength = assistantTurns.reduce((total, turn) => total + turn.text.trim().length, 0);
 
-	const engagementStyle: EngagementStyle =
-		userTurns.length === 0
-			? "blocked"
-			: userTextLength > 280
-			? "leaning-in"
-			: userTextLength > 120
-			? "hesitant"
-			: "blocked";
+    const sustainedReplies = userTurns.length >= 3 && userTextLength > 60;
+    const engagementStyle: EngagementStyle =
+        userTurns.length === 0
+            ? "blocked"
+            : userTextLength > 280
+            ? "leaning-in"
+            : userTextLength > 120 || sustainedReplies
+            ? "hesitant"
+            : "blocked";
 
 	const energyLevel: EnergyLevel =
 		userTextLength > 320 ? "high" : userTextLength > 160 ? "medium" : "low";
@@ -194,8 +195,12 @@ export function inferRubricFromTranscript(turns: ConversationTurn[]): Conversati
 		? "deciding"
 		: "exploring";
 
-	const contextDepth: 0 | 1 | 2 | 3 =
-		userTextLength > 400 ? 3 : userTextLength > 220 ? 2 : userTextLength > 120 ? 1 : 0;
+    let contextDepth: 0 | 1 | 2 | 3 =
+        userTextLength > 400 ? 3 : userTextLength > 220 ? 2 : userTextLength > 120 ? 1 : 0;
+
+    if (contextDepth === 0 && sustainedReplies) {
+        contextDepth = 1;
+    }
 
 	const defaultCoverage: InsightCoverageSnapshot = {
 		interests: contextDepth >= 1,
@@ -339,14 +344,18 @@ export function computeRubricScores({
         readinessBias === "seeking-options" ||
         provisionalPhaseDecision.nextPhase === "option-seeding";
 
-    // Card readiness: ready only with sufficient depth + signals + intent
+    // Card readiness: ready once we have at least interests plus one supporting signal
     let cardStatus: "blocked" | "context-light" | "ready" = "blocked";
     let cardReason: string | undefined;
-    if (contextDepth >= 2 && coverage.interests && (coverage.aptitudes || coverage.goals) && intent) {
+    const coverageTrueCount = Object.values(coverage).filter(Boolean).length;
+    const hasCoreSignals = coverage.interests && (coverage.aptitudes || coverage.goals);
+    const hasIntentBoost = intent && contextDepth >= 1 && coverageTrueCount >= 2;
+
+    if (contextDepth >= 1 && (hasCoreSignals || hasIntentBoost)) {
         cardStatus = "ready";
     } else if (contextDepth >= 1) {
         cardStatus = "context-light";
-        cardReason = "Gather one of aptitudes/goals with a concrete example before ideas.";
+        cardReason = "Gather one more concrete detail about strengths, goals, or constraints before ideas.";
     } else {
         cardStatus = "blocked";
         cardReason = "Surface interests first with specific examples.";

@@ -5,6 +5,8 @@ interface BuildRealtimeInstructionsInput {
 	rubric?: ConversationRubric | null;
 	baseGuidance?: string[];
 	seedTeaserCard?: boolean;
+	allowCardPrompt?: boolean;
+	cardPromptTone?: "normal" | "fallback";
 }
 
 const PHASE_TIPS: Record<ConversationPhase, string> = {
@@ -25,6 +27,8 @@ export function buildRealtimeInstructions({
 	rubric,
 	baseGuidance = [],
 	seedTeaserCard = false,
+	allowCardPrompt = true,
+	cardPromptTone = "normal",
 }: BuildRealtimeInstructionsInput): string | undefined {
 	const lines = [...baseGuidance.filter((line) => typeof line === "string" && line.trim().length > 0)];
 
@@ -51,27 +55,58 @@ export function buildRealtimeInstructions({
 			lines.push("They are edging toward a decision. Firm up their next steps using their own language.");
 		}
 
-		if (rubric.cardReadiness.status !== "ready") {
-			const missingSignals = rubric.insightGaps ?? [];
-			if (missingSignals.length > 0) {
-				const prompts = missingSignals
-					.map((gap) => gapPrompts[gap])
-					.filter(Boolean);
-				if (prompts.length > 0) {
+		const missingSignals = rubric.insightGaps ?? [];
+		const promptLines = missingSignals
+			.map((gap) => gapPrompts[gap])
+			.filter(Boolean);
+
+		if (!allowCardPrompt) {
+			if (rubric.cardReadiness.status !== "ready") {
+				if (promptLines.length > 0) {
 					lines.push(
-						"Hold off on ideas for now. Ask follow-ups like: " +
-							prompts.join(" ")
+						"Hold off on ideas for now. Ask follow-ups like: " + promptLines.join(" ")
 					);
+				} else {
+					lines.push("Keep building the story with concrete examples before floating options.");
 				}
 			} else {
-				lines.push("Keep building the story with concrete examples before floating options.");
+				lines.push(
+					"You have enough context for cards, but do not promise them this turn. Stay curious and deepen the thread before the next idea drop."
+				);
 			}
-		} else {
+		} else if (cardPromptTone === "fallback" && rubric.cardReadiness.status !== "ready") {
+			lines.push(
+				"Context is still thin, so frame these cards as rough starting points to spark the conversation. Say they're early sketches and invite the user to help refine them."
+			);
+			if (promptLines.length > 0) {
+				lines.push(
+					"After sharing, name the gaps you're still chasing (" +
+					promptLines.join(" ") +
+					") and ask for concrete examples so the next batch can sharpen."
+				);
+			} else {
+				lines.push(
+					"Invite them to spell out a recent example so you can tighten the follow-up cards."
+				);
+			}
+			lines.push(
+				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, preview why the cards might be useful and point them to the details."
+			);
+			lines.push(
+				"Keep the spoken response short—highlight the hunch behind the cards, then ask what lands or what feels off so you can iterate."
+			);
+			lines.push(
+				"Anchor each idea in the little context you do have (like their stated interests) and avoid hyper-specific job titles until they provide more signal."
+			);
+			lines.push(
+				"Close by telling them you can pull a sharper set once they share more specifics or reactions."
+			);
+		} else if (rubric.cardReadiness.status === "ready") {
 			lines.push(
 				"You now have enough context to surface three pathways via the career cards: a core fit, an adjacent remix, and a stretch/experimental idea. Point out that the cards just popped in rather than listing each option in your message."
 			);
 			lines.push(
-				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, briefly preview why they matter (one sentence) and invite the user to check the cards." 
+				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, briefly preview why they matter (one sentence) and invite the user to check the cards."
 			);
 			lines.push(
 				"Keep the spoken response tight—set up why the cards matter, invite reactions, and let the detailed copy live in the cards themselves."
@@ -79,6 +114,17 @@ export function buildRealtimeInstructions({
 			lines.push(
 				"Keep each suggestion grounded in routes they could test within the next few months; skip hyper-niche titles unless they named them."
 			);
+			lines.push(
+				"Close by telling them they can ask for more idea cards if these miss the mark or if they want to explore a different angle."
+			);
+		} else {
+			if (promptLines.length > 0) {
+				lines.push(
+					"Hold off on ideas for now. Ask follow-ups like: " + promptLines.join(" ")
+				);
+			} else {
+				lines.push("Keep building the story with concrete examples before floating options.");
+			}
 		}
 	}
 

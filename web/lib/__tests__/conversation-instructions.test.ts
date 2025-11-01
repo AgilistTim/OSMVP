@@ -60,9 +60,42 @@ describe("buildRealtimeInstructions", () => {
 		});
 
 		expect(instructions).toBeDefined();
-		expect(instructions).toContain("introduce three pathways");
+		expect(instructions).toContain("surface three pathways via the career cards");
 		expect(instructions).toContain("core fit");
 		expect(instructions).toContain("Keep each suggestion grounded");
+	});
+
+	it("keeps tone warm without promising cards when disallowed", () => {
+		const rubric = mockRubric({
+			cardReadiness: { status: "ready", missingSignals: [] },
+		});
+
+		const instructions = buildRealtimeInstructions({
+			phase: "pattern-mapping",
+			rubric,
+			allowCardPrompt: false,
+		});
+
+		expect(instructions).toBeDefined();
+		expect(instructions).not.toContain("surface three pathways via the career cards");
+		expect(instructions).toContain("do not promise them this turn");
+	});
+
+	it("guides fallback card drops when context is thin", () => {
+		const rubric = mockRubric({
+			cardReadiness: { status: "blocked", missingSignals: ["aptitudes", "goals"] },
+			insightGaps: ["aptitudes", "goals"],
+		});
+
+		const instructions = buildRealtimeInstructions({
+			phase: "story-mining",
+			rubric,
+			allowCardPrompt: true,
+			cardPromptTone: "fallback",
+		});
+
+		expect(instructions).toContain("frame these cards as rough starting points");
+		expect(instructions).toContain("name the gaps you're still chasing");
 	});
 
 	it("adds teaser guidance when requested", () => {

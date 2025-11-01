@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateDynamicSuggestions } from "@/lib/dynamic-suggestions";
+import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { InsightKind } from "@/components/session-provider";
 
 export async function POST(req: NextRequest) {
@@ -9,7 +10,7 @@ export async function POST(req: NextRequest) {
 			limit?: number;
 			votes?: Record<string, number>;
 			transcript?: Array<{ role?: string; text?: string }>;
-			existingSuggestions?: Array<{ id?: string; title?: string; distance?: string }>;
+			previousSuggestions?: Array<{ id?: string; title?: string; summary?: string; distance?: string }>;
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -40,12 +41,22 @@ export async function POST(req: NextRequest) {
 			.map((item) => `${item.role}: ${item.text.trim()}`)
 			.join(" \n ");
 
-		const existingSuggestions = Array.isArray(body.existingSuggestions)
-			? body.existingSuggestions.filter(
-				(item): item is { id?: string; title: string; distance?: string } =>
-					typeof item?.title === "string"
-			)
-			: [];
+        const previousSuggestions = Array.isArray(body.previousSuggestions)
+            ? body.previousSuggestions
+                .filter((item): item is { id?: string; title: string; summary?: string; distance?: string } =>
+                    typeof item?.title === "string")
+                .map((item) => {
+                    const distance: CardDistance | undefined =
+                        item.distance === "core" || item.distance === "adjacent" || item.distance === "unexpected"
+                            ? item.distance
+                            : undefined;
+                    return {
+                        title: item.title,
+                        summary: typeof item.summary === "string" ? item.summary : undefined,
+                        distance,
+                    };
+                })
+            : [];
 
 		const dynamic = await generateDynamicSuggestions({
 			insights: insights.map((item) => ({
@@ -56,7 +67,7 @@ export async function POST(req: NextRequest) {
 			limit: typeof body.limit === "number" ? body.limit : undefined,
 			recentTurns: transcript,
 			transcriptSummary: transcriptSummary.length > 0 ? transcriptSummary : undefined,
-			existingSuggestions,
+			previousSuggestions,
 		});
 
 		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {

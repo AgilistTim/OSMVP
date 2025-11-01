@@ -103,6 +103,18 @@ export function ChatIntegrated() {
   const lastInsightsTurnCountRef = useRef(0);
   const suggestionsFetchInFlightRef = useRef(false);
   const lastSuggestionsFetchAtRef = useRef<number>(0);
+  const lastSuggestionRequestRef = useRef<string | null>(null);
+  const skipAssistantRefetchRef = useRef(false);
+  const lastSuggestionModeRef = useRef<'normal' | 'fallback'>('normal');
+  const lastCardAnnouncementTurnRef = useRef<number | null>(null);
+  const lastSuggestionTurnRef = useRef<number>(0);
+  const blockedStreakRef = useRef(0);
+  const pendingReadyRubricChangeRef = useRef(false);
+  const lastReadySignatureRef = useRef<string | null>(null);
+  const userTurnsSinceLastSuggestionRef = useRef(0);
+  const lastProcessedTurnCountRef = useRef(turns.length);
+  const lastRubricUpdateAtRef = useRef<number>(0);
+  const lastRubricTurnCountRef = useRef<number>(0);
   
   // Initialize last insight count from localStorage (only once on mount)
   const suggestionsLastInsightCountRef = useRef<number>(0);
@@ -137,6 +149,12 @@ export function ChatIntegrated() {
   
   // Store card messages separately (not persisted to avoid infinite loop issues)
   const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
+
+  const CARD_FETCH_ANNOUNCEMENT = useMemo(
+    () =>
+      'Oh, that triggers some ideas. Let me pull them together and share them—hold on one second.',
+    []
+  );
   
   // Track all suggestions that have ever been shown (for vote persistence) - only once on mount
   const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
@@ -147,6 +165,67 @@ export function ChatIntegrated() {
     console.log('[ChatIntegrated] Initialized allSuggestionsRef with', allSuggestionsRef.current.size, 'suggestions');
     hasInitializedAllSuggestions.current = true;
   }
+
+  useEffect(() => {
+    if (!conversationRubric) {
+      return;
+    }
+
+    if (conversationRubric.lastUpdatedAt === lastRubricUpdateAtRef.current) {
+      return;
+    }
+
+    lastRubricUpdateAtRef.current = conversationRubric.lastUpdatedAt;
+
+    const status = conversationRubric.cardReadiness.status;
+    const currentTurnCount = turns.length;
+    const lastTurn = turns[turns.length - 1];
+
+    if (status === 'blocked' && lastRubricTurnCountRef.current !== currentTurnCount && lastTurn?.role === 'user') {
+      blockedStreakRef.current += 1;
+    }
+
+    if (status !== 'blocked') {
+      blockedStreakRef.current = 0;
+    }
+
+    if (status === 'ready') {
+      const signature = JSON.stringify({
+        contextDepth: conversationRubric.contextDepth,
+        readinessBias: conversationRubric.readinessBias,
+        insightCoverage: conversationRubric.insightCoverage,
+        insightGaps: [...(conversationRubric.insightGaps ?? [])].sort(),
+      });
+
+      if (signature !== lastReadySignatureRef.current) {
+        pendingReadyRubricChangeRef.current = true;
+        lastReadySignatureRef.current = signature;
+      }
+    }
+
+    lastRubricTurnCountRef.current = currentTurnCount;
+  }, [conversationRubric, turns]);
+
+  const announceCardFetch = useCallback(
+    () => {
+      if (lastCardAnnouncementTurnRef.current !== null) {
+        return;
+      }
+
+      setTurns((prev) => {
+        const next = [
+          ...prev,
+          {
+            role: 'assistant' as const,
+            text: CARD_FETCH_ANNOUNCEMENT,
+          },
+        ];
+        lastCardAnnouncementTurnRef.current = next.length;
+        return next;
+      });
+    },
+    [CARD_FETCH_ANNOUNCEMENT, setTurns]
+  );
 
   useEffect(() => {
     if (mode !== 'voice') {
@@ -252,6 +331,17 @@ export function ChatIntegrated() {
     const filtered = suggestions.filter((suggestion) => !baseline.has(suggestion.id));
     return filtered.length > 0 ? filtered : suggestions;
   }, [mode, suggestions, voiceSessionStarted]);
+
+  useEffect(() => {
+    if (turns.length > lastProcessedTurnCountRef.current) {
+      for (let index = lastProcessedTurnCountRef.current; index < turns.length; index += 1) {
+        if (turns[index]?.role === 'user') {
+          userTurnsSinceLastSuggestionRef.current += 1;
+        }
+      }
+      lastProcessedTurnCountRef.current = turns.length;
+    }
+  }, [turns]);
   
   // Add new card messages when new suggestions appear
   useEffect(() => {
@@ -292,27 +382,6 @@ export function ChatIntegrated() {
       return;
     }
     
-    // Create intro message
-    const introMessages = [
-      "That triggers some ideas! Give me a moment to pull something together...",
-      "Based on what you've shared, let me find some paths that might fit...",
-      "This is giving me some ideas. Let me research a few options...",
-      "I'm seeing some interesting directions. Let me build some cards for you...",
-      "That's helpful context! Let me explore some career paths for you...",
-    ];
-    const introText = introMessages[currentTurnCount % introMessages.length];
-    
-    const introMessage: MessageType = {
-      message: introText,
-      sentTime: 'just now',
-      sender: 'Guide',
-      direction: 'incoming',
-      type: 'text',
-      insertAfterTurnIndex: currentTurnCount,
-      revealIndex: 0, // Intro appears first
-    };
-    
-    // Create all card messages with staggered reveal indices
     const newCardMessages: MessageType[] = newSuggestions.map((suggestion, index): MessageType => ({
       message: '',
       sentTime: 'just now',
@@ -321,7 +390,7 @@ export function ChatIntegrated() {
       type: 'career-card',
       careerSuggestion: suggestion,
       insertAfterTurnIndex: currentTurnCount,
-      revealIndex: index + 1, // Cards appear after intro with stagger
+      revealIndex: index,
     }));
     
     // Add all messages in a single batch (CSS will handle staggered reveal)
@@ -347,17 +416,21 @@ export function ChatIntegrated() {
         return prev;
       }
 
-      console.log('[ChatIntegrated] Added intro +', filteredCards.length, 'cards with staggered reveal');
-      return [...prev, introMessage, ...filteredCards];
+      console.log('[ChatIntegrated] Added', filteredCards.length, 'cards with staggered reveal');
+      return [...prev, ...filteredCards];
     });
+
+    lastCardAnnouncementTurnRef.current = null;
+    userTurnsSinceLastSuggestionRef.current = 0;
+    lastSuggestionTurnRef.current = currentTurnCount;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions]);
 
   // Derive insights from conversation
-  const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
-    if (turnsSnapshot.length === 0) return;
-    if (turnsSnapshot.length === lastInsightsTurnCountRef.current) return;
-    lastInsightsTurnCountRef.current = turnsSnapshot.length;
+const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
+  if (turnsSnapshot.length === 0) return;
+  if (turnsSnapshot.length === lastInsightsTurnCountRef.current) return;
+  lastInsightsTurnCountRef.current = turnsSnapshot.length;
 
     console.log('deriveInsights called with', turnsSnapshot.length, 'turns');
 
@@ -405,8 +478,341 @@ export function ChatIntegrated() {
       }
     } catch (err) {
       console.error('Failed to derive profile insights', err);
-    }
-  }, [appendProfileInsights, profile.insights, sessionId]);
+  }
+}, [appendProfileInsights, profile.insights, sessionId]);
+
+  const evaluateSuggestionFetch = useCallback(
+    (
+      {
+        force = false,
+        turnSnapshot,
+      }: { force?: boolean; turnSnapshot?: ConversationTurn[] } = {}
+    ) => {
+      const insightCount = profile.insights.length;
+      const turnList = turnSnapshot ?? turns;
+      const turnCount = turnList.length;
+      const status = conversationRubric?.cardReadiness?.status ?? 'blocked';
+      const explicitIdeas = Boolean(conversationRubric?.explicitIdeasRequest);
+
+      if (force) {
+        const fetchMode = status === 'ready' ? 'normal' : 'fallback';
+        return {
+          shouldFetch: true,
+          fetchMode,
+          allowCardPrompt: fetchMode === 'normal',
+          insightCount,
+          turnCount,
+        } as const;
+      }
+
+      const fallbackActive = status === 'blocked' && blockedStreakRef.current >= 6;
+      if (fallbackActive) {
+        return {
+          shouldFetch: true,
+          fetchMode: 'fallback' as const,
+          allowCardPrompt: false,
+          insightCount,
+          turnCount,
+        } as const;
+      }
+
+      const contextLightEscalation = status === 'context-light' && explicitIdeas;
+      if (contextLightEscalation) {
+        return {
+          shouldFetch: true,
+          fetchMode: 'fallback' as const,
+          allowCardPrompt: false,
+          insightCount,
+          turnCount,
+        } as const;
+      }
+
+      if (status === 'ready') {
+        const readyTrigger =
+          pendingReadyRubricChangeRef.current ||
+          explicitIdeas ||
+          userTurnsSinceLastSuggestionRef.current >= 4;
+
+        if (readyTrigger) {
+          return {
+            shouldFetch: true,
+            fetchMode: 'normal' as const,
+            allowCardPrompt: true,
+            insightCount,
+            turnCount,
+          } as const;
+        }
+      }
+
+      return {
+        shouldFetch: false,
+        fetchMode: 'normal' as const,
+        allowCardPrompt: false,
+        insightCount,
+        turnCount,
+      } as const;
+    },
+    [
+      profile.insights,
+      conversationRubric,
+      turns,
+    ]
+  );
+
+  const fetchSuggestions = useCallback(
+    async (
+      {
+        force = false,
+        reason,
+        suppressFollowupMessage = false,
+        evaluation,
+      }: {
+        force?: boolean;
+        reason?: string;
+        suppressFollowupMessage?: boolean;
+        evaluation?: ReturnType<typeof evaluateSuggestionFetch>;
+      } = {}
+    ) => {
+      if (suggestionsFetchInFlightRef.current) {
+        return false;
+      }
+
+      const evalResult = evaluation ?? evaluateSuggestionFetch({ force });
+      if (!evalResult.shouldFetch) {
+        return false;
+      }
+
+      suggestionsFetchInFlightRef.current = true;
+      setLoadingSuggestions(true);
+
+      if (
+        mode === 'text' &&
+        reason === 'pre-response' &&
+        evalResult.fetchMode === 'normal' &&
+        lastCardAnnouncementTurnRef.current === null
+      ) {
+        announceCardFetch();
+      }
+
+      if (reason === 'pre-response' || reason === 'voice-pre-response') {
+        skipAssistantRefetchRef.current = true;
+      }
+
+      const insightCount = evalResult.insightCount;
+      let producedCards = false;
+
+      const recentTurns = turns.slice(-10).map((turn) => ({
+        role: turn.role,
+        text: turn.text,
+      }));
+
+      const previousSuggestions = suggestions.map((s) => ({
+        title: s.title,
+        summary: s.summary,
+        distance: s.distance,
+      }));
+
+      try {
+        const response = await fetch('/api/suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            insights: profile.insights.map((insight) => ({
+              kind: insight.kind,
+              value: insight.value,
+            })),
+            limit: 3,
+            votes: votesByCareerId,
+            transcript: recentTurns,
+            previousSuggestions,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Suggestions request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as {
+          suggestions?: Array<{
+            id?: string;
+            title?: string;
+            summary?: string;
+            careerAngles?: string[];
+            nextSteps?: string[];
+            microExperiments?: string[];
+            whyItFits?: string[];
+            confidence?: 'high' | 'medium' | 'low';
+            score?: number;
+            neighborTerritories?: string[];
+            distance?: 'core' | 'adjacent' | 'unexpected';
+          }>;
+        };
+
+        if (Array.isArray(data.suggestions)) {
+          const normalizeTitle = (s: string) =>
+            s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          const existingTitleKeys = new Set(
+            suggestions.map((s) => normalizeTitle(s.title))
+          );
+          const normalized = data.suggestions
+            .filter(
+              (item) =>
+                typeof item?.id === 'string' &&
+                typeof item?.title === 'string' &&
+                typeof item?.summary === 'string'
+            )
+            .map((item) => ({
+              id: item.id!,
+              title: item.title!,
+              summary: item.summary!,
+              careerAngles: item.careerAngles ?? [],
+              nextSteps: item.nextSteps ?? [],
+              microExperiments: item.microExperiments ?? [],
+              whyItFits: item.whyItFits ?? [],
+              confidence: item.confidence ?? 'medium',
+              score: item.score ?? 0,
+              neighborTerritories: item.neighborTerritories ?? [],
+              distance:
+                item.distance === 'adjacent' || item.distance === 'unexpected'
+                  ? item.distance
+                  : ('core' as const),
+            }))
+            .filter((s) => !existingTitleKeys.has(normalizeTitle(s.title)))
+            .sort((a, b) => b.score - a.score);
+
+          normalized.forEach((s) => {
+            allSuggestionsRef.current.set(s.id, s);
+          });
+
+          const votedSuggestionIds = new Set(
+            Object.keys(votesByCareerId).filter((id) => votesByCareerId[id] !== undefined)
+          );
+          const newSuggestionIds = new Set(normalized.map((s) => s.id));
+          const votedCardsNotInNewSet: typeof normalized = [];
+          votedSuggestionIds.forEach((id) => {
+            if (!newSuggestionIds.has(id) && allSuggestionsRef.current.has(id)) {
+              votedCardsNotInNewSet.push(allSuggestionsRef.current.get(id)!);
+            }
+          });
+
+          const titleSeen = new Set<string>();
+          const merged: typeof normalized = [];
+          const addUniqueByTitle = (arr: typeof normalized) => {
+            for (const s of arr) {
+              const key = normalizeTitle(s.title);
+              if (titleSeen.has(key)) continue;
+              titleSeen.add(key);
+              merged.push(s);
+            }
+          };
+          addUniqueByTitle(suggestions as any);
+          addUniqueByTitle(normalized);
+          addUniqueByTitle(votedCardsNotInNewSet);
+
+          setSuggestions(merged);
+          lastSuggestionTurnRef.current = evalResult.turnCount;
+
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('osmvp_last_insight_count', insightCount.toString());
+              console.log('[Suggestions] Saved last insight count to localStorage:', insightCount);
+            } catch (error) {
+              console.error('[Suggestions] Failed to save last insight count:', error);
+            }
+          }
+
+          suggestionsLastInsightCountRef.current = insightCount;
+          lastSuggestionsFetchAtRef.current = Date.now();
+
+          if (normalized.length > 0) {
+            producedCards = true;
+            lastSuggestionModeRef.current = evalResult.fetchMode;
+            userTurnsSinceLastSuggestionRef.current = 0;
+            if (evalResult.fetchMode === 'normal') {
+              pendingReadyRubricChangeRef.current = false;
+            } else {
+              blockedStreakRef.current = 0;
+            }
+          }
+
+          console.log(
+            '[Suggestions] Merged',
+            normalized.length,
+            'new cards with',
+            votedCardsNotInNewSet.length,
+            'existing voted cards',
+            reason ?? '',
+            'mode:',
+            evalResult.fetchMode
+          );
+
+          if (
+            !suppressFollowupMessage &&
+            normalized.length > 0 &&
+            reason &&
+            reason !== 'initial-auto'
+          ) {
+            setTurns((prev) => [
+              ...prev,
+              {
+                role: 'assistant',
+                text: "If none of those land, just say the word and I'll pull a fresh batch of idea cards.",
+              },
+            ]);
+          }
+
+          if (reason) {
+            lastSuggestionRequestRef.current = null;
+          }
+
+          return normalized.length > 0;
+        }
+      } catch (error) {
+        console.error('Failed to load suggestions', error);
+      } finally {
+        suggestionsFetchInFlightRef.current = false;
+        setLoadingSuggestions(false);
+        if (reason === 'pre-response' || reason === 'voice-pre-response') {
+          skipAssistantRefetchRef.current = false;
+        }
+        if (evalResult.fetchMode === 'normal') {
+          pendingReadyRubricChangeRef.current = false;
+        } else if (evalResult.fetchMode === 'fallback') {
+          blockedStreakRef.current = 0;
+        }
+        if (!producedCards) {
+          const announcementTurn = lastCardAnnouncementTurnRef.current;
+          if (reason === 'pre-response' && typeof announcementTurn === 'number') {
+            setTurns((prev) => {
+              const removeIndex = announcementTurn - 1;
+              if (prev[removeIndex]?.role === 'assistant' && prev[removeIndex]?.text === CARD_FETCH_ANNOUNCEMENT) {
+                return [...prev.slice(0, removeIndex), ...prev.slice(removeIndex + 1)];
+              }
+              return prev;
+            });
+          }
+          lastCardAnnouncementTurnRef.current = null;
+          lastSuggestionModeRef.current = 'normal';
+        }
+      }
+
+      return false;
+    },
+    [
+      evaluateSuggestionFetch,
+      profile.insights,
+      conversationRubric,
+      mode,
+      voiceSessionStarted,
+      suggestions,
+      turns,
+      votesByCareerId,
+      setSuggestions,
+      setTurns,
+      setLoadingSuggestions,
+      announceCardFetch,
+    ]
+  );
 
   // Send message to AI
   const handleSend = useCallback(async (message: string) => {
@@ -471,11 +877,34 @@ export function ChatIntegrated() {
         console.warn('[Realtime] Message acknowledgment timeout:', err);
       }
 
+      const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns });
+      if (evalResult.shouldFetch) {
+        if (mode === 'text') {
+          announceCardFetch();
+        }
+        void fetchSuggestions({
+          reason: 'pre-response',
+          suppressFollowupMessage: true,
+          evaluation: evalResult,
+        });
+      }
+      const allowCardPrompt =
+        (evalResult.shouldFetch && evalResult.allowCardPrompt) ||
+        (conversationRubric?.cardReadiness?.status === 'ready' && suggestions.length > 0);
+      const cardPromptTone =
+        evalResult.shouldFetch && evalResult.fetchMode === 'fallback'
+          ? 'fallback'
+          : lastSuggestionModeRef.current === 'fallback'
+          ? 'fallback'
+          : 'normal';
+
       // Request a response from the model
       const guidanceText = buildRealtimeInstructions({
         phase: conversationPhase,
         rubric: conversationRubric,
         seedTeaserCard: shouldSeedTeaserCard,
+        allowCardPrompt,
+        cardPromptTone,
       });
 
       realtimeControls.cancelActiveResponse();
@@ -525,9 +954,25 @@ export function ChatIntegrated() {
     conversationRubric,
     shouldSeedTeaserCard,
     clearTeaserSeed,
+    fetchSuggestions,
+    evaluateSuggestionFetch,
+    announceCardFetch,
+    suggestions,
   ]);
 
-  // Listen for finalized transcripts from Realtime API
+  useEffect(() => {
+    if (suggestionsFetchInFlightRef.current) {
+      return;
+    }
+
+    if (suggestions.length === 0) {
+      const evalResult = evaluateSuggestionFetch();
+      if (evalResult.shouldFetch) {
+        void fetchSuggestions({ reason: 'initial-auto', evaluation: evalResult });
+      }
+    }
+  }, [suggestions.length, evaluateSuggestionFetch, fetchSuggestions]);
+
   useEffect(() => {
     const latestTranscript = realtimeState.transcripts[0];
     
@@ -559,20 +1004,36 @@ export function ChatIntegrated() {
 
       if (!alreadyExists && latestTranscript.text.trim()) {
         console.log('[Realtime] Adding assistant response:', latestTranscript.text);
-        
+
         const assistantTurn: ConversationTurn = {
           role: 'assistant',
           text: latestTranscript.text,
         };
-        
+
         setTurns((prev) => [...prev, assistantTurn]);
         setIsTyping(false);
-        
+
         // Derive insights after assistant responds
         void deriveInsights([...turns, assistantTurn]);
+
+        const lower = latestTranscript.text.toLowerCase();
+        const requestedCards =
+          lower.includes('let me build some cards') ||
+          lower.includes('cards just popped') ||
+          lower.includes('check out these cards') ||
+          lower.includes('three quick ideas') ||
+          lower.includes('let me pull them together');
+        if (requestedCards) {
+          if (skipAssistantRefetchRef.current) {
+            skipAssistantRefetchRef.current = false;
+          } else if (lastSuggestionRequestRef.current !== lower) {
+            lastSuggestionRequestRef.current = lower;
+            void fetchSuggestions({ force: true, reason: 'assistant-request' });
+          }
+        }
       }
     }
-  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted]);
+  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted, fetchSuggestions]);
 
   // Do not auto-connect in text mode; connect on-demand in handleSend, and via Start Voice.
 
@@ -597,33 +1058,57 @@ export function ChatIntegrated() {
     hasGreetedInVoiceRef.current = true;
     console.log('[Voice Mode] Connected, triggering AI greeting');
 
-    realtimeControls.cancelActiveResponse();
+    const runGreeting = async () => {
+      realtimeControls.cancelActiveResponse();
 
-    const guidanceText = buildRealtimeInstructions({
-      phase: conversationPhase,
-      rubric: conversationRubric,
-      seedTeaserCard: shouldSeedTeaserCard,
-    });
-    const responsePayload: Record<string, unknown> = {
-      output_modalities: ['audio'],
-    };
-    if (guidanceText) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.info('[chat-integrated] Voice greet instructions', {
-          phase: conversationPhase,
-          length: guidanceText.length,
-          preview: guidanceText.slice(0, 160),
+      const evalResult = evaluateSuggestionFetch();
+      if (evalResult.shouldFetch) {
+        void fetchSuggestions({
+          reason: 'voice-pre-response',
+          suppressFollowupMessage: true,
+          evaluation: evalResult,
         });
       }
-      responsePayload.instructions = guidanceText;
-    }
-    if (shouldSeedTeaserCard) {
-      clearTeaserSeed();
-    }
-    realtimeControls.sendEvent({
-      type: 'response.create',
-      response: responsePayload,
-    });
+      const allowCardPrompt =
+        (evalResult.shouldFetch && evalResult.allowCardPrompt) ||
+        (conversationRubric?.cardReadiness?.status === 'ready' && suggestions.length > 0);
+      const cardPromptTone =
+        evalResult.shouldFetch && evalResult.fetchMode === 'fallback'
+          ? 'fallback'
+          : lastSuggestionModeRef.current === 'fallback'
+          ? 'fallback'
+          : 'normal';
+
+      const guidanceText = buildRealtimeInstructions({
+        phase: conversationPhase,
+        rubric: conversationRubric,
+        seedTeaserCard: shouldSeedTeaserCard,
+        allowCardPrompt,
+        cardPromptTone,
+      });
+      const responsePayload: Record<string, unknown> = {
+        output_modalities: ['audio'],
+      };
+      if (guidanceText) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.info('[chat-integrated] Voice greet instructions', {
+            phase: conversationPhase,
+            length: guidanceText.length,
+            preview: guidanceText.slice(0, 160),
+          });
+        }
+        responsePayload.instructions = guidanceText;
+      }
+      if (shouldSeedTeaserCard) {
+        clearTeaserSeed();
+      }
+      realtimeControls.sendEvent({
+        type: 'response.create',
+        response: responsePayload,
+      });
+    };
+
+    void runGreeting();
   }, [
     mode,
     voiceSessionStarted,
@@ -633,6 +1118,9 @@ export function ChatIntegrated() {
     conversationRubric,
     shouldSeedTeaserCard,
     clearTeaserSeed,
+    fetchSuggestions,
+    evaluateSuggestionFetch,
+    suggestions,
   ]);
 
   // Handle typing indicator based on Realtime state
@@ -663,185 +1151,6 @@ export function ChatIntegrated() {
     // Normal text message - scroll to bottom
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  // Fetch career suggestions based on insights
-  useEffect(() => {
-    const insightCount = profile.insights.length;
-    const lastCount = suggestionsLastInsightCountRef.current;
-    const rubricReady = conversationRubric?.cardReadiness?.status === 'ready';
-    const requiredInsightThreshold = rubricReady ? 2 : 3;
-    const hasEnoughInsights = insightCount >= requiredInsightThreshold;
-
-    console.log('[Suggestions Effect] Triggered:', {
-      insightCount,
-      lastCount,
-      hasEnoughInsights,
-      inFlight: suggestionsFetchInFlightRef.current,
-      currentSuggestions: suggestions.length
-    });
-
-    const isVoiceActive = mode === 'voice' ? voiceSessionStarted : true;
-    const readinessOk = (conversationRubric?.cardReadiness?.status === 'ready') ||
-      Boolean(conversationRubric?.explicitIdeasRequest) ||
-      conversationRubric?.readinessBias === 'seeking-options';
-    const minInsightDelta = suggestions.length === 0 ? (rubricReady ? 1 : 2) : 2;
-    const deltaOk = suggestions.length === 0 || insightCount >= lastCount + minInsightDelta;
-    const cooldownMs = 45000; // avoid rapid refreshes; wait 45s between fetches
-    const now = Date.now();
-    const cooldownOk = now - lastSuggestionsFetchAtRef.current >= cooldownMs;
-
-    const recentTurns = turns.slice(-10).map((turn) => ({
-      role: turn.role,
-      text: turn.text,
-    }));
-
-    const existingSuggestionMeta = suggestions.map((s) => ({
-      id: s.id,
-      title: s.title,
-      distance: s.distance,
-    }));
-
-    const shouldFetch =
-      isVoiceActive &&
-      hasEnoughInsights &&
-      readinessOk &&
-      cooldownOk &&
-      !suggestionsFetchInFlightRef.current &&
-      (deltaOk);
-
-    console.log('[Suggestions Effect] Should fetch:', shouldFetch);
-
-    if (!shouldFetch) {
-      return;
-    }
-
-    suggestionsFetchInFlightRef.current = true;
-    setLoadingSuggestions(true);
-    
-    // Update lastCount BEFORE fetch to prevent duplicate fetches while this one is in flight
-    suggestionsLastInsightCountRef.current = insightCount;
-    console.log('[Suggestions] Updated lastCount to', insightCount, 'before fetch');
-    lastSuggestionsFetchAtRef.current = Date.now();
-    
-    void (async () => {
-      try {
-        const response = await fetch('/api/suggestions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            insights: profile.insights.map((insight) => ({
-              kind: insight.kind,
-              value: insight.value,
-            })),
-            limit: 3,
-            votes: votesByCareerId,
-            transcript: recentTurns,
-            existingSuggestions: existingSuggestionMeta,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`Suggestions request failed: ${response.status}`);
-        }
-        const data = await response.json() as {
-          suggestions?: Array<{
-            id?: string;
-            title?: string;
-            summary?: string;
-            careerAngles?: string[];
-            nextSteps?: string[];
-            microExperiments?: string[];
-            whyItFits?: string[];
-            confidence?: 'high' | 'medium' | 'low';
-            score?: number;
-            neighborTerritories?: string[];
-            distance?: 'core' | 'adjacent' | 'unexpected';
-          }>;
-        };
-        if (Array.isArray(data.suggestions)) {
-          const normalizeTitle = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-          const existingTitleKeys = new Set(
-            suggestions.map((s) => normalizeTitle(s.title))
-          );
-          const normalized = data.suggestions
-            .filter(
-              (item) =>
-                typeof item?.id === 'string' &&
-                typeof item?.title === 'string' &&
-                typeof item?.summary === 'string'
-            )
-            .map((item) => ({
-              id: item.id!,
-              title: item.title!,
-              summary: item.summary!,
-              careerAngles: item.careerAngles ?? [],
-              nextSteps: item.nextSteps ?? [],
-              microExperiments: item.microExperiments ?? [],
-              whyItFits: item.whyItFits ?? [],
-              confidence: item.confidence ?? 'medium',
-              score: item.score ?? 0,
-              neighborTerritories: item.neighborTerritories ?? [],
-              distance: item.distance === 'adjacent' || item.distance === 'unexpected' ? item.distance : 'core' as const,
-            }))
-            .filter((s) => !existingTitleKeys.has(normalizeTitle(s.title)))
-            .sort((a, b) => b.score - a.score);
-
-          // Store all new suggestions in our persistent map
-          normalized.forEach(s => {
-            allSuggestionsRef.current.set(s.id, s);
-          });
-          
-          // Preserve existing voted cards that aren't in the new suggestions
-          const votedSuggestionIds = new Set(
-            Object.keys(votesByCareerId).filter(id => votesByCareerId[id] !== undefined)
-          );
-          const newSuggestionIds = new Set(normalized.map(s => s.id));
-          
-          // Get voted cards from our persistent map (not from current suggestions)
-          const votedCardsNotInNewSet: typeof normalized = [];
-          votedSuggestionIds.forEach(id => {
-            if (!newSuggestionIds.has(id) && allSuggestionsRef.current.has(id)) {
-              votedCardsNotInNewSet.push(allSuggestionsRef.current.get(id)!);
-            }
-          });
-          
-          // Merge new suggestions with existing suggestions, preserving order and removing title duplicates
-          const titleSeen = new Set<string>();
-          const merged: typeof normalized = [];
-          const addUniqueByTitle = (arr: typeof normalized) => {
-            for (const s of arr) {
-              const key = normalizeTitle(s.title);
-              if (titleSeen.has(key)) continue;
-              titleSeen.add(key);
-              merged.push(s);
-            }
-          };
-          addUniqueByTitle(suggestions as any);
-          addUniqueByTitle(normalized);
-          addUniqueByTitle(votedCardsNotInNewSet);
-
-          setSuggestions(merged);
-          // Note: lastCount already updated before fetch to prevent duplicates
-          
-          // Persist last insight count to localStorage
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem('osmvp_last_insight_count', insightCount.toString());
-              console.log('[Suggestions] Saved last insight count to localStorage:', insightCount);
-            } catch (error) {
-              console.error('[Suggestions] Failed to save last insight count:', error);
-            }
-          }
-          
-          console.log('[Suggestions] Merged', normalized.length, 'new cards with', votedCardsNotInNewSet.length, 'existing voted cards');
-        }
-      } catch (error) {
-        console.error('Failed to load suggestions', error);
-      } finally {
-        suggestionsFetchInFlightRef.current = false;
-        setLoadingSuggestions(false);
-      }
-    })();
-  }, [profile.insights, suggestions, votesByCareerId, setSuggestions, mode, voiceSessionStarted, conversationRubric]);
 
   const showProgressBar = progress < 100;
 
