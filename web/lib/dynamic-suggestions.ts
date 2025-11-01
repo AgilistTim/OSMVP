@@ -248,7 +248,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
     } = context;
 
     const maxAttempts = distance === "unexpected" ? 5 : 3;
-    let bannedKeywords = distance === "unexpected" ? new Set(dominantKeywords) : new Set<string>();
+    let bannedKeywords = distance === "unexpected" ? new Set(dominantKeywords.slice(0, 50)) : new Set<string>();
     let novelDomains: string[] = [];
 
     if (distance === "unexpected") {
@@ -301,14 +301,14 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             novelDomains = await fetchNovelDomains({
                 apiKey,
                 dominantKeywords,
-                existing: [...existing, ...existing.filter(() => false), candidate],
+                existing: [...existing, candidate],
                 recentTurns,
                 transcriptSummary,
-                bannedKeywords: Array.from(bannedKeywords),
+                bannedKeywords: Array.from(trimKeywordSet(bannedKeywords)),
             });
             console.warn("[dynamic-suggestions] Unexpected card overlapped with dominant keywords, retrying", {
                 title: candidate.title,
-                bannedKeywords: Array.from(bannedKeywords),
+                bannedKeywords: Array.from(trimKeywordSet(bannedKeywords)),
                 candidateTokens: Array.from(extra).slice(0, 10),
                 distance,
                 attempt,
@@ -529,7 +529,7 @@ function isTooCloseToKeywords(card: DynamicSuggestion, dominantKeywords: string[
     dominantKeywords.forEach((keyword) => {
         if (candidateTokens.has(keyword)) overlap++;
     });
-    return overlap >= 3;
+    return overlap >= Math.max(4, Math.ceil(dominantKeywords.length * 0.25));
 }
 
 function buildFallbackSuggestion(
@@ -646,13 +646,14 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
 
     const systemPrompt = [
         "You suggest fresh domains or audiences the user has NOT mentioned.",
-        "Respond with JSON: { \"domains\": [string, ...] } and nothing else.",
+        "Respond with strict JSON: { \"domains\": [string, ...] } and nothing else.",
         "Each domain must be 2-5 words and feel like a vivid frontier (e.g., 'culinary travel residencies').",
         "Avoid overlapping with the provided dominant or banned keywords.",
+        "Do NOT include markdown, bullet points, or commentary—JSON only.",
     ].join("\n");
 
     const userPayload = {
-        dominant_keywords: Array.from(avoidTokens),
+        dominant_keywords: Array.from(trimKeywordSet(avoidTokens)),
         recent_turns: recentTurns.slice(-4),
         transcript_summary: transcriptSummary,
     };
@@ -686,17 +687,61 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
         const codeBlockMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
         const jsonContent = codeBlockMatch ? codeBlockMatch[1].trim() : rawContent;
 
-        const parsed = JSON.parse(jsonContent) as { domains?: string[] };
-        if (!Array.isArray(parsed.domains)) {
-            return [];
-        }
-
-        return parsed.domains
-            .map((domain) => domain.trim())
-            .filter((domain) => domain.length > 0)
-            .slice(0, 5);
+        return extractDomainsFromResponse(jsonContent);
     } catch (error) {
         console.warn("[dynamic-suggestions] Novel domain fetch failed", error);
         return [];
     }
+}
+
+function extractDomainsFromResponse(raw: string): string[] {
+    const results: string[] = [];
+
+    const tryParse = (content: string) => {
+        try {
+            const parsed = JSON.parse(content) as { domains?: unknown };
+            if (Array.isArray(parsed.domains)) {
+                parsed.domains.forEach((entry) => {
+                    if (typeof entry === "string") {
+                        const cleaned = entry.trim();
+                        if (cleaned.length > 0) {
+                            results.push(cleaned);
+                        }
+                    }
+                });
+            }
+        } catch {
+            // ignore parse error
+        }
+    };
+
+    tryParse(raw);
+
+    if (results.length === 0) {
+        const jsonMatch = raw.match(/\{[^]*?\}/);
+        if (jsonMatch) {
+            tryParse(jsonMatch[0]);
+        }
+    }
+
+    if (results.length === 0) {
+        raw
+            .split(/\n|\r|,|;/)
+            .map((line) => line.trim().replace(/^[-*•\d\.\s]+/, ""))
+            .filter((line) => line.length > 0 && line.includes(" "))
+            .slice(0, 5)
+            .forEach((line) => results.push(line));
+    }
+
+    return results.slice(0, 5);
+}
+
+function trimKeywordSet(tokens: Set<string> | string[], limit = 60): Set<string> {
+    const result = new Set<string>();
+    const iterator = Array.isArray(tokens) ? tokens : Array.from(tokens);
+    for (const token of iterator) {
+        if (result.size >= limit) break;
+        result.add(token);
+    }
+    return result;
 }
