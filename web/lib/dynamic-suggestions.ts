@@ -135,19 +135,6 @@ const DISTANCE_SCORE: Record<CardDistance, number> = {
     unexpected: 3,
 };
 
-const NOVEL_DOMAINS = [
-    "immersive travel experiences",
-    "live culinary pop-up events",
-    "hands-on maker workshops",
-    "heritage and cultural tourism",
-    "wellness retreats",
-    "field service robotics",
-    "nature restoration projects",
-    "museum and exhibit design",
-    "eco hospitality",
-    "sports fan engagement",
-    "festival production",
-];
 
 export async function generateDynamicSuggestions({
     insights,
@@ -262,6 +249,17 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
 
     const maxAttempts = distance === "unexpected" ? 5 : 3;
     let bannedKeywords = distance === "unexpected" ? new Set(dominantKeywords) : new Set<string>();
+    let novelDomains: string[] = [];
+
+    if (distance === "unexpected") {
+        novelDomains = await fetchNovelDomains({
+            apiKey,
+            dominantKeywords,
+            existing,
+            recentTurns,
+            transcriptSummary,
+        });
+    }
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const rawCard = await requestCardFromPerplexity({
@@ -279,6 +277,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             existing,
             bannedKeywords: Array.from(bannedKeywords),
             attempt,
+            novelDomains,
         });
 
         if (!rawCard) continue;
@@ -287,21 +286,32 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         if (!candidate) continue;
 
         if (avoidTitles.has(candidate.title.toLowerCase())) {
-            console.warn("[dynamic-suggestions] Skipping card with duplicate title", { title: candidate.title });
+            console.warn("[dynamic-suggestions] Skipping card with duplicate title", { title: candidate.title, distance, attempt });
             continue;
         }
 
         if (existing.some((s) => isSimilarSuggestion(s, candidate))) {
-            console.warn("[dynamic-suggestions] Skipping card similar to earlier suggestion", { title: candidate.title });
+            console.warn("[dynamic-suggestions] Skipping card similar to earlier suggestion", { title: candidate.title, distance, attempt });
             continue;
         }
 
         if (distance === "unexpected" && isTooCloseToKeywords(candidate, dominantKeywords)) {
             const extra = extractCandidateKeywords(candidate);
             extra.forEach((kw) => bannedKeywords.add(kw));
+            novelDomains = await fetchNovelDomains({
+                apiKey,
+                dominantKeywords,
+                existing: [...existing, ...existing.filter(() => false), candidate],
+                recentTurns,
+                transcriptSummary,
+                bannedKeywords: Array.from(bannedKeywords),
+            });
             console.warn("[dynamic-suggestions] Unexpected card overlapped with dominant keywords, retrying", {
                 title: candidate.title,
                 bannedKeywords: Array.from(bannedKeywords),
+                candidateTokens: Array.from(extra).slice(0, 10),
+                distance,
+                attempt,
             });
             continue;
         }
@@ -310,7 +320,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
     }
 
     console.warn(`[dynamic-suggestions] Falling back for ${distance} after exhausting attempts`);
-    return buildFallbackSuggestion(distance, insights, dominantKeywords, existing);
+    return buildFallbackSuggestion(distance, insights, dominantKeywords, existing, novelDomains);
 }
 
 interface PerplexityRequestInput {
@@ -328,6 +338,7 @@ interface PerplexityRequestInput {
     existing: DynamicSuggestion[];
     bannedKeywords: string[];
     attempt: number;
+    novelDomains?: string[];
 }
 
 async function requestCardFromPerplexity(params: PerplexityRequestInput): Promise<RawDynamicSuggestion | null> {
@@ -346,6 +357,7 @@ async function requestCardFromPerplexity(params: PerplexityRequestInput): Promis
         existing,
         bannedKeywords,
         attempt,
+        novelDomains,
     } = params;
 
     const systemPrompt = buildSystemPrompt(distance);
@@ -367,6 +379,7 @@ async function requestCardFromPerplexity(params: PerplexityRequestInput): Promis
         })),
         dominant_keywords: dominantKeywords,
         banned_keywords: bannedKeywords,
+        target_domains: novelDomains,
     };
 
     const temperature = distance === "unexpected" ? 0.4 : 0.2;
@@ -407,6 +420,7 @@ async function requestCardFromPerplexity(params: PerplexityRequestInput): Promis
         if (Array.isArray(parsed.cards) && parsed.cards.length > 0) {
             return parsed.cards[0];
         }
+        console.warn("[dynamic-suggestions] Response missing card", { distance, attempt, raw: rawContent.substring(0, 120) });
         return null;
     } catch (err) {
         console.error("[dynamic-suggestions] Failed to parse Perplexity response", {
@@ -441,6 +455,7 @@ function buildSystemPrompt(distance: CardDistance): string {
         base.push(
             "Introduce a domain, audience, or medium the user has NOT mentioned yet.",
             "Do not reuse dominant keywords or niches; pick something genuinely fresh (e.g., hospitality, travel, live experiences, environmental work, education).",
+            "If target_domains is provided, choose one of those domains for the concept.",
             "Explain explicitly how their current skills would unlock success in this new domain."
         );
     }
@@ -491,7 +506,8 @@ function computeDominantKeywords(insights: DynamicSuggestionInput["insights"], t
 
     return Array.from(counts.entries())
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 15)
+        .filter(([token]) => token.length >= 4)
+        .slice(0, 12)
         .map(([token]) => token);
 }
 
@@ -509,49 +525,43 @@ function isTooCloseToKeywords(card: DynamicSuggestion, dominantKeywords: string[
     dominantKeywords.forEach((keyword) => {
         if (candidateTokens.has(keyword)) overlap++;
     });
-    return overlap >= 2;
+    return overlap >= 3;
 }
 
 function buildFallbackSuggestion(
     distance: CardDistance,
     insights: DynamicSuggestionInput["insights"],
     dominantKeywords: string[],
-    existing: DynamicSuggestion[]
+    existing: DynamicSuggestion[],
+    novelHints?: string[]
 ): DynamicSuggestion {
     const primaryInsight = insights[0]?.value ?? "their current skills";
 
     if (distance === "unexpected") {
-        const usedTokens = new Set(dominantKeywords);
-        const existingTokens = existing.flatMap((card) => Array.from(extractCandidateKeywords(card)));
-        existingTokens.forEach((token) => usedTokens.add(token));
-
-        const novelDomain = NOVEL_DOMAINS.find((domain) => {
-            const domainTokens = tokenize(domain);
-            return domainTokens.every((token) => !usedTokens.has(token));
-        }) ?? NOVEL_DOMAINS[0];
+        const novelDomain = (novelHints && novelHints[0]) || "a totally new audience you haven’t explored yet";
 
         return {
             id: `fallback-unexpected-${Date.now()}`,
-            title: `Immersive ${capitalizeWords(novelDomain)} Architect`,
-            summary: `Channel your ${primaryInsight} into designing ${novelDomain}, using AI prototypes to craft memorable real-world experiences.`,
+            title: "Signature Innovation Lab",
+            summary: `Launch a limited-run experiment that brings your ${primaryInsight} into ${novelDomain}, blending rapid AI prototyping with real-world immersion.`,
             whyItFits: [
-                `You already translate complex ideas into tangible tools—apply that skill to ${novelDomain}.`,
-                "Your low-code speed lets you test concepts quickly with real audiences.",
-                "This lane opens a fresh network and revenue stream beyond software projects.",
+                "You already translate complex ideas into tangible tools—bring that power to a frontier no one expects from you.",
+                "Small-batch pilots let you test appetite before you commit.",
+                "Cross-disciplinary storytelling sets you apart from other AI builders.",
             ],
             careerAngles: [
-                `Partner with hospitality or event teams to build rapid AI-driven mockups.`,
-                `Offer pop-up experiences that showcase data-driven storytelling.`,
+                "Co-create with a partner in the emerging domain and package the experience as a premium pilot.",
+                "Document learnings as a playbook that feeds back into your core SME offer.",
             ],
             nextSteps: [
-                "Interview someone who delivers premium live experiences about their biggest bottleneck.",
-                "Prototype a micro-experience that blends your AI toolkit with sensory elements.",
+                "Interview a practitioner in that new domain about their biggest friction point.",
+                "Sketch how your AI toolkit could produce a wow moment for their audience.",
             ],
             microExperiments: [
-                "Design a storyboard for a 30-minute immersive demo.",
-                "Run a small feedback session with potential guests to refine the concept.",
+                "Draft a storyboard for a 20-minute demo and share it with two potential partners.",
+                "Host a tiny rehearsal with friends and gather reactions.",
             ],
-            neighborTerritories: ["hospitality", "events", "experience-design"],
+            neighborTerritories: novelHints && novelHints.length > 0 ? novelHints.slice(0, 3) : ["cross-domain", "experiential", "innovation"],
             confidence: "medium",
             score: DISTANCE_SCORE.unexpected,
             distance: "unexpected",
@@ -613,4 +623,71 @@ function buildFallbackSuggestion(
 
 function capitalizeWords(text: string): string {
     return text.replace(/(^|\s)([a-z])/g, (_, space, letter) => `${space}${letter.toUpperCase()}`);
+}
+
+interface NovelDomainParams {
+    apiKey: string;
+    dominantKeywords: string[];
+    existing: DynamicSuggestion[];
+    recentTurns: Array<{ role: string; text: string }>;
+    transcriptSummary?: string;
+    bannedKeywords?: string[];
+}
+
+async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
+    const { apiKey, dominantKeywords, existing, recentTurns, transcriptSummary, bannedKeywords = [] } = params;
+
+    const avoidTokens = new Set<string>([...dominantKeywords, ...bannedKeywords]);
+    existing.forEach((card) => extractCandidateKeywords(card).forEach((token) => avoidTokens.add(token)));
+
+    const prompt = [
+        "You suggest fresh domains or audiences the user has NOT mentioned.",
+        "Respond with JSON: { \"domains\": [string, ...] } and nothing else.",
+        "Each domain must be 2-5 words and feel like a vivid frontier (e.g., 'culinary travel residencies').",
+        `Avoid any tokens in this list: ${JSON.stringify(Array.from(avoidTokens))}.`,
+        transcriptSummary ? `Conversation summary: ${transcriptSummary}` : "",
+        recentTurns.length > 0 ? `Recent turns: ${JSON.stringify(recentTurns.slice(-4))}` : "",
+    ].filter(Boolean).join("\n");
+
+    try {
+        const response = await fetch("https://api.perplexity.ai/chat/completions", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: "sonar",
+                temperature: 0.6,
+                messages: [
+                    { role: "system", content: prompt },
+                ],
+            }),
+        });
+
+        if (!response.ok) {
+            return [];
+        }
+
+        const result = await response.json() as {
+            choices?: Array<{ message?: { content?: string } }>;
+        };
+
+        const rawContent = result.choices?.[0]?.message?.content ?? "{}";
+        const codeBlockMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        const jsonContent = codeBlockMatch ? codeBlockMatch[1].trim() : rawContent;
+
+        const parsed = JSON.parse(jsonContent) as { domains?: string[] };
+        if (!Array.isArray(parsed.domains)) {
+            return [];
+        }
+
+        return parsed.domains
+            .map((domain) => domain.trim())
+            .filter((domain) => domain.length > 0)
+            .slice(0, 5);
+    } catch (error) {
+        console.warn("[dynamic-suggestions] Novel domain fetch failed", error);
+        return [];
+    }
 }
