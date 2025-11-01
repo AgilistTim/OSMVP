@@ -437,8 +437,11 @@ function buildSystemPrompt(distance: CardDistance): string {
     const base = [
         "You generate exactly one career pathway card per request.",
         "Respond with strict JSON: { \"card\": { ... } } and nothing else.",
+        "Required card fields: title, summary, why_it_fits[], pathways[], next_steps[], micro_experiments[], neighbor_tags[], distance.",
+        "Each array field must contain 1-3 concise bullet strings (no numbering).",
         "Keep copy concrete, based on the provided context.",
-        "Each array field must contain at most 3 bullet points.",
+        "Avoid repetition and do not invent personal details that were not provided.",
+        "Use sentence case and avoid emoji or markdown formatting.",
     ];
 
     if (distance === "core") {
@@ -456,7 +459,8 @@ function buildSystemPrompt(distance: CardDistance): string {
             "Introduce a domain, audience, or medium the user has NOT mentioned yet.",
             "Do not reuse dominant keywords or niches; pick something genuinely fresh (e.g., hospitality, travel, live experiences, environmental work, education).",
             "If target_domains is provided, choose one of those domains for the concept.",
-            "Explain explicitly how their current skills would unlock success in this new domain."
+            "Explain explicitly how their current skills would unlock success in this new domain.",
+            "Include neighbor_tags that call out the new territory you are introducing."
         );
     }
 
@@ -640,14 +644,18 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
     const avoidTokens = new Set<string>([...dominantKeywords, ...bannedKeywords]);
     existing.forEach((card) => extractCandidateKeywords(card).forEach((token) => avoidTokens.add(token)));
 
-    const prompt = [
+    const systemPrompt = [
         "You suggest fresh domains or audiences the user has NOT mentioned.",
         "Respond with JSON: { \"domains\": [string, ...] } and nothing else.",
         "Each domain must be 2-5 words and feel like a vivid frontier (e.g., 'culinary travel residencies').",
-        `Avoid any tokens in this list: ${JSON.stringify(Array.from(avoidTokens))}.`,
-        transcriptSummary ? `Conversation summary: ${transcriptSummary}` : "",
-        recentTurns.length > 0 ? `Recent turns: ${JSON.stringify(recentTurns.slice(-4))}` : "",
-    ].filter(Boolean).join("\n");
+        "Avoid overlapping with the provided dominant or banned keywords.",
+    ].join("\n");
+
+    const userPayload = {
+        dominant_keywords: Array.from(avoidTokens),
+        recent_turns: recentTurns.slice(-4),
+        transcript_summary: transcriptSummary,
+    };
 
     try {
         const response = await fetch("https://api.perplexity.ai/chat/completions", {
@@ -660,7 +668,8 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
                 model: "sonar",
                 temperature: 0.6,
                 messages: [
-                    { role: "system", content: prompt },
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: JSON.stringify(userPayload) },
                 ],
             }),
         });
