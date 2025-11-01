@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import type { InsightKind } from "@/components/session-provider";
 
+const OPENAI_SUGGESTION_MODEL = process.env.OPENAI_SUGGESTION_MODEL ?? "gpt-4.1-mini";
+const OPENAI_DOMAIN_MODEL = process.env.OPENAI_DOMAIN_MODEL ?? OPENAI_SUGGESTION_MODEL;
+
 export interface DynamicSuggestionInput {
 	insights: Array<{ kind: InsightKind; value: string }>;
 	votes: Record<string, 1 | 0 | -1 | undefined>;
@@ -150,11 +153,15 @@ export async function generateDynamicSuggestions({
 
     const grouped = groupInsightsByKind(insights);
 
-    const apiKey = process.env.PERPLEXITY_API_KEY;
-    if (!apiKey) {
-        console.error("[dynamic-suggestions] CRITICAL: PERPLEXITY_API_KEY is not set in environment variables");
-        throw new Error("PERPLEXITY_API_KEY is required for card generation");
+    const openaiKey = process.env.OPENAI_API_KEY ?? null;
+    const perplexityKey = process.env.PERPLEXITY_API_KEY ?? null;
+
+    if (!openaiKey && !perplexityKey) {
+        console.error("[dynamic-suggestions] CRITICAL: Missing both OPENAI_API_KEY and PERPLEXITY_API_KEY");
+        throw new Error("At least one API key is required for card generation");
     }
+
+    const useOpenAI = Boolean(openaiKey);
 
     const profile: ProfileEnvelope = {
         interests: grouped.get("interest") ?? [],
@@ -193,7 +200,9 @@ export async function generateDynamicSuggestions({
 
     for (const distance of DISTANCE_ORDER.slice(0, Math.min(limit, DISTANCE_ORDER.length))) {
         const candidate = await generateCardForDistance({
-            apiKey,
+            openaiKey,
+            perplexityKey,
+            useOpenAI,
             profile,
             insights,
             motivationSummary,
@@ -217,7 +226,9 @@ export async function generateDynamicSuggestions({
 }
 
 interface PerplexityContext {
-    apiKey: string;
+    openaiKey: string | null;
+    perplexityKey: string | null;
+    useOpenAI: boolean;
     profile: ProfileEnvelope;
     insights: DynamicSuggestionInput["insights"];
     motivationSummary: string | null;
@@ -233,7 +244,9 @@ interface PerplexityContext {
 
 async function generateCardForDistance(context: PerplexityContext): Promise<DynamicSuggestion | null> {
     const {
-        apiKey,
+        openaiKey,
+        perplexityKey,
+        useOpenAI,
         profile,
         insights,
         motivationSummary,
@@ -253,7 +266,9 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
 
     if (distance === "unexpected") {
         novelDomains = await fetchNovelDomains({
-            apiKey,
+            openaiKey,
+            perplexityKey,
+            useOpenAI,
             dominantKeywords,
             existing,
             recentTurns,
@@ -262,8 +277,10 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
     }
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const rawCard = await requestCardFromPerplexity({
-            apiKey,
+        const rawCard = await requestCardFromModel({
+            openaiKey,
+            perplexityKey,
+            useOpenAI,
             profile,
             insights,
             motivationSummary,
@@ -299,7 +316,9 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             const extra = extractCandidateKeywords(candidate);
             extra.forEach((kw) => bannedKeywords.add(kw));
             novelDomains = await fetchNovelDomains({
-                apiKey,
+                openaiKey,
+                perplexityKey,
+                useOpenAI,
                 dominantKeywords,
                 existing: [...existing, candidate],
                 recentTurns,
@@ -323,8 +342,10 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
     return buildFallbackSuggestion(distance, insights, dominantKeywords, existing, novelDomains);
 }
 
-interface PerplexityRequestInput {
-    apiKey: string;
+interface ModelRequestInput {
+    openaiKey: string | null;
+    perplexityKey: string | null;
+    useOpenAI: boolean;
     profile: ProfileEnvelope;
     insights: DynamicSuggestionInput["insights"];
     motivationSummary: string | null;
@@ -341,9 +362,16 @@ interface PerplexityRequestInput {
     novelDomains?: string[];
 }
 
-async function requestCardFromPerplexity(params: PerplexityRequestInput): Promise<RawDynamicSuggestion | null> {
+async function requestCardFromModel(params: ModelRequestInput): Promise<RawDynamicSuggestion | null> {
+    if (params.useOpenAI) {
+        return requestCardFromOpenAI(params);
+    }
+    return requestCardFromPerplexity(params);
+}
+
+async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDynamicSuggestion | null> {
     const {
-        apiKey,
+        openaiKey,
         profile,
         insights,
         motivationSummary,
@@ -359,6 +387,109 @@ async function requestCardFromPerplexity(params: PerplexityRequestInput): Promis
         attempt,
         novelDomains,
     } = params;
+
+    if (!openaiKey) {
+        return null;
+    }
+
+    const systemPrompt = buildSystemPrompt(distance);
+
+    const payload = {
+        distance,
+        attempt,
+        user_profile: profile,
+        insights: insights.map((item) => ({ kind: item.kind, value: item.value })),
+        motivation_summary: motivationSummary,
+        positive_votes: likes,
+        negative_votes: dislikes,
+        recent_turns: recentTurns,
+        transcript_summary: transcriptSummary,
+        avoid_titles: Array.from(avoidTitles),
+        previous_cards: existing.map((card) => ({
+            title: card.title,
+            distance: card.distance,
+        })),
+        dominant_keywords: dominantKeywords,
+        banned_keywords: bannedKeywords,
+        target_domains: novelDomains,
+    };
+
+    const temperature = distance === "unexpected" ? 0.5 : 0.3;
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+            model: OPENAI_SUGGESTION_MODEL,
+            temperature,
+            input: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: JSON.stringify(payload) },
+            ],
+        }),
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        console.error(`[dynamic-suggestions] OpenAI API error (${response.status}):`, text);
+        return null;
+    }
+
+    const responseJson = await response.json() as OpenAIResponse;
+
+    const rawText = extractOpenAIText(responseJson);
+    if (!rawText) {
+        console.warn("[dynamic-suggestions] OpenAI response missing text payload", responseJson);
+        return null;
+    }
+
+    const codeMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const jsonContent = codeMatch ? codeMatch[1].trim() : rawText;
+
+    try {
+        const parsed = JSON.parse(jsonContent) as { card?: RawDynamicSuggestion; cards?: RawDynamicSuggestion[] };
+        if (parsed.card) return parsed.card;
+        if (Array.isArray(parsed.cards) && parsed.cards.length > 0) {
+            return parsed.cards[0];
+        }
+        return null;
+    } catch (err) {
+        console.error("[dynamic-suggestions] Failed to parse OpenAI response", {
+            distance,
+            attempt,
+            raw: rawText.substring(0, 500),
+            error: err,
+        });
+        return null;
+    }
+}
+
+async function requestCardFromPerplexity(params: ModelRequestInput): Promise<RawDynamicSuggestion | null> {
+    const {
+        perplexityKey,
+        profile,
+        insights,
+        motivationSummary,
+        likes,
+        dislikes,
+        recentTurns,
+        transcriptSummary,
+        dominantKeywords,
+        distance,
+        avoidTitles,
+        existing,
+        bannedKeywords,
+        attempt,
+        novelDomains,
+    } = params;
+
+    const apiKey = perplexityKey;
+    if (!apiKey) {
+        return null;
+    }
 
     const systemPrompt = buildSystemPrompt(distance);
 
@@ -630,7 +761,9 @@ function capitalizeWords(text: string): string {
 }
 
 interface NovelDomainParams {
-    apiKey: string;
+    openaiKey: string | null;
+    perplexityKey: string | null;
+    useOpenAI: boolean;
     dominantKeywords: string[];
     existing: DynamicSuggestion[];
     recentTurns: Array<{ role: string; text: string }>;
@@ -639,7 +772,7 @@ interface NovelDomainParams {
 }
 
 async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
-    const { apiKey, dominantKeywords, existing, recentTurns, transcriptSummary, bannedKeywords = [] } = params;
+    const { openaiKey, perplexityKey, useOpenAI, dominantKeywords, existing, recentTurns, transcriptSummary, bannedKeywords = [] } = params;
 
     const avoidTokens = new Set<string>([...dominantKeywords, ...bannedKeywords]);
     existing.forEach((card) => extractCandidateKeywords(card).forEach((token) => avoidTokens.add(token)));
@@ -659,6 +792,44 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
     };
 
     try {
+        if (useOpenAI && openaiKey) {
+            const response = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${openaiKey}`,
+                },
+                body: JSON.stringify({
+                    model: OPENAI_DOMAIN_MODEL,
+                    temperature: 0.6,
+                    input: [
+                        { role: "system", content: systemPrompt },
+                        { role: "user", content: JSON.stringify(userPayload) },
+                    ],
+                }),
+            });
+
+            if (!response.ok) {
+                return [];
+            }
+
+            const result = await response.json() as {
+                output?: Array<{ type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }>;
+            };
+
+            const rawContent = extractOpenAIText(result) ?? "";
+            if (!rawContent) {
+                return [];
+            }
+
+            return extractDomainsFromResponse(rawContent);
+        }
+
+        const apiKey = perplexityKey;
+        if (!apiKey) {
+            return [];
+        }
+
         const response = await fetch("https://api.perplexity.ai/chat/completions", {
             method: "POST",
             headers: {
@@ -744,4 +915,27 @@ function trimKeywordSet(tokens: Set<string> | string[], limit = 60): Set<string>
         result.add(token);
     }
     return result;
+}
+
+type OpenAIResponse = {
+    output?: Array<{
+        type?: string;
+        role?: string;
+        content?: Array<{ type?: string; text?: string }>;
+    }>;
+};
+
+function extractOpenAIText(response: OpenAIResponse): string | null {
+    if (!response.output) return null;
+    for (const item of response.output) {
+        if (item.type === "message" && item.content) {
+            const textParts = item.content
+                .filter((chunk) => chunk.type === "output_text" && typeof chunk.text === "string")
+                .map((chunk) => chunk.text as string);
+            if (textParts.length > 0) {
+                return textParts.join("\n");
+            }
+        }
+    }
+    return null;
 }
