@@ -8,6 +8,8 @@ export async function POST(req: NextRequest) {
 			insights?: Array<{ kind?: string; value?: string }>;
 			limit?: number;
 			votes?: Record<string, number>;
+			transcript?: Array<{ role?: string; text?: string }>;
+			existingSuggestions?: Array<{ id?: string; title?: string; distance?: string }>;
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -27,6 +29,24 @@ export async function POST(req: NextRequest) {
 			}
 		}
 
+		const transcript = Array.isArray(body.transcript)
+			? body.transcript
+				.filter((item): item is { role: string; text: string } =>
+					typeof item?.role === "string" && typeof item?.text === "string")
+			: [];
+
+		const transcriptSummary = transcript
+			.filter((item) => item.text.trim().length > 0)
+			.map((item) => `${item.role}: ${item.text.trim()}`)
+			.join(" \n ");
+
+		const existingSuggestions = Array.isArray(body.existingSuggestions)
+			? body.existingSuggestions.filter(
+				(item): item is { id?: string; title: string; distance?: string } =>
+					typeof item?.title === "string"
+			)
+			: [];
+
 		const dynamic = await generateDynamicSuggestions({
 			insights: insights.map((item) => ({
 				kind: item.kind as InsightKind,
@@ -34,6 +54,9 @@ export async function POST(req: NextRequest) {
 			})),
 			votes,
 			limit: typeof body.limit === "number" ? body.limit : undefined,
+			recentTurns: transcript,
+			transcriptSummary: transcriptSummary.length > 0 ? transcriptSummary : undefined,
+			existingSuggestions,
 		});
 
 		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {

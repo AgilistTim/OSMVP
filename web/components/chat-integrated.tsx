@@ -690,6 +690,17 @@ export function ChatIntegrated() {
     const now = Date.now();
     const cooldownOk = now - lastSuggestionsFetchAtRef.current >= cooldownMs;
 
+    const recentTurns = turns.slice(-10).map((turn) => ({
+      role: turn.role,
+      text: turn.text,
+    }));
+
+    const existingSuggestionMeta = suggestions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      distance: s.distance,
+    }));
+
     const shouldFetch =
       isVoiceActive &&
       hasEnoughInsights &&
@@ -724,6 +735,8 @@ export function ChatIntegrated() {
             })),
             limit: 3,
             votes: votesByCareerId,
+            transcript: recentTurns,
+            existingSuggestions: existingSuggestionMeta,
           }),
         });
         if (!response.ok) {
