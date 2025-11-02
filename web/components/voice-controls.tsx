@@ -6,6 +6,7 @@ import type {
 	RealtimeSessionControls,
 	RealtimeSessionState,
 } from "@/hooks/use-realtime-session";
+import { REALTIME_VOICE_ID } from "@/lib/realtime-voice";
 
 interface VoiceControlsProps {
 	state: RealtimeSessionState;
@@ -46,7 +47,7 @@ export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) 
 			if (state.microphone === "inactive") {
 				onStart?.();
 				await controls.disconnect();
-				await controls.connect({ enableMicrophone: true, enableAudioOutput: true });
+				await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID });
 				return;
 			}
 			// Already connected + active mic; nothing to do beyond marking start
@@ -55,7 +56,7 @@ export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) 
 		}
 
 		onStart?.();
-		await controls.connect({ enableMicrophone: true, enableAudioOutput: true });
+		await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID });
 	};
 
 	return (

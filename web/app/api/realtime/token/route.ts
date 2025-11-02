@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSystemPrompt } from "@/lib/system-prompt";
+import { REALTIME_VOICE_ID } from "@/lib/realtime-voice";
 
 type TokenRequestBody = {
   sessionId?: string;
@@ -19,8 +20,6 @@ interface OpenAIRealtimeResponse {
 }
 
 const REALTIME_MODEL = "gpt-realtime";
-// Default to a voice with a natural British delivery; override via REALTIME_DEFAULT_VOICE if needed.
-const DEFAULT_VOICE = process.env.REALTIME_DEFAULT_VOICE ?? "verse";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -49,7 +48,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const voice = typeof body.voice === "string" && body.voice.length > 0 ? body.voice : DEFAULT_VOICE;
+  const voice =
+    typeof body.voice === "string" && body.voice.length > 0 ? body.voice : REALTIME_VOICE_ID;
   let instructions: string | undefined;
 
   if (typeof body.instructions === "string" && body.instructions.trim().length > 0) {

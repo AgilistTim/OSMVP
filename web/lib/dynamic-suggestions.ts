@@ -60,15 +60,6 @@ function groupInsightsByKind(insights: DynamicSuggestionInput["insights"]) {
 	return grouped;
 }
 
-function coerceDistance(value: string | undefined): CardDistance {
-    if (!value) return "core";
-    const normalized = value.toLowerCase();
-    if (normalized === "adjacent" || normalized === "unexpected") {
-        return normalized;
-    }
-    return "core";
-}
-
 function tokenize(text: string): string[] {
     return text
         .toLowerCase()
@@ -387,7 +378,6 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         dominantKeywords,
         distance,
         avoidTitles,
-        existing,
         attempt,
         novelDomains,
         previousSuggestions,
@@ -488,7 +478,6 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         dominantKeywords,
         distance,
         avoidTitles,
-        existing,
         attempt,
         novelDomains,
         previousSuggestions,
@@ -767,10 +756,6 @@ function buildFallbackSuggestion(
         score: DISTANCE_SCORE.core,
         distance: "core",
     };
-}
-
-function capitalizeWords(text: string): string {
-    return text.replace(/(^|\s)([a-z])/g, (_, space, letter) => `${space}${letter.toUpperCase()}`);
 }
 
 interface NovelDomainParams {

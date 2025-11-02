@@ -583,11 +583,12 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
         pc.addTransceiver("audio", { direction: audioDirection });
 
         if (enableAudioOutput) {
-          const audio = document.createElement("audio");
-          // Keep element in DOM for autoplay policies; start muted and inline
+        const audio = document.createElement("audio");
+        // Keep element in DOM for autoplay policies; start muted and inline
           audio.autoplay = true;
-          (audio as any).playsInline = true;
-          audio.muted = true;
+          audio.setAttribute("playsinline", "true");
+          audio.setAttribute("webkit-playsinline", "true");
+        audio.muted = true;
           audio.style.display = "none";
           audio.setAttribute("aria-hidden", "true");
           try { document.body.appendChild(audio); } catch { /* noop */ }

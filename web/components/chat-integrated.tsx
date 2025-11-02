@@ -26,6 +26,7 @@ import { VoiceControls } from '@/components/voice-controls';
 import { InlineCareerCard } from '@/components/inline-career-card-v2';
 import type { CareerSuggestion } from '@/components/session-provider';
 import '@/components/inline-career-card-v2.css';
+import { REALTIME_VOICE_ID } from '@/lib/realtime-voice';
 
 type MessageType = {
   message: string;
@@ -83,6 +84,7 @@ export function ChatIntegrated() {
     sessionId,
     enableMicrophone: mode === 'voice',
     enableAudioOutput: true,
+    voice: REALTIME_VOICE_ID,
   });
 
   const handleModeToggle = useCallback(() => {
@@ -116,11 +118,17 @@ export function ChatIntegrated() {
   const lastRubricUpdateAtRef = useRef<number>(0);
   const lastRubricTurnCountRef = useRef<number>(0);
   
-  // Initialize last insight count from localStorage (only once on mount)
+  // Initialize last insight count from sessionStorage (only once on mount)
   const suggestionsLastInsightCountRef = useRef<number>(0);
   if (suggestionsLastInsightCountRef.current === 0 && typeof window !== 'undefined') {
     try {
-      const stored = localStorage.getItem('osmvp_last_insight_count');
+      // Clean up any legacy localStorage entry
+      localStorage.removeItem('osmvp_last_insight_count');
+    } catch {
+      // ignore
+    }
+    try {
+      const stored = sessionStorage.getItem('osmvp_last_insight_count');
       if (stored) {
         suggestionsLastInsightCountRef.current = parseInt(stored, 10);
         console.log('[ChatIntegrated] Restored last insight count:', suggestionsLastInsightCountRef.current);
@@ -130,12 +138,18 @@ export function ChatIntegrated() {
     }
   }
   
-  // Initialize shown suggestion IDs from localStorage (only once on mount)
+  // Initialize shown suggestion IDs from sessionStorage (only once on mount)
   const shownSuggestionIdsRef = useRef<Set<string>>(new Set());
   const hasInitializedShownIds = useRef(false);
   if (!hasInitializedShownIds.current && typeof window !== 'undefined') {
     try {
-      const stored = localStorage.getItem('osmvp_shown_suggestion_ids');
+      // Clean up any legacy localStorage entry
+      localStorage.removeItem('osmvp_shown_suggestion_ids');
+    } catch {
+      // ignore
+    }
+    try {
+      const stored = sessionStorage.getItem('osmvp_shown_suggestion_ids');
       if (stored) {
         const ids = JSON.parse(stored) as string[];
         shownSuggestionIdsRef.current = new Set(ids);
@@ -149,6 +163,7 @@ export function ChatIntegrated() {
   
   // Store card messages separately (not persisted to avoid infinite loop issues)
   const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
+  const [voiceCardList, setVoiceCardList] = useState<CareerSuggestion[]>([]);
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
@@ -160,7 +175,7 @@ export function ChatIntegrated() {
   const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
   const hasInitializedAllSuggestions = useRef(false);
   if (!hasInitializedAllSuggestions.current) {
-    // Restore from current suggestions (which were loaded from localStorage)
+    // Restore from current suggestions persisted during this session
     suggestions.forEach(s => allSuggestionsRef.current.set(s.id, s));
     console.log('[ChatIntegrated] Initialized allSuggestionsRef with', allSuggestionsRef.current.size, 'suggestions');
     hasInitializedAllSuggestions.current = true;
@@ -206,32 +221,49 @@ export function ChatIntegrated() {
     lastRubricTurnCountRef.current = currentTurnCount;
   }, [conversationRubric, turns]);
 
-  const announceCardFetch = useCallback(
-    () => {
-      if (lastCardAnnouncementTurnRef.current !== null) {
-        return;
-      }
+  const removeCardAnnouncement = useCallback(() => {
+    if (lastCardAnnouncementTurnRef.current === null) {
+      return;
+    }
 
-      setTurns((prev) => {
-        const next = [
-          ...prev,
-          {
-            role: 'assistant' as const,
-            text: CARD_FETCH_ANNOUNCEMENT,
-          },
-        ];
-        lastCardAnnouncementTurnRef.current = next.length;
-        return next;
-      });
-    },
-    [CARD_FETCH_ANNOUNCEMENT, setTurns]
-  );
+    const announcementIndex = lastCardAnnouncementTurnRef.current - 1;
+    lastCardAnnouncementTurnRef.current = null;
+
+    setTurns((prev) => {
+      if (announcementIndex < 0 || announcementIndex >= prev.length) {
+        return prev;
+      }
+      if (prev[announcementIndex]?.role === 'assistant' && prev[announcementIndex]?.text === CARD_FETCH_ANNOUNCEMENT) {
+        return [...prev.slice(0, announcementIndex), ...prev.slice(announcementIndex + 1)];
+      }
+      return prev;
+    });
+  }, [CARD_FETCH_ANNOUNCEMENT, setTurns]);
+
+  const announceCardFetch = useCallback(() => {
+    if (lastCardAnnouncementTurnRef.current !== null) {
+      return;
+    }
+
+    setTurns((prev) => {
+      const next = [
+        ...prev,
+        {
+          role: 'assistant' as const,
+          text: CARD_FETCH_ANNOUNCEMENT,
+        },
+      ];
+      lastCardAnnouncementTurnRef.current = next.length;
+      return next;
+    });
+  }, [CARD_FETCH_ANNOUNCEMENT, setTurns]);
 
   useEffect(() => {
     if (mode !== 'voice') {
       voiceSuggestionBaselineRef.current = new Set();
       voiceBaselineCapturedRef.current = false;
       setVoiceSessionStarted(false);
+      setVoiceCardList([]);
     }
   }, [mode]);
 
@@ -240,6 +272,7 @@ export function ChatIntegrated() {
       setVoiceSessionStarted(false);
       voiceBaselineCapturedRef.current = false;
       voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+      setVoiceCardList([]);
     }
   }, [mode, realtimeState.status, suggestions]);
   
@@ -250,7 +283,7 @@ export function ChatIntegrated() {
         allSuggestionsRef.current.set(s.id, s);
       }
     });
-  }, [suggestions]);
+  }, [suggestions, removeCardAnnouncement]);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
@@ -321,16 +354,8 @@ export function ChatIntegrated() {
     if (mode !== 'voice') {
       return suggestions;
     }
-    const baseline = voiceSuggestionBaselineRef.current;
-    if (!voiceSessionStarted) {
-      return [];
-    }
-    if (baseline.size === 0) {
-      return suggestions;
-    }
-    const filtered = suggestions.filter((suggestion) => !baseline.has(suggestion.id));
-    return filtered.length > 0 ? filtered : suggestions;
-  }, [mode, suggestions, voiceSessionStarted]);
+    return voiceCardList;
+  }, [mode, suggestions, voiceCardList]);
 
   useEffect(() => {
     if (turns.length > lastProcessedTurnCountRef.current) {
@@ -356,7 +381,9 @@ export function ChatIntegrated() {
       console.log('[ChatIntegrated] No new suggestions to reveal (all already shown)');
       return;
     }
-    
+
+    removeCardAnnouncement();
+
     console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal:', newSuggestions.map(s => s.id));
     
     // Mark these suggestions as shown FIRST to prevent re-triggering
@@ -366,10 +393,10 @@ export function ChatIntegrated() {
     if (typeof window !== 'undefined') {
       try {
         const idsArray = Array.from(shownSuggestionIdsRef.current);
-        localStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
-        console.log('[ChatIntegrated] Saved shown suggestion IDs to localStorage:', idsArray.length);
+        sessionStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
+        console.log('[ChatIntegrated] Saved shown suggestion IDs to sessionStorage:', idsArray.length);
       } catch (error) {
-        console.error('[ChatIntegrated] Failed to save shown suggestion IDs:', error);
+        console.error('[ChatIntegrated] Failed to save shown suggestion IDs to sessionStorage:', error);
       }
     }
     
@@ -423,8 +450,23 @@ export function ChatIntegrated() {
     lastCardAnnouncementTurnRef.current = null;
     userTurnsSinceLastSuggestionRef.current = 0;
     lastSuggestionTurnRef.current = currentTurnCount;
+
+    if (mode === 'voice') {
+      setVoiceCardList((prev) => {
+        const merged = new Map<string, CareerSuggestion>();
+        newSuggestions.forEach((suggestion) => {
+          merged.set(suggestion.id, suggestion);
+        });
+        prev.forEach((card) => {
+          if (!merged.has(card.id)) {
+            merged.set(card.id, card);
+          }
+        });
+        return Array.from(merged.values());
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions]);
+  }, [suggestions, mode]);
 
   // Derive insights from conversation
 const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
@@ -697,7 +739,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           const titleSeen = new Set<string>();
           const merged: typeof normalized = [];
-          const addUniqueByTitle = (arr: typeof normalized) => {
+          const addUniqueByTitle = (arr: ReadonlyArray<CareerSuggestion>) => {
             for (const s of arr) {
               const key = normalizeTitle(s.title);
               if (titleSeen.has(key)) continue;
@@ -705,7 +747,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
               merged.push(s);
             }
           };
-          addUniqueByTitle(suggestions as any);
+          addUniqueByTitle(suggestions);
           addUniqueByTitle(normalized);
           addUniqueByTitle(votedCardsNotInNewSet);
 
@@ -714,10 +756,10 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem('osmvp_last_insight_count', insightCount.toString());
-              console.log('[Suggestions] Saved last insight count to localStorage:', insightCount);
+              sessionStorage.setItem('osmvp_last_insight_count', insightCount.toString());
+              console.log('[Suggestions] Saved last insight count to sessionStorage:', insightCount);
             } catch (error) {
-              console.error('[Suggestions] Failed to save last insight count:', error);
+              console.error('[Suggestions] Failed to save last insight count to sessionStorage:', error);
             }
           }
 
@@ -775,23 +817,10 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         if (reason === 'pre-response' || reason === 'voice-pre-response') {
           skipAssistantRefetchRef.current = false;
         }
-        if (evalResult.fetchMode === 'normal') {
-          pendingReadyRubricChangeRef.current = false;
-        } else if (evalResult.fetchMode === 'fallback') {
-          blockedStreakRef.current = 0;
-        }
         if (!producedCards) {
-          const announcementTurn = lastCardAnnouncementTurnRef.current;
-          if (reason === 'pre-response' && typeof announcementTurn === 'number') {
-            setTurns((prev) => {
-              const removeIndex = announcementTurn - 1;
-              if (prev[removeIndex]?.role === 'assistant' && prev[removeIndex]?.text === CARD_FETCH_ANNOUNCEMENT) {
-                return [...prev.slice(0, removeIndex), ...prev.slice(removeIndex + 1)];
-              }
-              return prev;
-            });
+          if (reason === 'pre-response') {
+            removeCardAnnouncement();
           }
-          lastCardAnnouncementTurnRef.current = null;
           lastSuggestionModeRef.current = 'normal';
         }
       }
@@ -801,9 +830,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     [
       evaluateSuggestionFetch,
       profile.insights,
-      conversationRubric,
       mode,
-      voiceSessionStarted,
       suggestions,
       turns,
       votesByCareerId,
@@ -811,6 +838,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       setTurns,
       setLoadingSuggestions,
       announceCardFetch,
+      removeCardAnnouncement,
     ]
   );
 
@@ -841,6 +869,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           // Text mode connects without mic but with audio sink so we keep one session
           enableMicrophone: mode === 'voice',
           enableAudioOutput: true,
+          voice: REALTIME_VOICE_ID,
         });
         
         // Wait a bit for connection to stabilize
@@ -911,6 +940,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
       const responsePayload: Record<string, unknown> = {
         output_modalities: mode === 'voice' ? ['audio'] : ['text'],
+        voice: REALTIME_VOICE_ID,
       };
       if (guidanceText) {
         if (process.env.NODE_ENV !== 'production') {
@@ -982,16 +1012,32 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
     // In voice mode, add final user voice to transcript so history stays complete
     if (mode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
-      const exists = turns.some(
-        (t) => t.role === 'user' && t.text === latestTranscript.text
-      );
-      if (!exists && latestTranscript.text.trim()) {
-        const userVoiceTurn: ConversationTurn = {
-          role: 'user',
-          text: latestTranscript.text,
-        };
-        setTurns((prev) => [...prev, userVoiceTurn]);
-        // We don't trigger deriveInsights here; assistant reply will handle it.
+      const userText = latestTranscript.text.trim();
+      if (!userText) {
+        return;
+      }
+
+      const exists = turns.some((t) => t.role === 'user' && t.text === userText);
+      if (exists) {
+        return;
+      }
+
+      const userVoiceTurn: ConversationTurn = {
+        role: 'user',
+        text: userText,
+      };
+      const updatedTurns = [...turns, userVoiceTurn];
+
+      setTurns(updatedTurns);
+      void deriveInsights(updatedTurns);
+
+      const evalResult = evaluateSuggestionFetch({ turnSnapshot: updatedTurns });
+      if (evalResult.shouldFetch) {
+        void fetchSuggestions({
+          reason: 'voice-pre-response',
+          suppressFollowupMessage: true,
+          evaluation: evalResult,
+        });
       }
       return;
     }
@@ -1033,7 +1079,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         }
       }
     }
-  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted, fetchSuggestions]);
+  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted, fetchSuggestions, evaluateSuggestionFetch]);
 
   // Do not auto-connect in text mode; connect on-demand in handleSend, and via Start Voice.
 
@@ -1088,6 +1134,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       });
       const responsePayload: Record<string, unknown> = {
         output_modalities: ['audio'],
+        voice: REALTIME_VOICE_ID,
       };
       if (guidanceText) {
         if (process.env.NODE_ENV !== 'production') {
@@ -1312,6 +1359,21 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
                 suggestionsLastInsightCountRef.current = 0;
                 suggestionsFetchInFlightRef.current = false;
                 setVoiceSessionStarted(true);
+                setVoiceCardList((prev) => {
+                  if (prev.length === 0) {
+                    return suggestions;
+                  }
+                  const merged = new Map<string, CareerSuggestion>();
+                  suggestions.forEach((card) => {
+                    merged.set(card.id, card);
+                  });
+                  prev.forEach((card) => {
+                    if (!merged.has(card.id)) {
+                      merged.set(card.id, card);
+                    }
+                  });
+                  return Array.from(merged.values());
+                });
               }}
             />
           </div>
@@ -1371,8 +1433,8 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             </div>
           )}
           
-          {/* Show career cards in voice mode */}
-          {!loadingSuggestions && voiceSessionStarted && voiceSuggestions.length > 0 && (
+          {/* Show career cards in voice mode (keep visible while new ones load) */}
+          {voiceSessionStarted && voiceSuggestions.length > 0 && (
             <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
               <h4
                 style={{

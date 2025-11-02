@@ -8,7 +8,7 @@ import {
 	type ConversationRubric,
 } from "@/lib/conversation-phases";
 import { computeRubricScores } from "@/lib/conversation-phases";
-import type { RubricEvaluationResponseBody } from "@/lib/conversation-rubric";
+import { extractConversationInsights } from "@/lib/conversation-engagement";
 
 export type SessionMode = "text" | "voice" | null;
 
@@ -187,10 +187,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log('[SessionProvider] Initializing votesByCareerId');
 		if (typeof window === 'undefined') return {};
 		try {
-			const stored = localStorage.getItem('osmvp_votes');
+			// Clean up any legacy localStorage entries
+			localStorage.removeItem('osmvp_votes');
+		} catch {
+			// ignore
+		}
+		try {
+			const stored = sessionStorage.getItem('osmvp_votes');
 			if (stored) {
 				const parsed = JSON.parse(stored);
-				console.log('[SessionProvider] Restored votes from localStorage:', parsed);
+				console.log('[SessionProvider] Restored votes from sessionStorage:', parsed);
 				return parsed;
 			}
 		} catch (error) {
@@ -202,10 +208,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log('[SessionProvider] Initializing suggestions');
 		if (typeof window === 'undefined') return [];
 		try {
-			const stored = localStorage.getItem('osmvp_suggestions');
+			// Clean up any legacy localStorage entries
+			localStorage.removeItem('osmvp_suggestions');
+		} catch {
+			// ignore
+		}
+		try {
+			const stored = sessionStorage.getItem('osmvp_suggestions');
 			if (stored) {
 				const parsed = JSON.parse(stored);
-				console.log('[SessionProvider] Restored suggestions from localStorage:', parsed.length, 'cards');
+				console.log('[SessionProvider] Restored suggestions from sessionStorage:', parsed.length, 'cards');
 				return parsed;
 			}
 		} catch (error) {
@@ -223,7 +235,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [conversationPhaseRationale, setConversationPhaseRationale] = useState<string[]>([]);
 	const [conversationRubric, setConversationRubric] = useState<ConversationRubric | null>(null);
 	const [shouldSeedTeaserCard, setShouldSeedTeaserCard] = useState(false);
-	const rubricRequestIdRef = useRef(0);
 
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
@@ -477,29 +488,67 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	// Local rubric scoring (static dimensions + dynamic scores) — no network
 	useEffect(() => {
 		if (turns.length === 0) {
-			setConversationRubric(null);
+			if (conversationRubric !== null) {
+				setConversationRubric(null);
+			}
 			return;
 		}
+
 		const insightSnapshots = profile.insights.map((i) => ({ kind: i.kind, value: i.value }));
-		const rubric = computeRubricScores({
+		const nextRubric = computeRubricScores({
 			turns: turns.slice(-12),
 			insights: insightSnapshots,
 			votes: votesByCareerId,
 			suggestionCount: suggestions.length,
 			prevRubric: conversationRubric,
 		});
-		setConversationRubric(rubric);
+
+		if (conversationRubric) {
+			const prevRest = { ...conversationRubric, lastUpdatedAt: 0 };
+			const nextRest = { ...nextRubric, lastUpdatedAt: 0 };
+			if (JSON.stringify(prevRest) === JSON.stringify(nextRest)) {
+				return;
+			}
+		}
+
+		setConversationRubric(nextRubric);
 		if (process.env.NODE_ENV !== 'production') {
 			console.info('[SessionProvider] Local rubric', {
-				engagementStyle: rubric.engagementStyle,
-				contextDepth: rubric.contextDepth,
-				readinessBias: rubric.readinessBias,
-				cardStatus: rubric.cardReadiness.status,
-				gaps: rubric.insightGaps,
-				recommendedFocus: rubric.recommendedFocus,
+				engagementStyle: nextRubric.engagementStyle,
+				contextDepth: nextRubric.contextDepth,
+				readinessBias: nextRubric.readinessBias,
+				cardStatus: nextRubric.cardReadiness.status,
+				gaps: nextRubric.insightGaps,
+				recommendedFocus: nextRubric.recommendedFocus,
 			});
 		}
-	}, [turns, profile.insights, votesByCareerId, suggestions.length]);
+	}, [turns, profile.insights, votesByCareerId, suggestions.length, conversationRubric]);
+
+	useEffect(() => {
+		if (turns.length === 0) {
+			return;
+		}
+		const heuristicInsights = extractConversationInsights(turns);
+		if (heuristicInsights.length === 0) {
+			return;
+		}
+		const missing = heuristicInsights.filter((candidate) =>
+			!profile.insights.some(
+				(existing) =>
+					existing.kind === candidate.kind &&
+					existing.value.toLowerCase() === candidate.value.toLowerCase()
+			)
+		);
+		if (missing.length > 0) {
+			appendProfileInsights(
+				missing.map((candidate) => ({
+					kind: candidate.kind,
+					value: candidate.value,
+					source: "assistant" as const,
+				}))
+			);
+		}
+	}, [turns, profile.insights, appendProfileInsights]);
 
 	const value = useMemo<SessionState & SessionActions>(
 		() => ({
@@ -595,18 +644,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	]
 );
 
-	// Persist votes to localStorage
+	// Persist votes to sessionStorage
 	useEffect(() => {
 		if (typeof window === 'undefined') return;
 		try {
-			localStorage.setItem('osmvp_votes', JSON.stringify(votesByCareerId));
-			console.log('[SessionProvider] Saved votes to localStorage:', Object.keys(votesByCareerId).length, 'votes');
+			sessionStorage.setItem('osmvp_votes', JSON.stringify(votesByCareerId));
+			console.log('[SessionProvider] Saved votes to sessionStorage:', Object.keys(votesByCareerId).length, 'votes');
 		} catch (error) {
-			console.error('[SessionProvider] Failed to save votes:', error);
+			console.error('[SessionProvider] Failed to save votes to sessionStorage:', error);
 		}
 	}, [votesByCareerId]);
 
-	// Persist suggestions to localStorage (with deduplication)
+	// Persist suggestions to sessionStorage (with deduplication)
 	const lastSavedSuggestionsRef = useRef<string>('');
 	useEffect(() => {
 		if (typeof window === 'undefined') return;
@@ -614,12 +663,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			const serialized = JSON.stringify(suggestions);
 			// Only save if actually changed
 			if (serialized !== lastSavedSuggestionsRef.current) {
-				localStorage.setItem('osmvp_suggestions', serialized);
+				sessionStorage.setItem('osmvp_suggestions', serialized);
 				lastSavedSuggestionsRef.current = serialized;
-				console.log('[SessionProvider] Saved suggestions to localStorage:', suggestions.length, 'cards');
+				console.log('[SessionProvider] Saved suggestions to sessionStorage:', suggestions.length, 'cards');
 			}
 		} catch (error) {
-			console.error('[SessionProvider] Failed to save suggestions:', error);
+			console.error('[SessionProvider] Failed to save suggestions to sessionStorage:', error);
 		}
 	}, [suggestions]);
 

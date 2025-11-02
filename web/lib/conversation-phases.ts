@@ -1,4 +1,5 @@
 import type { InsightKind, ConversationTurn } from "@/components/session-provider";
+import { analyzeEngagement } from "@/lib/conversation-engagement";
 
 export type ConversationPhase =
 	| "warmup"
@@ -165,60 +166,99 @@ export function recommendConversationPhase(context: PhaseContext): PhaseDecision
 }
 
 export function inferRubricFromTranscript(turns: ConversationTurn[]): ConversationRubric {
-	const recent = turns.slice(-4);
-	const userTurns = recent.filter((turn) => turn.role === "user");
-	const assistantTurns = recent.filter((turn) => turn.role === "assistant");
+	const analysis = analyzeEngagement(turns);
+	const alignmentRatio = analysis.replyCount > 0 ? analysis.alignedReplies / analysis.replyCount : 0;
+	let depthScore = Math.max(
+		Math.min(
+			analysis.depthSignals * 0.35 +
+			analysis.themeAdoptions * 0.25 +
+			alignmentRatio * 0.2 +
+			analysis.initiativeSignals * 0.2,
+			1
+		),
+		0
+	);
 
-	const userTextLength = userTurns.reduce((total, turn) => total + turn.text.trim().length, 0);
-	const assistantTextLength = assistantTurns.reduce((total, turn) => total + turn.text.trim().length, 0);
+	if (analysis.replyCount <= 1) {
+		depthScore = 0;
+	} else if (analysis.replyCount <= 2) {
+		depthScore = Math.min(depthScore, 0.35);
+	}
 
-    const sustainedReplies = userTurns.length >= 3 && userTextLength > 60;
-    const engagementStyle: EngagementStyle =
-        userTurns.length === 0
-            ? "blocked"
-            : userTextLength > 280
-            ? "leaning-in"
-            : userTextLength > 120 || sustainedReplies
-            ? "hesitant"
-            : "blocked";
+	let contextDepth: 0 | 1 | 2 | 3;
+	if (depthScore >= 0.75) {
+		contextDepth = 3;
+	} else if (depthScore >= 0.45) {
+		contextDepth = 2;
+	} else if (depthScore >= 0.2) {
+		contextDepth = 1;
+	} else {
+		contextDepth = 0;
+	}
+
+	const engagementStyle: EngagementStyle =
+		analysis.engagementScore >= 0.6
+			? "leaning-in"
+			: analysis.engagementScore >= 0.25
+			? "hesitant"
+			: "blocked";
 
 	const energyLevel: EnergyLevel =
-		userTextLength > 320 ? "high" : userTextLength > 160 ? "medium" : "low";
+		analysis.engagementScore >= 0.65 || analysis.replyCount >= 4
+			? "high"
+			: analysis.engagementScore >= 0.35
+			? "medium"
+			: "low";
 
+	const userTurns = turns.filter((turn) => turn.role === "user");
 	const containsIdeaRequest = userTurns.some((turn) =>
 		/\b(options?\b|\bideas?\b|\bcareers?\b|\bsuggestions?\b)/i.test(turn.text)
 	);
 
 	const readinessBias: ReadinessBias = containsIdeaRequest
-		? "seeking-options"
-		: engagementStyle === "leaning-in" && assistantTextLength > 0
+		? analysis.engagementScore >= 0.6 && contextDepth >= 2
+			? "deciding"
+			: "seeking-options"
+		: analysis.engagementScore >= 0.65 && contextDepth >= 2
 		? "deciding"
+		: analysis.engagementScore >= 0.35
+		? "seeking-options"
 		: "exploring";
 
-    let contextDepth: 0 | 1 | 2 | 3 =
-        userTextLength > 400 ? 3 : userTextLength > 220 ? 2 : userTextLength > 120 ? 1 : 0;
-
-    if (contextDepth === 0 && sustainedReplies) {
-        contextDepth = 1;
-    }
+	const combinedUserText = userTurns.map((turn) => turn.text).join(" ");
+	const interestKeywords = /\b(love|enjoy|interested|into|fascinated|passionate|curious)/i.test(combinedUserText);
+	const strengthKeywords = /\b(i'?m good at|i am good at|i build|i built|i can|i could|i do well|i've done)/i.test(
+		combinedUserText
+	);
+	const goalKeywords = /\b(i want to|i'd like to|my goal|my dream|i aim to|i hope to|i plan to)/i.test(
+		combinedUserText
+	);
+	const constraintKeywords = /\b(i don't want|i wouldn't|i avoid|i can't|not comfortable|i won't|i refuse)/i.test(
+		combinedUserText
+	);
 
 	const defaultCoverage: InsightCoverageSnapshot = {
-		interests: contextDepth >= 1,
-		aptitudes: contextDepth >= 2,
-		goals: contextDepth >= 2,
-		constraints: contextDepth >= 2,
+		interests: depthScore >= 0.2 || interestKeywords,
+		aptitudes: depthScore >= 0.45 || strengthKeywords,
+		goals: depthScore >= 0.5 || goalKeywords,
+		constraints: depthScore >= 0.55 || constraintKeywords,
 	};
 
 	const missingSignals = (Object.keys(defaultCoverage) as Array<keyof InsightCoverageSnapshot>).filter(
 		(key) => !defaultCoverage[key]
 	);
 
-	const cardReadiness: CardReadinessSnapshot =
-		contextDepth >= 2 && (containsIdeaRequest || engagementStyle === "leaning-in")
-			? { status: "ready", missingSignals: [] }
+	const cardStatus: CardReadinessSnapshot["status"] =
+		contextDepth >= 2
+			? "ready"
 			: contextDepth >= 1
-			? { status: "context-light", missingSignals }
-			: { status: "blocked", missingSignals };
+			? "context-light"
+			: "blocked";
+
+	const cardReadiness: CardReadinessSnapshot = {
+		status: cardStatus,
+		missingSignals: cardStatus === "ready" ? [] : missingSignals,
+	};
 
 	const recommendedFocus: ConversationFocus =
 		cardReadiness.status === "ready"

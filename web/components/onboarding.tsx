@@ -14,6 +14,7 @@ import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { CareerSuggestion, ConversationTurn } from "@/components/session-provider";
 import { VoiceControls } from "@/components/voice-controls";
 import { useRealtimeSession } from "@/hooks/use-realtime-session";
+import { REALTIME_VOICE_ID } from "@/lib/realtime-voice";
 import { SuggestionCards } from "@/components/suggestion-cards";
 import { SuggestionBasket } from "@/components/suggestion-basket";
 import { ArrowUpRight, Archive, FileText } from "lucide-react";
@@ -174,6 +175,7 @@ const initialAssistantHandledRef = useRef<boolean>(false);
 		sessionId,
 		enableMicrophone: mode === "voice",
 		enableAudioOutput: mode === "voice",
+		voice: REALTIME_VOICE_ID,
 	});
 
 	const userTurnsCount = useMemo(
@@ -493,6 +495,7 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 		await realtimeControls.connect({
 			enableMicrophone: mode === "voice",
 			enableAudioOutput: mode === "voice",
+			voice: REALTIME_VOICE_ID,
 		});
 	}, [mode, realtimeControls, realtimeState.status]);
 
@@ -544,6 +547,7 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 
 			const responsePayload: Record<string, unknown> = {
 				output_modalities: mode === "voice" ? ["audio"] : ["text"],
+				voice: REALTIME_VOICE_ID,
 			};
 			const guidanceSegments: string[] = [];
 			if (initialGuidance) {
@@ -628,6 +632,7 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 		realtimeControls.cancelActiveResponse();
 		const responsePayload: Record<string, unknown> = {
 			output_modalities: mode === "voice" ? ["audio"] : ["text"],
+			voice: REALTIME_VOICE_ID,
 		};
 		const guidanceSegments: string[] = [];
 		if (initialGuidance) {
