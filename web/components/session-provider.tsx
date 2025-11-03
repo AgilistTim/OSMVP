@@ -236,6 +236,25 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [conversationRubric, setConversationRubric] = useState<ConversationRubric | null>(null);
 	const [shouldSeedTeaserCard, setShouldSeedTeaserCard] = useState(false);
 
+	const turnCount = turns.length;
+	const insightCount = profile.insights.length;
+	const suggestionCount = suggestions.length;
+	const voteCount = Object.keys(votesByCareerId).length;
+
+	useEffect(() => {
+		if (started) {
+			return;
+		}
+		const hasContext =
+			turnCount > 0 ||
+			insightCount > 0 ||
+			suggestionCount > 0 ||
+			voteCount > 0;
+		if (hasContext) {
+			setStarted(true);
+		}
+	}, [started, turnCount, insightCount, suggestionCount, voteCount]);
+
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
 			setVoiceState((prev) => {

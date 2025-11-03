@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Copy, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Copy, Share2, Map } from "lucide-react";
 import { useSession } from "@/components/session-provider";
 import {
 	buildExplorationSnapshot,
@@ -157,18 +157,36 @@ function ShareControls({ shareUrl, userName }: { shareUrl: string; userName: str
 	);
 }
 
+interface JourneyStats {
+	insightsUnlocked: number;
+	pathwaysExplored: number;
+	pathsAmpedAbout: number;
+	boldMovesMade: number;
+}
+
 interface ExplorationBodyProps {
 	snapshot: ExplorationSnapshot;
 	userName: string;
 	discoveryDate: string;
 	sessionId: string;
 	shareUrl: string;
+	stats: JourneyStats;
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
 }
 
-function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUrl, suggestions, votesByCareerId, voteCareer }: ExplorationBodyProps) {
+function ExplorationBody({
+	snapshot,
+	userName,
+	discoveryDate,
+	sessionId,
+	shareUrl,
+	stats,
+	suggestions,
+	votesByCareerId,
+	voteCareer,
+}: ExplorationBodyProps) {
 	const router = useRouter();
 	const passionSummary =
 		snapshot.themes.length > 0
@@ -186,6 +204,10 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 		router.push("/");
 	};
 
+	const handleVisualiseMap = () => {
+		router.push("/exploration-temp");
+	};
+
 	return (
 		<div className="exploration-container">
 			<div className="exploration-nav">
@@ -194,102 +216,25 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 					<span>Back to chat</span>
 				</Button>
 			</div>
-			<section className="discovery-header">
-				<div>
-					<h1>{`${userName}’s Exploration Journey`}</h1>
-					<p className="exploration-date">Discovered: {discoveryDate}</p>
-					<div className="passion-summary">
-						<p>Exploring pathways aligned with interests in {passionSummary}.</p>
-					</div>
-				</div>
-				<ShareControls shareUrl={shareUrl} userName={userName} />
-					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
-				</section>
 
-				{/* Voted Cards Section - Idea Stash */}
-				<section className="voted-cards-section">
-					<SectionHeader
-						eyebrow="Your reactions"
-						title="Idea Stash"
-						description="Career cards you've saved, marked as maybe, or skipped during your exploration."
-					/>
-			{(() => {
-				const savedCards = suggestions.filter(s => votesByCareerId[s.id] === 1);
-				const maybeCards = suggestions.filter(s => votesByCareerId[s.id] === 0);
-				const skippedCards = suggestions.filter(s => votesByCareerId[s.id] === -1);
-				const hasVotedCards = savedCards.length > 0 || maybeCards.length > 0 || skippedCards.length > 0;
+			<JourneyHeader
+				userName={userName}
+				discoveryDate={discoveryDate}
+				passions={passionSummary}
+				shareUrl={shareUrl}
+				sessionId={sessionId}
+				onVisualiseMap={handleVisualiseMap}
+			/>
 
-				if (!hasVotedCards) {
-					return (
-						<div className="voted-cards-placeholder">
-							<p className="text-muted-foreground text-center py-8">
-								Voted cards will appear here once you react to career suggestions in the chat.
-							</p>
-						</div>
-					);
-				}
+			<JourneyStatsBar stats={stats} />
 
-				return (
-					<div className="voted-cards-container" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-						{savedCards.length > 0 && (
-							<div>
-								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#059669' }}>
-									✅ Saved ({savedCards.length})
-								</h3>
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-								{savedCards.map(card => (
-									<InlineCareerCard
-										key={card.id}
-										suggestion={card}
-										voteStatus={votesByCareerId[card.id]}
-										onVote={(value) => voteCareer(card.id, value)}
-									/>
-								))}
-							</div>
-							</div>
-						)}
+			<IdeaStashSection
+				suggestions={suggestions}
+				votesByCareerId={votesByCareerId}
+				voteCareer={voteCareer}
+			/>
 
-						{maybeCards.length > 0 && (
-							<div>
-								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#d97706' }}>
-									🤔 Maybe ({maybeCards.length})
-								</h3>
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-								{maybeCards.map(card => (
-									<InlineCareerCard
-										key={card.id}
-										suggestion={card}
-										voteStatus={votesByCareerId[card.id]}
-										onVote={(value) => voteCareer(card.id, value)}
-									/>
-								))}
-							</div>
-							</div>
-						)}
-
-						{skippedCards.length > 0 && (
-							<div>
-								<h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem', color: '#6b7280' }}>
-									👎 Skipped ({skippedCards.length})
-								</h3>
-							<div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-								{skippedCards.map(card => (
-									<InlineCareerCard
-										key={card.id}
-										suggestion={card}
-										voteStatus={votesByCareerId[card.id]}
-										onVote={(value) => voteCareer(card.id, value)}
-									/>
-								))}
-							</div>
-							</div>
-						)}
-					</div>
-				);
-			})()}
-				</section>
-
-				<section className="passion-discovery">
+			<section className="passion-discovery">
 				<SectionHeader
 					eyebrow="Exploration signals"
 					title="What you're into"
@@ -410,44 +355,174 @@ function ExplorationBody({ snapshot, userName, discoveryDate, sessionId, shareUr
 					description="Tiny experiments stack up. Treat these as prompts you can remix."
 				/>
 				<div className="timeline-grid">
-					<div className="timeline-column">
-						<h3>This week</h3>
-						{snapshot.nextSteps.immediate.length > 0 ? (
-							<ul>
-								{snapshot.nextSteps.immediate.map((item) => (
-									<li key={item}>{item}</li>
-								))}
-							</ul>
-						) : (
-							<p className="empty-state">Complete a card reaction to unlock quick experiments.</p>
-						)}
-					</div>
-					<div className="timeline-column">
-						<h3>This month</h3>
-						{snapshot.nextSteps.shortTerm.length > 0 ? (
-							<ul>
-								{snapshot.nextSteps.shortTerm.map((item) => (
-									<li key={item}>{item}</li>
-								))}
-							</ul>
-						) : (
-							<p className="empty-state">We’ll add deeper projects once a few directions stand out.</p>
-						)}
-					</div>
-					<div className="timeline-column">
-						<h3>Next quarter</h3>
-						{snapshot.nextSteps.mediumTerm.length > 0 ? (
-							<ul>
-								{snapshot.nextSteps.mediumTerm.map((item) => (
-									<li key={item}>{item}</li>
-								))}
-							</ul>
-						) : (
-							<p className="empty-state">Big plays appear here once we’ve stress-tested a few sparks.</p>
-						)}
-					</div>
+					<TimelineColumn title="This week" items={snapshot.nextSteps.immediate} emptyMessage="Complete a card reaction to unlock quick experiments." />
+					<TimelineColumn title="This month" items={snapshot.nextSteps.shortTerm} emptyMessage="We’ll add deeper projects once a few directions stand out." />
+					<TimelineColumn title="Next quarter" items={snapshot.nextSteps.mediumTerm} emptyMessage="Big plays appear here once we’ve stress-tested a few sparks." />
 				</div>
 			</section>
+		</div>
+	);
+}
+function JourneyHeader({
+	userName,
+	discoveryDate,
+	passions,
+	shareUrl,
+	sessionId,
+	onVisualiseMap,
+}: {
+	userName: string;
+	discoveryDate: string;
+	passions: string;
+	shareUrl: string;
+	sessionId: string;
+	onVisualiseMap: () => void;
+}) {
+	return (
+		<section className="discovery-header journey-header">
+			<div className="journey-header-main">
+				<h1>{`${userName}’s Exploration Journey`}</h1>
+				<p className="exploration-date">Discovered: {discoveryDate}</p>
+				<div className="passion-summary">
+					<p>Exploring pathways aligned with interests in {passions}.</p>
+				</div>
+			</div>
+			<div className="journey-header-sidebar">
+				<ShareControls shareUrl={shareUrl} userName={userName} />
+				<div className="journey-header-actions">
+					<Button type="button" className="visualise-button" onClick={onVisualiseMap}>
+						<Map className="size-4" aria-hidden />
+						<span>Visualise your map</span>
+					</Button>
+					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
+				</div>
+			</div>
+		</section>
+	);
+}
+
+function JourneyStatsBar({ stats }: { stats: JourneyStats }) {
+	const items = [
+		{ label: "Insights unlocked", value: stats.insightsUnlocked },
+		{ label: "Pathways explored", value: stats.pathwaysExplored },
+		{ label: "Paths I’m amped about", value: stats.pathsAmpedAbout },
+		{ label: "Bold moves logged", value: stats.boldMovesMade },
+	];
+
+	return (
+		<section className="journey-stats">
+			{items.map((item) => (
+				<div key={item.label} className="journey-stat-card">
+					<div className="journey-stat-value">{item.value}</div>
+					<div className="journey-stat-label">{item.label}</div>
+				</div>
+			))}
+		</section>
+	);
+}
+
+function IdeaStashSection({
+	suggestions,
+	votesByCareerId,
+	voteCareer,
+}: {
+	suggestions: CareerSuggestion[];
+	votesByCareerId: Record<string, 1 | 0 | -1>;
+	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
+}) {
+	const savedCards = suggestions.filter((s) => votesByCareerId[s.id] === 1);
+	const maybeCards = suggestions.filter((s) => votesByCareerId[s.id] === 0);
+	const skippedCards = suggestions.filter((s) => votesByCareerId[s.id] === -1);
+	const hasVotedCards = savedCards.length > 0 || maybeCards.length > 0 || skippedCards.length > 0;
+
+	return (
+		<section className="voted-cards-section">
+			<SectionHeader
+				eyebrow="Your reactions"
+				title="Idea stash"
+				description="Saved cards stay front and centre. Maybe and skipped cards are parked for when you want to review."
+			/>
+			{hasVotedCards ? (
+				<div className="idea-stash">
+					<IdeaGroup
+						title={`✅ Saved (${savedCards.length})`}
+						emphasis="positive"
+						cards={savedCards}
+						votesByCareerId={votesByCareerId}
+						voteCareer={voteCareer}
+					/>
+					<IdeaGroup
+						title={`🤔 Maybe (${maybeCards.length})`}
+						emphasis="neutral"
+						cards={maybeCards}
+						votesByCareerId={votesByCareerId}
+						voteCareer={voteCareer}
+					/>
+					<IdeaGroup
+						title={`👎 Skipped (${skippedCards.length})`}
+						emphasis="muted"
+						cards={skippedCards}
+						votesByCareerId={votesByCareerId}
+						voteCareer={voteCareer}
+					/>
+				</div>
+			) : (
+				<div className="voted-cards-placeholder">
+					<p className="text-muted-foreground text-center py-8">
+						Voted cards will appear here once you react to career suggestions in the chat.
+					</p>
+				</div>
+			)}
+		</section>
+	);
+}
+
+function IdeaGroup({
+	title,
+	emphasis,
+	cards,
+	votesByCareerId,
+	voteCareer,
+}: {
+	title: string;
+	emphasis: "positive" | "neutral" | "muted";
+	cards: CareerSuggestion[];
+	votesByCareerId: Record<string, 1 | 0 | -1>;
+	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
+}) {
+	if (cards.length === 0) return null;
+	return (
+		<article className={cn("idea-group", `idea-group-${emphasis}`)}>
+			<header className="idea-group-header">
+				<h3>{title}</h3>
+			</header>
+			<div className="idea-list">
+				{cards.map((card) => (
+					<InlineCareerCard
+						key={card.id}
+						suggestion={card}
+						voteStatus={votesByCareerId[card.id]}
+						onVote={(value) => voteCareer(card.id, value)}
+					/>
+				))}
+			</div>
+		</article>
+	);
+}
+
+function TimelineColumn({ title, items, emptyMessage }: { title: string; items: string[]; emptyMessage: string }) {
+	return (
+		<div className="timeline-column">
+			<h3>{title}</h3>
+			{items.length > 0 ? (
+				<ul>
+					{items.map((item) => (
+						<li key={item}>{item}</li>
+					))}
+				</ul>
+			) : (
+				<p className="empty-state">{emptyMessage}</p>
+			)}
 		</div>
 	);
 }
@@ -461,6 +536,27 @@ export function ExplorationView() {
 		votesByCareerId,
 	]);
 
+	const savedCount = useMemo(
+		() => suggestions.filter((suggestion) => votesByCareerId[suggestion.id] === 1).length,
+		[suggestions, votesByCareerId]
+	);
+
+	const stats = useMemo<JourneyStats>(
+		() => ({
+			insightsUnlocked: profile.insights.length,
+			pathwaysExplored: suggestions.length,
+			pathsAmpedAbout: savedCount,
+			boldMovesMade: Math.max(profile.mutualMoments.length, profile.goals.length),
+		}),
+		[
+			profile.insights.length,
+			profile.mutualMoments.length,
+			profile.goals.length,
+			suggestions.length,
+			savedCount,
+		]
+	);
+
 	const [shareUrl, setShareUrl] = useState<string>("");
 	useEffect(() => {
 		if (typeof window !== "undefined") {
@@ -471,16 +567,17 @@ export function ExplorationView() {
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
 
-			return (
-				<ExplorationBody
-					snapshot={snapshot}
-					userName={userName}
-					discoveryDate={discoveryDate}
-					sessionId={sessionId}
-					shareUrl={shareUrl}
-					suggestions={suggestions}
-					votesByCareerId={votesByCareerId}
-					voteCareer={voteCareer}
-			/>
+	return (
+		<ExplorationBody
+			snapshot={snapshot}
+			userName={userName}
+			discoveryDate={discoveryDate}
+			sessionId={sessionId}
+			shareUrl={shareUrl}
+			stats={stats}
+			suggestions={suggestions}
+			votesByCareerId={votesByCareerId}
+			voteCareer={voteCareer}
+		/>
 	);
 }

@@ -1,0 +1,309 @@
+.pageWrap {
+  --journey-background: #ffffff;
+  --journey-text: #000000;
+  --journey-blue: #87ceeb;
+  --journey-peach: #ffb6a3;
+  --journey-border: #000000;
+  --journey-radius: 20px;
+  --journey-font: "Inter", "Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: var(--journey-background);
+  color: var(--journey-text);
+  font-family: var(--journey-font);
+  padding: clamp(24px, 5vw, 56px);
+  display: grid;
+  gap: clamp(32px, 6vw, 64px);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+  text-align: center;
+}
+
+.title {
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700;
+}
+
+.shareButton {
+  background-color: var(--journey-blue);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  color: var(--journey-text);
+  font-weight: 700;
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.shareButton:focus-visible {
+  outline: 3px solid var(--journey-border);
+  outline-offset: 2px;
+}
+
+.shareButton:hover {
+  transform: translateY(-1px);
+}
+
+.infoCard {
+  background-color: var(--journey-peach);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  padding: clamp(20px, 3vw, 28px);
+}
+
+.sparkHeading {
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.sparkQuote {
+  font-size: clamp(1rem, 2.6vw, 1.2rem);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.sparkQuote::before,
+.sparkQuote::after {
+  content: '"';
+}
+
+.section {
+  display: grid;
+  gap: 20px;
+}
+
+.sectionTitle {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+  text-align: center;
+}
+
+.mapFrame {
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  overflow: hidden;
+  background-color: var(--journey-peach);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+}
+
+.mapImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mapFallback {
+  padding: 36px;
+  text-align: center;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.pathsSection {
+  display: grid;
+  gap: 24px;
+}
+
+.pathsGrid {
+  display: grid;
+  gap: 24px;
+}
+
+.pathCard {
+  background-color: var(--journey-peach);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  padding: clamp(20px, 3vw, 28px);
+  display: grid;
+  gap: 18px;
+}
+
+.pathHeader {
+  display: grid;
+  gap: 12px;
+}
+
+.pathTitle {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.pathIconFrame {
+  width: clamp(80px, 20vw, 120px);
+  height: clamp(80px, 20vw, 120px);
+  border: 3px solid var(--journey-border);
+  border-radius: 16px;
+  overflow: hidden;
+  background-color: var(--journey-background);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pathIcon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pathIconFallback {
+  padding: 12px;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.whyTitle {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.whyText {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.tabs {
+  display: grid;
+  gap: 12px;
+}
+
+.tabList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tabButton {
+  flex: 1 1 120px;
+  background: var(--journey-background);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tabButtonActive {
+  background-color: var(--journey-blue);
+}
+
+.tabButton:focus-visible {
+  outline: 3px solid var(--journey-border);
+  outline-offset: 2px;
+}
+
+.tabPanel {
+  background-color: var(--journey-background);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  padding: 18px;
+  line-height: 1.6;
+}
+
+.tabPanel h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.tabPanel ul {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.tabPanel small {
+  display: block;
+  margin-top: 12px;
+  font-size: 0.75rem;
+}
+
+.statsGrid {
+  display: grid;
+  gap: 16px;
+}
+
+.statCard {
+  background-color: var(--journey-peach);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  padding: clamp(18px, 3vw, 26px);
+  text-align: center;
+  display: grid;
+  gap: 8px;
+}
+
+.statNumber {
+  font-size: clamp(2rem, 4vw, 2.6rem);
+  font-weight: 700;
+}
+
+.statLabel {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ctaSection {
+  text-align: center;
+  display: grid;
+  gap: 16px;
+}
+
+.ctaHeading {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 700;
+}
+
+.ctaBody {
+  font-size: clamp(1rem, 2.6vw, 1.15rem);
+  margin: 0 auto;
+  max-width: 540px;
+  line-height: 1.6;
+}
+
+.ctaButton {
+  background-color: var(--journey-blue);
+  border: 3px solid var(--journey-border);
+  border-radius: var(--journey-radius);
+  color: var(--journey-text);
+  font-weight: 700;
+  padding: 14px 34px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.ctaButton:hover {
+  transform: translateY(-1px);
+}
+
+.ctaButton:focus-visible {
+  outline: 3px solid var(--journey-border);
+  outline-offset: 2px;
+}
+
+@media (min-width: 768px) {
+  .pathsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .pathCard {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
