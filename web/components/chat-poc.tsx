@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
 import {
   MainContainer,
@@ -18,6 +18,45 @@ type MessageType = {
   sender: string;
   direction: 'incoming' | 'outgoing';
 };
+
+type ProgressStage = {
+  minTurns: number;
+  progress: number;
+  title: string;
+  caption: string;
+  promptHint: string;
+};
+
+const PROGRESS_STAGES: ProgressStage[] = [
+  {
+    minTurns: 0,
+    progress: 12,
+    title: "Let's keep it rolling.",
+    caption: "I'm mapping your vibe before surfacing matches.",
+    promptHint: 'Drop a curiosity to get me started.',
+  },
+  {
+    minTurns: 1,
+    progress: 38,
+    title: 'Great spark.',
+    caption: 'Every detail sharpens the cards I pull.',
+    promptHint: "What's something you're great at?",
+  },
+  {
+    minTurns: 2,
+    progress: 68,
+    title: 'Getting closer.',
+    caption: 'Almost ready to pin tailored idea cards.',
+    promptHint: "Paint a win you'd love to chase.",
+  },
+  {
+    minTurns: 3,
+    progress: 100,
+    title: 'Ideas on deck.',
+    caption: 'I can start pinning cards the moment you say so.',
+    promptHint: 'Ask for ideas or keep riffing details.',
+  },
+];
 
 export function ChatPOC() {
   const [messages, setMessages] = useState<MessageType[]>([
@@ -56,17 +95,59 @@ export function ChatPOC() {
     }, 1500);
   };
 
+  const userTurnCount = useMemo(
+    () => messages.filter((msg) => msg.direction === 'outgoing').length,
+    [messages]
+  );
+
+  const { currentStage, nextStage, progress } = useMemo(() => {
+    let stageIndex = 0;
+    for (let i = 0; i < PROGRESS_STAGES.length; i += 1) {
+      if (userTurnCount >= PROGRESS_STAGES[i].minTurns) {
+        stageIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    const activeStage = PROGRESS_STAGES[stageIndex];
+    const upcomingStage = PROGRESS_STAGES[stageIndex + 1];
+
+    let computedProgress = activeStage.progress;
+    if (upcomingStage) {
+      const turnsIntoStage = userTurnCount - activeStage.minTurns;
+      const stageSpan = Math.max(1, upcomingStage.minTurns - activeStage.minTurns);
+      const progressDelta = upcomingStage.progress - activeStage.progress;
+      const fractional = Math.min(1, turnsIntoStage / stageSpan);
+      computedProgress = Math.round(activeStage.progress + progressDelta * fractional);
+    }
+
+    return {
+      currentStage: activeStage,
+      nextStage: upcomingStage ?? null,
+      progress: Math.min(100, computedProgress),
+    };
+  }, [userTurnCount]);
+
+  const ctaLabel = nextStage ? 'Next up' : 'Ready';
+  const ctaText = (nextStage ?? currentStage).promptHint;
+
   return (
     <div className="chat-poc-wrapper">
       {/* Custom Offscript Header */}
       <div className="offscript-header">
         <div className="progress-section">
-          <div className="progress-title">Let&apos;s keep it rolling.</div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: '20%' }}></div>
+          <div className="progress-header">
+            <div className="progress-title">{currentStage.title}</div>
+            <div className="progress-percentage">{progress}%</div>
           </div>
-          <div className="progress-subtitle">
-            Need a touch more on what you&apos;re into, what you&apos;re good at, and hopes before I pin fresh idea cards.
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+          </div>
+          <div className="progress-subtitle">{currentStage.caption}</div>
+          <div className="progress-cta">
+            <span className="cta-pill">{ctaLabel}</span>
+            <span>{ctaText}</span>
           </div>
         </div>
         
@@ -112,4 +193,3 @@ export function ChatPOC() {
     </div>
   );
 }
-

@@ -938,10 +938,13 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
       realtimeControls.cancelActiveResponse();
 
+      const responseModalities = mode === 'voice' ? ['audio'] : ['text'];
       const responsePayload: Record<string, unknown> = {
-        output_modalities: mode === 'voice' ? ['audio'] : ['text'],
-        voice: REALTIME_VOICE_ID,
+        output_modalities: responseModalities,
       };
+      if (responseModalities.includes('audio')) {
+        responsePayload.voice = REALTIME_VOICE_ID;
+      }
       if (guidanceText) {
         if (process.env.NODE_ENV !== 'production') {
           console.info('[chat-integrated] Sending phase instructions', {
