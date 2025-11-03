@@ -165,10 +165,11 @@ export function ChatIntegrated() {
     const statusScore = status === 'ready' ? 1 : status === 'context-light' ? 0.5 : 0;
     const rubricProgress = statusScore * 0.7 + depthScore * 0.3;
 
+    const coverage = conversationRubric?.insightCoverage;
     const insightScores = [
-      Math.min(capturedInsights.interests.length / 3, 1),
-      Math.min(capturedInsights.strengths.length / 2, 1),
-      Math.min(capturedInsights.goals.length / 2, 1),
+      coverage?.interests ? 1 : Math.min(capturedInsights.interests.length / 3, 1),
+      coverage?.aptitudes ? 1 : Math.min(capturedInsights.strengths.length / 2, 1),
+      coverage?.goals ? 1 : Math.min(capturedInsights.goals.length / 2, 1),
     ];
     const insightProgress = insightScores.reduce((sum, score) => sum + score, 0) / insightScores.length;
 
@@ -335,6 +336,11 @@ export function ChatIntegrated() {
   }, [progressPercent, isHeaderExpanded]);
 
   useEffect(() => {
+    if (progressPercent < 100) {
+      hasAnnouncedReadinessRef.current = false;
+      return;
+    }
+
     if (progressPercent >= 100 && !hasAnnouncedReadinessRef.current) {
       hasAnnouncedReadinessRef.current = true;
       setTurns((prev) => [
