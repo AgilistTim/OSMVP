@@ -14,72 +14,24 @@
   background: white;
   padding: 1rem;
   border-bottom: 1px solid #e5e7eb;
-}
-
-.progress-section {
-  margin-bottom: 1rem;
-}
-
-.progress-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 1rem;
+  transition: padding 0.3s ease-in-out;
+}
+
+.offscript-header.collapsed {
   gap: 0.75rem;
-  margin-bottom: 0.5rem;
 }
 
-.progress-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.progress-percentage {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #1f2937;
-}
-
-.progress-bar {
-  height: 8px;
-  background: #e5e7eb;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 0.5rem;
+.offscript-header.expanded {
+  gap: 1rem;
 }
 
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, #a3e635, #4ade80);
   transition: width 0.3s ease;
-}
-
-.progress-subtitle {
-  font-size: 0.875rem;
-  color: #374151;
-  margin-bottom: 0.25rem;
-}
-
-.progress-cta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.875rem;
-  color: #111827;
-}
-
-.cta-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: #065f46;
-  color: #ecfdf5;
-  border-radius: 9999px;
-  padding: 0.125rem 0.5rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .action-buttons {
@@ -216,4 +168,283 @@
 
 .cs-chat-container {
   height: 100% !important;
+}
+
+/* === Smart Header Enhancements === */
+.header-collapsed-view {
+  position: relative;
+}
+
+.progress-section-minimal {
+  margin-bottom: 0.75rem;
+}
+
+.progress-header-minimal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.consolidated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 9999px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #1f2937;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.consolidated-badge:focus-visible {
+  outline: none;
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.25);
+}
+
+.consolidated-badge:hover {
+  border-color: #a3e635;
+  background: #f0fdf4;
+}
+
+.badge-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.badge-text {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  color: #6b7280;
+  transition: transform 0.3s ease;
+}
+
+.chevron.up {
+  transform: rotate(180deg);
+}
+
+.progress-percentage-minimal {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #065f46;
+}
+
+.progress-bar-minimal {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.new-item-chip {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  background: #a3e635;
+  color: #065f46;
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  animation: chipAppear 3s ease-in-out forwards;
+  pointer-events: none;
+}
+
+@keyframes chipAppear {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-10px);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+}
+
+.header-expanded-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: hidden;
+  animation: expandIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 520px;
+  }
+}
+
+.insight-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.insight-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 9999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.pill-label {
+  font-weight: 500;
+}
+
+.pill-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.pill-count {
+  background: #111827;
+  color: white;
+  border-radius: 9999px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.expanded-details {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.detail-category-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  margin: 0 0 0.5rem 0;
+}
+
+.detail-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.detail-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.item-bullet {
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+.item-text {
+  font-size: 0.875rem;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.progress-section-expanded {
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.progress-title-expanded {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.progress-subtitle-expanded {
+  font-size: 0.9rem;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.progress-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #111827;
+}
+
+.cta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #065f46;
+  color: #ecfdf5;
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .consolidated-badge {
+    padding: 0.4rem 0.85rem;
+    font-size: 0.8rem;
+  }
+
+  .progress-percentage-minimal {
+    font-size: 0.9rem;
+  }
+
+  .expanded-details {
+    padding: 0.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offscript-header,
+  .chevron,
+  .progress-fill,
+  .new-item-chip,
+  .header-expanded-view {
+    animation: none !important;
+    transition: none !important;
+  }
 }

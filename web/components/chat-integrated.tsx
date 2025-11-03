@@ -16,10 +16,9 @@ import { useSession } from '@/components/session-provider';
 import { buildRealtimeInstructions } from '@/lib/conversation-instructions';
 import type { ConversationTurn, InsightKind } from '@/components/session-provider';
 
-import { ProfileInsightsBar } from '@/components/profile-insights-bar';
+import type { LucideIcon } from 'lucide-react';
+import { BarChart3, CheckCircle2, ChevronDown, Sparkles, Target, Trophy, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { FileText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
@@ -33,14 +32,64 @@ type MessageType = {
   sentTime: string;
   sender: string;
   direction: 'incoming' | 'outgoing';
-  type?: 'text' | 'career-card';
+  type?: 'text' | 'career-card' | 'card-status';
   careerSuggestion?: CareerSuggestion;
   insertAfterTurnIndex?: number; // For card messages, indicates where to insert in timeline
   revealIndex?: number; // For staggered CSS animations (0 = intro, 1+ = cards)
+  statusId?: string;
+  status?: 'loading' | 'ready';
 };
 
 const DEFAULT_OPENING =
   "Let's chat about what you're into and what you're working on. As we go, I'll suggest some ideas you can thumbs up or down, and build you a personal page you can share.";
+
+type CapturedItem = {
+  id: string;
+  text: string;
+};
+
+type CapturedInsights = {
+  interests: CapturedItem[];
+  strengths: CapturedItem[];
+  goals: CapturedItem[];
+};
+
+type ProgressStage = {
+  minPercent: number;
+  title: string;
+  caption: string;
+  promptHint: string;
+};
+
+const PROGRESS_STAGES: ProgressStage[] = [
+  {
+    minPercent: 0,
+    title: "Let's keep it rolling.",
+    caption: "I'm mapping your vibe before surfacing matches.",
+    promptHint: 'Drop a curiosity to get me started.',
+  },
+  {
+    minPercent: 35,
+    title: 'Great spark.',
+    caption: 'Every detail sharpens the cards I pull.',
+    promptHint: "What's something you're great at?",
+  },
+  {
+    minPercent: 65,
+    title: 'Getting closer.',
+    caption: 'Almost ready to pin tailored idea cards.',
+    promptHint: "Paint a win you'd love to chase.",
+  },
+  {
+    minPercent: 90,
+    title: 'Ideas on deck.',
+    caption: 'I can start pinning cards the moment you say so.',
+    promptHint: 'Ask for ideas or keep riffing details.',
+  },
+];
+
+const PROGRESS_READY_MESSAGE =
+  "Love what you've shared so far. I've drafted your first idea set—tap MY PAGE to peek, and keep riffing if you want me to sharpen it.";
 
 export function ChatIntegrated() {
   const router = useRouter();
@@ -60,24 +109,243 @@ export function ChatIntegrated() {
     clearTeaserSeed,
   } = useSession();
 
-  // Compute progress
-  const userTurnsCount = useMemo(() => {
-    return turns.filter((t) => t.role === 'user').length;
-  }, [turns]);
+  const capturedInsights = useMemo<CapturedInsights>(() => {
+    const summary: CapturedInsights = {
+      interests: [],
+      strengths: [],
+      goals: [],
+    };
+    const seen = {
+      interests: new Set<string>(),
+      strengths: new Set<string>(),
+      goals: new Set<string>(),
+    };
 
-  const progress = useMemo(() => {
-    if (userTurnsCount === 0) return 20;
-    return Math.min(100, 20 + userTurnsCount * 15);
-  }, [userTurnsCount]);
+    profile.insights.forEach((insight) => {
+      const trimmed = insight.value?.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      let bucket: keyof CapturedInsights | null = null;
+      if (insight.kind === 'interest') {
+        bucket = 'interests';
+      } else if (insight.kind === 'strength') {
+        bucket = 'strengths';
+      } else if (insight.kind === 'goal' || insight.kind === 'hope') {
+        bucket = 'goals';
+      }
+
+      if (!bucket) {
+        return;
+      }
+
+      const normalized = trimmed.toLowerCase();
+      if (seen[bucket].has(normalized)) {
+        return;
+      }
+
+      seen[bucket].add(normalized);
+      summary[bucket].push({
+        id: insight.id,
+        text: trimmed,
+      });
+    });
+
+    return summary;
+  }, [profile.insights]);
+
+  const {
+    percent: progressPercent,
+    currentStage,
+    nextStage,
+  } = useMemo(() => {
+    const status = conversationRubric?.cardReadiness?.status ?? 'blocked';
+    const depthScore = Math.min((conversationRubric?.contextDepth ?? 0) / 3, 1);
+    const statusScore = status === 'ready' ? 1 : status === 'context-light' ? 0.5 : 0;
+    const rubricProgress = statusScore * 0.7 + depthScore * 0.3;
+
+    const insightScores = [
+      Math.min(capturedInsights.interests.length / 3, 1),
+      Math.min(capturedInsights.strengths.length / 2, 1),
+      Math.min(capturedInsights.goals.length / 2, 1),
+    ];
+    const insightProgress = insightScores.reduce((sum, score) => sum + score, 0) / insightScores.length;
+
+    let rawScore = insightProgress * 0.6 + rubricProgress * 0.4;
+    let percent = Math.round(Math.min(rawScore, 1) * 100);
+    if (rubricProgress >= 0.95 && insightProgress >= 0.95) {
+      percent = 100;
+    }
+
+    let stageIndex = 0;
+    for (let i = 0; i < PROGRESS_STAGES.length; i += 1) {
+      if (percent >= PROGRESS_STAGES[i].minPercent) {
+        stageIndex = i;
+      } else {
+        break;
+      }
+    }
+
+    return {
+      percent,
+      currentStage: PROGRESS_STAGES[stageIndex],
+      nextStage: PROGRESS_STAGES[stageIndex + 1] ?? null,
+    };
+  }, [capturedInsights, conversationRubric]);
 
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
+  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+  const [recentlyAddedItem, setRecentlyAddedItem] = useState<string | null>(null);
+  const newItemTimerRef = useRef<number | null>(null);
+  const previousInsightIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedInsightsRef = useRef(false);
+  const hasAnnouncedReadinessRef = useRef(false);
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
+  const cardStatusIdRef = useRef<string | null>(null);
   // Basket drawer removed - voted cards now shown on MY PAGE
+
+  const insightCategories = useMemo(() => {
+    const categories: Array<{
+      key: keyof CapturedInsights;
+      label: string;
+      icon: LucideIcon;
+      count: number;
+      items: CapturedItem[];
+    }> = [
+      {
+        key: 'interests',
+        label: 'Interests',
+        icon: Sparkles,
+        count: capturedInsights.interests.length,
+        items: capturedInsights.interests,
+      },
+      {
+        key: 'strengths',
+        label: 'Strengths',
+        icon: Trophy,
+        count: capturedInsights.strengths.length,
+        items: capturedInsights.strengths,
+      },
+      {
+        key: 'goals',
+        label: 'Goals',
+        icon: Target,
+        count: capturedInsights.goals.length,
+        items: capturedInsights.goals,
+      },
+    ];
+
+    return categories;
+  }, [capturedInsights]);
+
+  const totalInsights = useMemo(
+    () => insightCategories.reduce((acc, category) => acc + category.count, 0),
+    [insightCategories]
+  );
+
+  useEffect(() => {
+    const currentIds = new Set(profile.insights.map((insight) => insight.id));
+
+    if (!hasInitializedInsightsRef.current) {
+      previousInsightIdsRef.current = currentIds;
+      hasInitializedInsightsRef.current = true;
+      return;
+    }
+
+    let newestInsight: { id: string; text: string } | null = null;
+    for (const insight of profile.insights) {
+      if (previousInsightIdsRef.current.has(insight.id)) {
+        continue;
+      }
+
+      const trimmed = insight.value?.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      if (
+        insight.kind === 'interest' ||
+        insight.kind === 'strength' ||
+        insight.kind === 'goal' ||
+        insight.kind === 'hope'
+      ) {
+        newestInsight = { id: insight.id, text: trimmed };
+        break;
+      }
+    }
+
+    previousInsightIdsRef.current = currentIds;
+
+    if (!newestInsight) {
+      return;
+    }
+
+    if (newItemTimerRef.current !== null) {
+      window.clearTimeout(newItemTimerRef.current);
+      newItemTimerRef.current = null;
+    }
+
+    setRecentlyAddedItem(newestInsight.text);
+    newItemTimerRef.current = window.setTimeout(() => {
+      setRecentlyAddedItem(null);
+      newItemTimerRef.current = null;
+    }, 2800);
+
+    return () => {
+      if (newItemTimerRef.current !== null) {
+        window.clearTimeout(newItemTimerRef.current);
+        newItemTimerRef.current = null;
+      }
+    };
+  }, [profile.insights]);
+
+  useEffect(() => {
+    return () => {
+      if (newItemTimerRef.current !== null) {
+        window.clearTimeout(newItemTimerRef.current);
+        newItemTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const ctaLabel = nextStage ? 'Next up' : 'Ready';
+  const ctaText = (nextStage ?? currentStage).promptHint;
+  const chipText = useMemo(() => {
+    if (!recentlyAddedItem) {
+      return null;
+    }
+    return recentlyAddedItem.length > 36
+      ? `${recentlyAddedItem.slice(0, 33)}…`
+      : recentlyAddedItem;
+  }, [recentlyAddedItem]);
+  const toggleHeader = () => {
+    setIsHeaderExpanded((prev) => !prev);
+  };
+
+  useEffect(() => {
+    if (progressPercent >= 100 && isHeaderExpanded) {
+      setIsHeaderExpanded(false);
+    }
+  }, [progressPercent, isHeaderExpanded]);
+
+  useEffect(() => {
+    if (progressPercent >= 100 && !hasAnnouncedReadinessRef.current) {
+      hasAnnouncedReadinessRef.current = true;
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: PROGRESS_READY_MESSAGE,
+        },
+      ]);
+    }
+  }, [progressPercent, setTurns]);
 
   // Realtime API session
   const [realtimeState, realtimeControls] = useRealtimeSession({
@@ -245,6 +513,8 @@ export function ChatIntegrated() {
       return;
     }
 
+    const announcementInsertIndex = turns.length + 1;
+
     setTurns((prev) => {
       const next = [
         ...prev,
@@ -256,7 +526,23 @@ export function ChatIntegrated() {
       lastCardAnnouncementTurnRef.current = next.length;
       return next;
     });
-  }, [CARD_FETCH_ANNOUNCEMENT, setTurns]);
+
+    const statusId = `card-status-${Date.now()}`;
+    cardStatusIdRef.current = statusId;
+    setCardMessages((prev) => [
+      ...prev.filter((msg) => msg.type !== 'card-status'),
+      {
+        message: '',
+        sentTime: 'just now',
+        sender: 'Guide',
+        direction: 'incoming',
+        type: 'card-status',
+        insertAfterTurnIndex: announcementInsertIndex,
+        statusId,
+        status: 'loading' as const,
+      },
+    ]);
+  }, [CARD_FETCH_ANNOUNCEMENT, setTurns, setCardMessages, turns.length]);
 
   useEffect(() => {
     if (mode !== 'voice') {
@@ -382,8 +668,6 @@ export function ChatIntegrated() {
       return;
     }
 
-    removeCardAnnouncement();
-
     console.log('[ChatIntegrated] Found', newSuggestions.length, 'new suggestions to reveal:', newSuggestions.map(s => s.id));
     
     // Mark these suggestions as shown FIRST to prevent re-triggering
@@ -409,6 +693,8 @@ export function ChatIntegrated() {
       return;
     }
     
+    const statusId = cardStatusIdRef.current;
+
     const newCardMessages: MessageType[] = newSuggestions.map((suggestion, index): MessageType => ({
       message: '',
       sentTime: 'just now',
@@ -422,8 +708,14 @@ export function ChatIntegrated() {
     
     // Add all messages in a single batch (CSS will handle staggered reveal)
     setCardMessages(prev => {
+      const withUpdatedStatus = prev.map((msg) =>
+        msg.type === 'card-status' && msg.statusId === statusId
+          ? { ...msg, status: 'ready' as const }
+          : msg
+      );
+
       const existingIds = new Set(
-        prev
+        withUpdatedStatus
           .filter(m => m.type === 'career-card' && m.careerSuggestion)
           .map(m => m.careerSuggestion!.id)
       );
@@ -440,12 +732,26 @@ export function ChatIntegrated() {
 
       if (filteredCards.length === 0) {
         console.log('[ChatIntegrated] Skipping card injection; all suggestions already shown.');
-        return prev;
+        return withUpdatedStatus;
       }
 
       console.log('[ChatIntegrated] Added', filteredCards.length, 'cards with staggered reveal');
-      return [...prev, ...filteredCards];
+      return [...withUpdatedStatus, ...filteredCards];
     });
+
+    if (statusId) {
+      window.setTimeout(() => {
+        setCardMessages((prev) => {
+          const next = prev.filter(
+            (msg) => !(msg.type === 'card-status' && msg.statusId === statusId)
+          );
+          if (cardStatusIdRef.current === statusId) {
+            cardStatusIdRef.current = null;
+          }
+          return next;
+        });
+      }, 1200);
+    }
 
     lastCardAnnouncementTurnRef.current = null;
     userTurnsSinceLastSuggestionRef.current = 0;
@@ -814,6 +1120,13 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       } finally {
         suggestionsFetchInFlightRef.current = false;
         setLoadingSuggestions(false);
+        if (!producedCards && cardStatusIdRef.current) {
+          const statusId = cardStatusIdRef.current;
+          setCardMessages((prev) =>
+            prev.filter((msg) => !(msg.type === 'card-status' && msg.statusId === statusId))
+          );
+          cardStatusIdRef.current = null;
+        }
         if (reason === 'pre-response' || reason === 'voice-pre-response') {
           skipAssistantRefetchRef.current = false;
         }
@@ -1202,35 +1515,115 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const showProgressBar = progress < 100;
+  const headerState = progressPercent >= 100 ? 'ready' : isHeaderExpanded ? 'expanded' : 'collapsed';
+  const canExpandInsights = insightCategories.some((category) => category.count > 0);
 
   return (
     <div className="chat-integrated-wrapper">
-      {/* Profile Insights Bar */}
-      {profile.insights.length > 0 && (
-        <div className="profile-insights-container">
-          <ProfileInsightsBar insights={profile.insights} />
-        </div>
-      )}
-
-      {/* Custom Offscript Header */}
-      <div className="offscript-header">
-        {showProgressBar && (
-        <div className="progress-section">
-          <div className="progress-header">
-            <div className="progress-title">
-              {progress < 100 ? "Let's keep it rolling." : "Ready to explore!"}
+      <div className={`offscript-header ${headerState}`}>
+        <div className="header-collapsed-view">
+          <div className={`progress-section-minimal${progressPercent >= 100 ? ' progress-section-minimal--ready' : ''}`}>
+            <div className="progress-header-minimal">
+              <button
+                type="button"
+                className="consolidated-badge"
+                onClick={canExpandInsights ? toggleHeader : undefined}
+                aria-expanded={isHeaderExpanded}
+                aria-label={
+                  isHeaderExpanded
+                    ? 'Collapse insight summary'
+                    : 'Expand insight summary'
+                }
+                disabled={!canExpandInsights}
+              >
+                {progressPercent >= 100 ? (
+                  <CheckCircle2 className="badge-icon" aria-hidden />
+                ) : (
+                  <BarChart3 className="badge-icon" aria-hidden />
+                )}
+                <span className="badge-text">Insights: {totalInsights}</span>
+                {canExpandInsights ? (
+                  <ChevronDown className={`chevron ${isHeaderExpanded ? 'up' : ''}`} aria-hidden />
+                ) : null}
+              </button>
+              {progressPercent < 100 ? (
+                <div className="progress-percentage-minimal">{progressPercent}%</div>
+              ) : (
+                <div className="progress-ready-label">Ready</div>
+              )}
             </div>
-            <div className="progress-percentage">{progress}%</div>
+            {progressPercent < 100 ? (
+              <div className="progress-bar-minimal">
+                <div className="progress-fill" style={{ width: `${progressPercent}%` }}></div>
+              </div>
+            ) : null}
           </div>
-          <Progress value={progress} className="progress-bar" />
-          <div className="progress-subtitle">
-            {progress < 100
-              ? "Need a touch more on what you're into, what you're good at, and hopes before I pin fresh idea cards."
-              : "You've shared enough to start exploring ideas!"}
-          </div>
+          {chipText ? <div className="new-item-chip">+ {chipText}</div> : null}
         </div>
-        )}
+
+        {progressPercent >= 100 ? (
+          <div className="ready-banner">
+            <span className="ready-dot" aria-hidden />
+            <span className="ready-text">
+              We’ve got enough to spin up your starter page. Tap MY PAGE to peek, or keep sharing to sharpen it.
+            </span>
+          </div>
+        ) : null}
+
+        {isHeaderExpanded && canExpandInsights ? (
+          <div className="header-expanded-view">
+            <div className="insight-pills">
+              {insightCategories.map((category) => {
+                const Icon = category.icon;
+                return (
+                  <div key={category.key} className="insight-pill">
+                    <Icon className="pill-icon" aria-hidden />
+                    <span className="pill-label">{category.label}</span>
+                    <span className="pill-count">{category.count}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="expanded-details">
+              {insightCategories.map((category) =>
+                category.items.length > 0 ? (
+                  <div key={category.key} className="detail-category">
+                    <h4 className="detail-category-title">{category.label.toUpperCase()}</h4>
+                    <ul className="detail-items">
+                      {category.items.map((item) => (
+                        <li key={item.id} className="detail-item">
+                          <span className="item-bullet" aria-hidden>
+                            ○
+                          </span>
+                          <span className="item-text">{item.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null
+              )}
+            </div>
+
+            {progressPercent < 100 ? (
+              <div className="progress-section-expanded">
+                <div className="progress-title-expanded">{currentStage.title}</div>
+                <div className="progress-subtitle-expanded">{currentStage.caption}</div>
+                <div className="progress-cta">
+                  <span className="cta-pill">{ctaLabel}</span>
+                  <span>{ctaText}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="progress-section-expanded ready-expanded-note">
+                <div className="progress-title-expanded">Ideas unlocked</div>
+                <div className="progress-subtitle-expanded">
+                  Keep riffing if you want me to fine-tune or chase new angles. Everything new feeds your page live.
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
 
         <div className="action-buttons">
           <Button
@@ -1252,12 +1645,36 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
               <MessageList
                 typingIndicator={isTyping ? <TypingIndicator content="Guide is typing" /> : null}
               >
-                {messages.map((msg, i) => {
-                  if (msg.type === 'career-card' && msg.careerSuggestion) {
-                    const revealDelay = msg.revealIndex !== undefined ? msg.revealIndex * 0.8 : 0;
+            {messages.map((msg, i) => {
+              if (msg.type === 'card-status') {
+                const statusKey = msg.statusId ?? `card-status-${i}`;
+                return (
+                  <div
+                    key={statusKey}
+                    className={`card-status-message ${msg.status === 'ready' ? 'ready' : 'loading'}`}
+                  >
+                    {msg.status === 'ready' ? (
+                      <div className="card-status-content">
+                        <span className="card-status-dot card-status-dot--ready" />
+                        <span className="card-status-text">
+                          Cards are ready—scroll down or tap MY PAGE to explore them.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="card-status-content">
+                        <span className="card-status-spinner" aria-hidden />
+                        <span className="card-status-text">Pulling some idea cards for you…</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              if (msg.type === 'career-card' && msg.careerSuggestion) {
+                    const revealDelay = msg.revealIndex !== undefined ? msg.revealIndex * 1 : 0;
+                    const cardKey = msg.careerSuggestion.id ?? `career-card-${i}`;
                     return (
                       <div 
-                        key={i} 
+                        key={cardKey} 
                         className="card-reveal-container"
                         style={{ 
                           padding: '0.5rem 1rem',
