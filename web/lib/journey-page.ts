@@ -216,10 +216,9 @@ function createMapPrompt({
 	turningPoints: string[];
 	savedPaths: JourneyInput["voting_data"]["saved"];
 }): string {
-	const displayName = userName && userName !== "Your" ? `${userName}` : "this explorer";
-	const possessiveName = userName && userName !== "Your" ? `${userName}'s` : "the explorer's";
-	const startPoint = mapData.start_point?.trim() || "Curiosity Basecamp";
-	const openingLine = openingStatement?.trim() || "I'm exploring what to do next.";
+const possessiveName = userName && userName !== "Your" ? `${userName}’s` : "the explorer’s";
+const startPoint = mapData.start_point?.trim() || "Curiosity Basecamp";
+const openingLine = openingStatement?.trim() || "I’m exploring what to do next.";
 
 	const themeList = (mapData.themes ?? []).map((theme) => theme.trim()).filter(Boolean);
 	const themeText =

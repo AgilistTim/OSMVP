@@ -191,7 +191,7 @@ export function ChatIntegrated() {
     ];
     const insightProgress = insightScores.reduce((sum, score) => sum + score, 0) / insightScores.length;
 
-    let rawScore = insightProgress * 0.6 + rubricProgress * 0.4;
+    const rawScore = insightProgress * 0.6 + rubricProgress * 0.4;
     let percent = Math.round(Math.min(rawScore, 1) * 100);
     if (rubricProgress >= 0.95 && insightProgress >= 0.95) {
       percent = 100;

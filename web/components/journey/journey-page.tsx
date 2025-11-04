@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import type { JourneyPageData } from "@/lib/journey-page";
 import styles from "./journey-page.module.css";
 
@@ -13,10 +14,13 @@ export function JourneyPage({ data, startUrl = "/" }: JourneyPageProps) {
 	const mapSection = useMemo(() => {
 		if (data.exploration_map_url) {
 			return (
-				<img
+				<Image
 					src={data.exploration_map_url}
 					alt="Exploration map generated for this journey"
 					className={styles.mapImage}
+					width={1200}
+					height={675}
+					unoptimized
 				/>
 			);
 		}
@@ -38,14 +42,14 @@ export function JourneyPage({ data, startUrl = "/" }: JourneyPageProps) {
 				<ShareButton />
 			</header>
 
-			<section className={styles.section} aria-labelledby="spark-heading">
-				<div className={styles.infoCard}>
-					<h2 id="spark-heading" className={styles.sparkHeading}>
-						It All Started With a Question…
-					</h2>
-					<p className={styles.sparkQuote}>{data.opening_statement}</p>
-				</div>
-			</section>
+		<section className={styles.section} aria-labelledby="spark-heading">
+			<div className={styles.infoCard}>
+				<h2 id="spark-heading" className={styles.sparkHeading}>
+					It All Started With a Question…
+				</h2>
+				<p className={styles.sparkQuote}>{data.opening_statement}</p>
+			</div>
+		</section>
 
 			<section className={styles.section} aria-labelledby="map-heading">
 				<h2 id="map-heading" className={styles.sectionTitle}>
@@ -54,11 +58,11 @@ export function JourneyPage({ data, startUrl = "/" }: JourneyPageProps) {
 				<div className={styles.mapFrame}>{mapSection}</div>
 			</section>
 
-			{data.top_paths.length > 0 ? (
-				<section className={styles.pathsSection} aria-labelledby="compass-heading">
-					<h2 id="compass-heading" className={styles.sectionTitle}>
-						My Compass: Where I'm Heading
-					</h2>
+		{data.top_paths.length > 0 ? (
+			<section className={styles.pathsSection} aria-labelledby="compass-heading">
+				<h2 id="compass-heading" className={styles.sectionTitle}>
+					My Compass: Where I’m Heading
+				</h2>
 					<div className={styles.pathsGrid}>
 						{data.top_paths.map((path) => (
 							<PathCard key={path.title} path={path} />
@@ -69,12 +73,12 @@ export function JourneyPage({ data, startUrl = "/" }: JourneyPageProps) {
 
 			<StatsGrid stats={data.stats} />
 
-			<section className={styles.ctaSection}>
-				<h2 className={styles.ctaHeading}>This Isn't a Resume. It's a Launchpad.</h2>
-				<p className={styles.ctaBody}>
-					My journey is just getting started. If this has inspired you, you can start your own
-					exploration.
-				</p>
+		<section className={styles.ctaSection}>
+			<h2 className={styles.ctaHeading}>This Isn’t a Resume. It’s a Launchpad.</h2>
+			<p className={styles.ctaBody}>
+				My journey is just getting started. If this has inspired you, you can start your own
+				exploration.
+			</p>
 				<a href={startUrl} className={styles.ctaButton}>
 					Start Your Own Journey
 				</a>
@@ -93,26 +97,29 @@ function PathCard({ path }: { path: JourneyPageData["top_paths"][number] }) {
 	return (
 		<article className={styles.pathCard}>
 			<div className={styles.pathHeader}>
-				<div className={styles.pathIconFrame}>
-					{path.icon_url ? (
-						<img
-							src={path.icon_url}
-							alt={`${path.title} icon`}
-							className={styles.pathIcon}
-						/>
-					) : (
-						<div className={styles.pathIconFallback}>
-							<p>{path.title}</p>
-							{path.icon_error ? <small>{path.icon_error}</small> : null}
-						</div>
-					)}
-				</div>
-				<h3 className={styles.pathTitle}>{path.title}</h3>
-				<div>
-					<p className={styles.whyTitle}>Why I'm Excited</p>
-					<p className={styles.whyText}>{path.for_me_text}</p>
-				</div>
+			<div className={styles.pathIconFrame}>
+				{path.icon_url ? (
+					<Image
+						src={path.icon_url}
+						alt={`${path.title} icon`}
+						className={styles.pathIcon}
+						width={128}
+						height={128}
+						unoptimized
+					/>
+				) : (
+					<div className={styles.pathIconFallback}>
+						<p>{path.title}</p>
+						{path.icon_error ? <small>{path.icon_error}</small> : null}
+					</div>
+				)}
 			</div>
+			<h3 className={styles.pathTitle}>{path.title}</h3>
+			<div>
+				<p className={styles.whyTitle}>Why I’m Excited</p>
+				<p className={styles.whyText}>{path.for_me_text}</p>
+			</div>
+		</div>
 
 			<div className={styles.tabs}>
 				<div role="tablist" aria-label={`${path.title} audience tabs`} className={styles.tabList}>
@@ -131,7 +138,7 @@ function PathCard({ path }: { path: JourneyPageData["top_paths"][number] }) {
 
 				{activeTab === "me" ? (
 					<div role="tabpanel" className={styles.tabPanel}>
-						<h3>Why I'm Excited</h3>
+						<h3>Why I’m Excited</h3>
 						<p>{path.for_me_text}</p>
 					</div>
 				) : null}
@@ -153,7 +160,7 @@ function PathCard({ path }: { path: JourneyPageData["top_paths"][number] }) {
 		) : (
 			<p>
 				{path.for_parents_message ??
-					"This is a new and emerging field! Market data is still taking shape, which means it's a great time to be a pioneer."}
+					"This is a new and emerging field! Market data is still taking shape, which means it’s a great time to be a pioneer."}
 			</p>
 		)}
 	</div>
@@ -234,7 +241,7 @@ function StatsGrid({ stats }: { stats: JourneyPageData["stats"] }) {
 			<div className={styles.statsGrid}>
 				<StatCard number={stats.insights_unlocked} label="Insights Unlocked" />
 				<StatCard number={stats.pathways_explored} label="Pathways Explored" />
-				<StatCard number={stats.paths_amped_about} label="Paths I'm Amped About" />
+		<StatCard number={stats.paths_amped_about} label="Paths I’m Amped About" />
 				<StatCard number={stats.bold_moves_made} label="Bold Moves Made" />
 			</div>
 		</section>
