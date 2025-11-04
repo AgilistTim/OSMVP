@@ -91,6 +91,11 @@ const PROGRESS_STAGES: ProgressStage[] = [
 const PROGRESS_READY_MESSAGE =
   "Love what you've shared so far. I've drafted your first idea set—tap MY PAGE to peek, and keep riffing if you want me to sharpen it.";
 
+const UNREVIEWED_CARD_THRESHOLD = 3;
+const CARD_BACKLOG_TIMEOUT_MS = 90_000;
+const CARD_BACKLOG_NUDGE =
+  "I’ve resurfaced your current cards—give them a quick 👍 or 👎 and I’ll pull fresh directions right after.";
+
 export function ChatIntegrated() {
   const router = useRouter();
   const {
@@ -107,6 +112,7 @@ export function ChatIntegrated() {
     conversationRubric,
     shouldSeedTeaserCard,
     clearTeaserSeed,
+    lastCardInteractionAt,
   } = useSession();
 
   const capturedInsights = useMemo<CapturedInsights>(() => {
@@ -154,6 +160,18 @@ export function ChatIntegrated() {
 
     return summary;
   }, [profile.insights]);
+
+  const unreviewedSuggestions = useMemo(
+    () => suggestions.filter((card) => votesByCareerId[card.id] === undefined),
+    [suggestions, votesByCareerId]
+  );
+  const unreviewedCount = unreviewedSuggestions.length;
+
+  useEffect(() => {
+    if (unreviewedCount < UNREVIEWED_CARD_THRESHOLD) {
+      backlogNudgeSentRef.current = false;
+    }
+  }, [unreviewedCount]);
 
   const {
     percent: progressPercent,
@@ -391,6 +409,13 @@ export function ChatIntegrated() {
   const lastProcessedTurnCountRef = useRef(turns.length);
   const lastRubricUpdateAtRef = useRef<number>(0);
   const lastRubricTurnCountRef = useRef<number>(0);
+  const backlogNudgeSentRef = useRef(false);
+
+  useEffect(() => {
+    if (suggestions.length > 0 && lastSuggestionsFetchAtRef.current === 0) {
+      lastSuggestionsFetchAtRef.current = Date.now();
+    }
+  }, [suggestions.length]);
   
   // Initialize last insight count from sessionStorage (only once on mount)
   const suggestionsLastInsightCountRef = useRef<number>(0);
@@ -438,6 +463,52 @@ export function ChatIntegrated() {
   // Store card messages separately (not persisted to avoid infinite loop issues)
   const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
   const [voiceCardList, setVoiceCardList] = useState<CareerSuggestion[]>([]);
+
+  const requeueUnreviewedCards = useCallback(() => {
+    if (unreviewedSuggestions.length === 0) {
+      return;
+    }
+
+    const insertAfterTurnIndex = turns.length;
+
+    setCardMessages((prev) => {
+      const unreviewedIds = new Set(unreviewedSuggestions.map((card) => card.id));
+      const kept = prev.filter(
+        (msg) => !(msg.type === 'career-card' && msg.careerSuggestion && unreviewedIds.has(msg.careerSuggestion.id))
+      );
+
+      const replayMessages: MessageType[] = unreviewedSuggestions.map((suggestion, index) => ({
+        message: '',
+        sentTime: 'just now',
+        sender: 'Guide',
+        direction: 'incoming',
+        type: 'career-card',
+        careerSuggestion: suggestion,
+        insertAfterTurnIndex,
+        revealIndex: index,
+      }));
+
+      console.info('[Suggestions] Re-presenting existing cards', {
+        count: replayMessages.length,
+        insertAfterTurnIndex,
+      });
+
+      return [...kept, ...replayMessages];
+    });
+
+    if (mode === 'voice') {
+      setVoiceCardList((prev) => {
+        const merged = new Map<string, CareerSuggestion>();
+        unreviewedSuggestions.forEach((card) => merged.set(card.id, card));
+        prev.forEach((card) => {
+          if (!merged.has(card.id)) {
+            merged.set(card.id, card);
+          }
+        });
+        return Array.from(merged.values());
+      });
+    }
+  }, [mode, setCardMessages, setVoiceCardList, turns.length, unreviewedSuggestions]);
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
@@ -840,13 +911,53 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       {
         force = false,
         turnSnapshot,
-      }: { force?: boolean; turnSnapshot?: ConversationTurn[] } = {}
+        triggerText,
+      }: { force?: boolean; turnSnapshot?: ConversationTurn[]; triggerText?: string } = {}
     ) => {
       const insightCount = profile.insights.length;
       const turnList = turnSnapshot ?? turns;
       const turnCount = turnList.length;
       const status = conversationRubric?.cardReadiness?.status ?? 'blocked';
       const explicitIdeas = Boolean(conversationRubric?.explicitIdeasRequest);
+
+      const focusText = triggerText?.trim();
+      const now = Date.now();
+      const lastDeliveryAt = lastSuggestionsFetchAtRef.current;
+      const lastEngagementAt =
+        lastCardInteractionAt ?? (lastDeliveryAt > 0 ? lastDeliveryAt : null);
+      const backlogAge = lastEngagementAt ? now - lastEngagementAt : 0;
+      const backlogActive =
+        !force &&
+        lastDeliveryAt > 0 &&
+        unreviewedCount >= UNREVIEWED_CARD_THRESHOLD &&
+        backlogAge >= CARD_BACKLOG_TIMEOUT_MS;
+
+      if (backlogActive) {
+        if (!backlogNudgeSentRef.current && unreviewedCount > 0) {
+          backlogNudgeSentRef.current = true;
+          requeueUnreviewedCards();
+          console.info('[Suggestions] Pausing new cards due to backlog', {
+            unreviewedCount,
+            backlogAgeMs: backlogAge,
+          });
+          setTurns((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              text: CARD_BACKLOG_NUDGE,
+            },
+          ]);
+        }
+
+        return {
+          shouldFetch: false,
+          fetchMode: 'normal' as const,
+          allowCardPrompt: false,
+          insightCount,
+          turnCount,
+          focusText,
+        } as const;
+      }
 
       if (force) {
         const fetchMode = status === 'ready' ? 'normal' : 'fallback';
@@ -856,6 +967,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           allowCardPrompt: fetchMode === 'normal',
           insightCount,
           turnCount,
+          focusText,
         } as const;
       }
 
@@ -867,6 +979,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           allowCardPrompt: false,
           insightCount,
           turnCount,
+          focusText,
         } as const;
       }
 
@@ -878,6 +991,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           allowCardPrompt: false,
           insightCount,
           turnCount,
+          focusText,
         } as const;
       }
 
@@ -894,6 +1008,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             allowCardPrompt: true,
             insightCount,
             turnCount,
+            focusText,
           } as const;
         }
       }
@@ -904,12 +1019,17 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         allowCardPrompt: false,
         insightCount,
         turnCount,
+        focusText,
       } as const;
     },
     [
       profile.insights,
       conversationRubric,
       turns,
+      unreviewedCount,
+      lastCardInteractionAt,
+      requeueUnreviewedCards,
+      setTurns,
     ]
   );
 
@@ -955,10 +1075,14 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       const insightCount = evalResult.insightCount;
       let producedCards = false;
 
-      const recentTurns = turns.slice(-10).map((turn) => ({
-        role: turn.role,
-        text: turn.text,
-      }));
+      const recentTurns = turns
+          .slice(-10)
+          .filter((turn) => turn.role === 'user')
+          .map((turn) => ({
+            role: turn.role,
+            text: turn.text,
+          }));
+      const focusStatement = evalResult.focusText ?? undefined;
 
       const previousSuggestions = suggestions.map((s) => ({
         title: s.title,
@@ -978,6 +1102,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             limit: 3,
             votes: votesByCareerId,
             transcript: recentTurns,
+            focusStatement,
             previousSuggestions,
           }),
         });
@@ -1225,7 +1350,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         console.warn('[Realtime] Message acknowledgment timeout:', err);
       }
 
-      const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns });
+      const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns, triggerText: trimmed });
       if (evalResult.shouldFetch) {
         if (mode === 'text') {
           announceCardFetch();

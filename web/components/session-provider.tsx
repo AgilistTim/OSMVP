@@ -126,6 +126,7 @@ interface SessionState {
 	summary?: string;
 	started: boolean;
 	sessionId: string;
+	lastCardInteractionAt: number | null;
 	voice: {
 		status: "idle" | "requesting-token" | "connecting" | "connected" | "error";
 		error?: string;
@@ -164,6 +165,7 @@ interface SessionActions {
 	clearMutualMoments: () => void;
 	setSuggestions: (suggestions: CareerSuggestion[]) => void;
 	clearSuggestions: () => void;
+	setLastCardInteractionAt: (timestamp: number | null) => void;
 	setTurns: React.Dispatch<React.SetStateAction<ConversationTurn[]>>;
 	overrideConversationPhase: (phase: ConversationPhase, rationale?: string[]) => void;
 	clearTeaserSeed: () => void;
@@ -228,6 +230,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+	const [lastCardInteractionAt, setLastCardInteractionAt] = useState<number | null>(null);
 	const [voice, setVoiceState] = useState<SessionState["voice"]>({ status: "idle", microphone: "inactive" });
 	const [onboardingStep, updateOnboardingStep] = useState<number>(0);
 	const [turns, setTurnsState] = useState<ConversationTurn[]>([]);
@@ -579,6 +582,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			summary,
 			started,
 			sessionId,
+			lastCardInteractionAt,
 			voice,
 			onboardingStep,
 			conversationPhase,
@@ -606,6 +610,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 					console.log('[voteCareer] Setting vote, new votes:', newVotes);
 					return newVotes;
 				});
+				setLastCardInteractionAt(Date.now());
 			},
 			setSummary: (s) => setSummaryState(s),
 			beginSession,
@@ -619,6 +624,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			clearMutualMoments,
 			setSuggestions,
 			clearSuggestions,
+			setLastCardInteractionAt,
 			turns,
 			setTurns: (updater) => setTurnsState(updater),
 			overrideConversationPhase,
@@ -656,6 +662,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		clearMutualMoments,
 		setSuggestions,
 		clearSuggestions,
+		lastCardInteractionAt,
+		setLastCardInteractionAt,
 		turns,
 		setTurnsState,
 		overrideConversationPhase,

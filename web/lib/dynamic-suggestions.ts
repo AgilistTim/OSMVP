@@ -10,6 +10,7 @@ export interface DynamicSuggestionInput {
 	limit?: number;
 	recentTurns?: Array<{ role: string; text: string }>;
 	transcriptSummary?: string;
+    focusStatement?: string;
     previousSuggestions?: Array<{ title: string; summary?: string; distance?: CardDistance }>;
 }
 
@@ -70,7 +71,7 @@ function tokenize(text: string): string[] {
 }
 
 const STOPWORDS = new Set<string>([
-    "the","and","for","with","that","this","from","into","about","your","their","they","you","are","our","use","using","build","based","help","guide","create","maker","builder","design","designer","consultant","coach","educator","teacher","content","curator","community","connector","ai","poc","proof","concept","business","startup","founder","small","medium","enterprise","sme","tool","tools","voice"
+    "the","and","for","with","that","this","from","into","about","your","their","they","you","are","our","use","using","used","build","builds","based","help","guide","create","maker","builder","design","designer","consultant","coach","educator","teacher","content","curator","community","connector","ai","poc","proof","concept","business","startup","founder","small","medium","enterprise","sme","tool","tools","voice","user","assistant","what","when","where","how","why","goal","goals","daily","tasks","task","adds","then","asks","like","just","really","thing","things","pretty","much","lot","stuff","yeah","sure","okay","nothing","really"
 ]);
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -136,6 +137,7 @@ export async function generateDynamicSuggestions({
     limit = 3,
     recentTurns = [],
     transcriptSummary,
+    focusStatement,
     previousSuggestions = [],
 }: DynamicSuggestionInput): Promise<DynamicSuggestion[]> {
     if (insights.length === 0) {
@@ -201,6 +203,7 @@ export async function generateDynamicSuggestions({
             dislikes,
             recentTurns,
             transcriptSummary,
+            focusStatement,
             dominantKeywords,
             distance,
             existing: suggestions,
@@ -228,6 +231,7 @@ interface PerplexityContext {
     dislikes: string[];
     recentTurns: Array<{ role: string; text: string }>;
     transcriptSummary?: string;
+    focusStatement?: string;
     dominantKeywords: string[];
     distance: CardDistance;
     existing: DynamicSuggestion[];
@@ -247,6 +251,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         dislikes,
         recentTurns,
         transcriptSummary,
+        focusStatement,
         dominantKeywords,
         distance,
         existing,
@@ -270,7 +275,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         });
     }
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const rawCard = await requestCardFromModel({
             openaiKey,
             perplexityKey,
@@ -282,6 +287,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             dislikes,
             recentTurns,
             transcriptSummary,
+            focusStatement,
             dominantKeywords,
             distance,
             avoidTitles,
@@ -334,8 +340,11 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         return candidate;
     }
 
-    console.warn(`[dynamic-suggestions] Falling back for ${distance} after exhausting attempts`);
-    return buildFallbackSuggestion(distance, insights, dominantKeywords, existing, novelDomains);
+    console.warn(`[dynamic-suggestions] No ${distance} suggestion produced after ${maxAttempts} attempts`, {
+        distance,
+        dominantKeywords,
+    });
+    return null;
 }
 
 interface ModelRequestInput {
@@ -349,6 +358,7 @@ interface ModelRequestInput {
     dislikes: string[];
     recentTurns: Array<{ role: string; text: string }>;
     transcriptSummary?: string;
+    focusStatement?: string;
     dominantKeywords: string[];
     distance: CardDistance;
     avoidTitles: Set<string>;
@@ -387,7 +397,29 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         return null;
     }
 
-    const systemPrompt = buildSystemPrompt(distance);
+    const focusText = (() => {
+        if (params.focusStatement && params.focusStatement.trim().length > 0) {
+            return params.focusStatement.trim();
+        }
+        const recent = recentTurns
+            .slice()
+            .reverse()
+            .find((turn) => turn.text.trim().length > 0)?.text.trim();
+        if (recent) return recent;
+        if (transcriptSummary) {
+            const lastUserLine = transcriptSummary
+                .split(/\n/)
+                .map((line) => line.trim())
+                .reverse()
+                .find((line) => line.toLowerCase().startsWith("user:"));
+            if (lastUserLine) {
+                return lastUserLine.replace(/^user:\s*/, "").trim();
+            }
+        }
+        return undefined;
+    })();
+
+    const systemPrompt = buildSystemPrompt(distance, focusText);
 
     const payload = {
         distance,
@@ -399,6 +431,7 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         negative_votes: dislikes,
         recent_turns: recentTurns,
         transcript_summary: transcriptSummary,
+        focus_statement: focusText,
         avoid_titles: Array.from(avoidTitles),
         previous_cards: previousSuggestions.map((card) => ({
             title: card.title,
@@ -413,6 +446,13 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
     };
 
     const temperature = distance === "unexpected" ? 0.5 : 0.3;
+
+    console.debug("[suggestions] OpenAI prompt", {
+        distance,
+        attempt,
+        systemPrompt,
+        payload,
+    });
 
     const response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -488,7 +528,29 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         return null;
     }
 
-    const systemPrompt = buildSystemPrompt(distance);
+    const focusText = (() => {
+        if (params.focusStatement && params.focusStatement.trim().length > 0) {
+            return params.focusStatement.trim();
+        }
+        const recent = recentTurns
+            .slice()
+            .reverse()
+            .find((turn) => turn.text.trim().length > 0)?.text.trim();
+        if (recent) return recent;
+        if (transcriptSummary) {
+            const lastUserLine = transcriptSummary
+                .split(/\n/)
+                .map((line) => line.trim())
+                .reverse()
+                .find((line) => line.toLowerCase().startsWith("user:"));
+            if (lastUserLine) {
+                return lastUserLine.replace(/^user:\s*/, "").trim();
+            }
+        }
+        return undefined;
+    })();
+
+    const systemPrompt = buildSystemPrompt(distance, focusText);
 
     const payload = {
         distance,
@@ -500,6 +562,7 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         negative_votes: dislikes,
         recent_turns: recentTurns,
         transcript_summary: transcriptSummary,
+        focus_statement: focusText,
         avoid_titles: Array.from(avoidTitles),
         previous_cards: previousSuggestions.map((card) => ({
             title: card.title,
@@ -514,6 +577,13 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
     };
 
     const temperature = distance === "unexpected" ? 0.4 : 0.2;
+
+    console.debug("[suggestions] Perplexity prompt", {
+        distance,
+        attempt,
+        systemPrompt,
+        payload,
+    });
 
     const response = await fetch("https://api.perplexity.ai/chat/completions", {
         method: "POST",
@@ -564,7 +634,7 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
     }
 }
 
-function buildSystemPrompt(distance: CardDistance): string {
+function buildSystemPrompt(distance: CardDistance, focusStatement?: string): string {
     const base = [
         "You generate exactly one career pathway card per request.",
         "Respond with strict JSON: { \"card\": { ... } } and nothing else.",
@@ -576,6 +646,13 @@ function buildSystemPrompt(distance: CardDistance): string {
         "Avoid repetition and do not invent personal details that were not provided.",
         "Use sentence case and avoid emoji or markdown formatting.",
     ];
+
+    if (focusStatement) {
+        base.push(
+            `Anchor the concept to this intent: "${focusStatement}".`,
+            "Make sure the summary and why_it_fits explicitly speak to that request."
+        );
+    }
 
     if (distance === "core") {
         base.push(
@@ -637,9 +714,14 @@ function computeDominantKeywords(insights: DynamicSuggestionInput["insights"], t
     };
 
     insights.forEach((item) => addText(item.value));
-    if (transcriptSummary) {
-        addText(transcriptSummary);
-    }
+
+    const summaryLines = transcriptSummary
+        ?.split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("user:"))
+        .map((line) => line.replace(/^user:\s*/, "")) ?? [];
+
+    summaryLines.forEach((line) => addText(line));
 
     return Array.from(counts.entries())
         .sort((a, b) => b[1] - a[1])
@@ -662,7 +744,17 @@ function isTooCloseToKeywords(card: DynamicSuggestion, dominantKeywords: string[
     dominantKeywords.forEach((keyword) => {
         if (candidateTokens.has(keyword)) overlap++;
     });
-    return overlap >= Math.max(4, Math.ceil(dominantKeywords.length * 0.25));
+    const threshold = Math.max(8, Math.ceil(dominantKeywords.length * 0.6));
+    const tooClose = overlap >= threshold;
+    if (tooClose && process.env.NODE_ENV !== "production") {
+        console.debug("[dynamic-suggestions] Candidate rejected for overlap", {
+            title: card.title,
+            overlap,
+            threshold,
+            dominantKeywords,
+        });
+    }
+    return tooClose;
 }
 
 function buildFallbackSuggestion(
