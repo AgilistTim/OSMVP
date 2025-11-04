@@ -244,19 +244,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const suggestionCount = suggestions.length;
 	const voteCount = Object.keys(votesByCareerId).length;
 
-	useEffect(() => {
-		if (started) {
-			return;
-		}
-		const hasContext =
-			turnCount > 0 ||
-			insightCount > 0 ||
-			suggestionCount > 0 ||
-			voteCount > 0;
-		if (hasContext) {
-			setStarted(true);
-		}
-	}, [started, turnCount, insightCount, suggestionCount, voteCount]);
+  useEffect(() => {
+    if (started) {
+      return;
+    }
+
+    const hasExplicitSession = turnCount > 0;
+    if (!hasExplicitSession) {
+      return;
+    }
+
+    const storedStarted = typeof window !== 'undefined' ? sessionStorage.getItem('osmvp_session_started') : null;
+    if (storedStarted === 'true') {
+      setStarted(true);
+    }
+  }, [started, turnCount]);
 
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
@@ -443,23 +445,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setShouldSeedTeaserCard(false);
 	}, []);
 
-	const resetProfile = useCallback(() => {
-		setProfile(createEmptyProfile());
-		setCandidates([]);
-		setVotes({});
-		updateSuggestions([]);
-		setSummaryState(undefined);
+  const resetProfile = useCallback(() => {
+    setProfile(createEmptyProfile());
+    setCandidates([]);
+    setVotes({});
+    updateSuggestions([]);
+    setSummaryState(undefined);
 		updateOnboardingStep(0);
 		setVoiceState({ status: "idle", microphone: "inactive" });
 		setTurnsState([]);
 		setConversationPhase("warmup");
 		setConversationPhaseRationale([]);
 		setConversationRubric(null);
-		setShouldSeedTeaserCard(false);
-	}, [
-		setProfile,
-		setCandidates,
-		setVotes,
+    setShouldSeedTeaserCard(false);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('osmvp_session_started');
+      } catch {
+        // ignore
+      }
+    }
+  }, [
+    setProfile,
+    setCandidates,
+    setVotes,
 		updateSuggestions,
 		setSummaryState,
 		updateOnboardingStep,
@@ -467,12 +476,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setTurnsState,
 	]);
 
-	const beginSession = useCallback(() => {
-		setSessionId(crypto.randomUUID());
-		resetProfile();
-		setModeState(null);
-		setStarted(true);
-	}, [resetProfile, setModeState, setSessionId, setStarted]);
+  const beginSession = useCallback(() => {
+    setSessionId(crypto.randomUUID());
+    resetProfile();
+    setModeState(null);
+    setStarted(true);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('osmvp_session_started', 'true');
+      } catch {
+        // ignore
+      }
+    }
+  }, [resetProfile, setModeState, setSessionId, setStarted]);
 
 	useEffect(() => {
 		if (turns.length === 0) {
