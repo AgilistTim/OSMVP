@@ -12,6 +12,11 @@ export async function POST(req: NextRequest) {
 			transcript?: Array<{ role?: string; text?: string }>;
 			previousSuggestions?: Array<{ id?: string; title?: string; summary?: string; distance?: string }>;
 			focusStatement?: string;
+			attributes?: {
+				skills?: unknown;
+				aptitudes?: unknown;
+				workStyles?: unknown;
+			};
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -63,6 +68,57 @@ export async function POST(req: NextRequest) {
                 })
             : [];
 
+		type AttributeInput = {
+			label: string;
+			confidence?: "low" | "medium" | "high";
+			stage?: "established" | "developing" | "hobby";
+		};
+
+		const attributes = (() => {
+			const raw = body.attributes;
+			if (!raw || typeof raw !== "object") {
+				return undefined;
+			}
+			const toList = (value: unknown): AttributeInput[] => {
+				if (!Array.isArray(value)) {
+					return [];
+				}
+				const result: AttributeInput[] = [];
+				for (const item of value) {
+					if (typeof item !== "object" || item === null) {
+						continue;
+					}
+					const labelValue = (item as { label?: unknown }).label;
+					if (typeof labelValue !== "string") {
+						continue;
+					}
+					const label = labelValue.trim();
+					if (!label) {
+						continue;
+					}
+					const confidenceValue = (item as { confidence?: unknown }).confidence;
+					const confidence =
+						confidenceValue === "low" || confidenceValue === "medium" || confidenceValue === "high"
+							? confidenceValue
+							: undefined;
+					const stageValue = (item as { stage?: unknown }).stage;
+					const stage =
+						stageValue === "established" || stageValue === "developing" || stageValue === "hobby"
+							? stageValue
+							: undefined;
+					result.push({ label, confidence, stage });
+				}
+				return result;
+			};
+			const skills = toList((raw as { skills?: unknown }).skills);
+			const aptitudes = toList((raw as { aptitudes?: unknown }).aptitudes);
+			const workStyles = toList((raw as { workStyles?: unknown }).workStyles);
+			if (skills.length === 0 && aptitudes.length === 0 && workStyles.length === 0) {
+				return undefined;
+			}
+			return { skills, aptitudes, workStyles };
+		})();
+
 		const dynamic = await generateDynamicSuggestions({
 			insights: insights.map((item) => ({
 				kind: item.kind as InsightKind,
@@ -74,6 +130,7 @@ export async function POST(req: NextRequest) {
             transcriptSummary: transcriptSummary.length > 0 ? transcriptSummary : undefined,
             focusStatement,
 			previousSuggestions,
+            attributes,
 		});
 
 		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {

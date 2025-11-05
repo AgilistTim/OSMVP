@@ -38,12 +38,28 @@ interface ProfileInsightResponse {
   source?: "assistant" | "user" | "system";
 }
 
+type AttributeStage = "established" | "developing" | "hobby";
+
+interface InferredAttribute {
+  label: string;
+  confidence?: InsightConfidence;
+  evidence?: string;
+  stage?: AttributeStage;
+}
+
+interface InferredAttributes {
+  skills: InferredAttribute[];
+  aptitudes: InferredAttribute[];
+  workStyles: InferredAttribute[];
+}
+
 type Readiness = "G1" | "G2" | "G3" | "G4";
 
 interface ProfileInsightsResponseBody {
   insights: ProfileInsightResponse[];
   summary?: string;
   readiness?: Readiness;
+  inferredAttributes?: InferredAttributes | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -52,79 +68,12 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    const latestUser = [...turns].reverse().find((turn) => turn.role === "user");
-    const existingKinds = new Set(existingInsights.map((item) => item.kind));
-    const fallbackInsights: ProfileInsightResponse[] = [];
-
-    const priorityOrder: InsightKind[] = [
-      "interest",
-      "strength",
-      "hope",
-      "goal",
-      "highlight",
-    ];
-
-    const buildValue = (kind: InsightKind, text: string) => {
-      const trimmed = text.trim().slice(0, 160);
-      const sanitized =
-        trimmed
-          .replace(/^I['’]?\s+(am|was|have|feel|love|like|want|hope|enjoy|can)\s+/i, "")
-          .trim() || trimmed;
-      switch (kind) {
-        case "strength":
-          return sanitized.startsWith("Feels")
-            ? sanitized
-            : `Feels confident about ${sanitized}`;
-        case "hope":
-          return sanitized.startsWith("Hoping")
-            ? sanitized
-            : `Hoping to ${sanitized}`;
-        case "goal":
-          return sanitized.startsWith("Wants")
-            ? sanitized
-            : `Wants to ${sanitized}`;
-        case "highlight":
-          return sanitized.startsWith("Noted")
-            ? sanitized
-            : `Noted: ${sanitized}`;
-        default:
-          return sanitized;
-      }
-    };
-
-    if (latestUser?.text) {
-      const nextKind = priorityOrder.find((kind) => existingKinds.has(kind) === false);
-      if (nextKind) {
-        fallbackInsights.push({
-          kind: nextKind,
-          value: buildValue(nextKind, latestUser.text),
-          confidence: "low",
-          source: "assistant",
-          evidence: "Heuristic fallback (no OpenAI key).",
-        });
-      }
-    }
-
-    const insightScore =
-      Number(existingKinds.has("interest")) +
-      Number(existingKinds.has("strength")) +
-      Number(existingKinds.has("hope")) +
-      Number(fallbackInsights.some((item) => item.kind === "interest")) +
-      Number(fallbackInsights.some((item) => item.kind === "strength")) +
-      Number(fallbackInsights.some((item) => item.kind === "hope"));
-
-    const readiness: Readiness =
-      insightScore >= 3 ? "G3" : insightScore >= 2 ? "G2" : "G1";
-
-    const summary =
-      latestUser?.text && fallbackInsights.length > 0
-        ? `Captured a new note about ${fallbackInsights[0]?.kind ?? "their journey"}.`
-        : undefined;
-
+    console.error("[profile/insights] Missing OPENAI_API_KEY; skipping insight extraction.");
     return NextResponse.json({
-      insights: fallbackInsights,
-      summary,
-      readiness,
+      insights: [],
+      summary: undefined,
+      readiness: undefined,
+      inferredAttributes: null,
     });
   }
 
@@ -138,6 +87,7 @@ export async function POST(req: NextRequest) {
 
 Return strictly formatted JSON with:
 - insights: array of objects { kind (interest|strength|constraint|goal|frustration|hope|boundary|highlight), value, confidence (optional low|medium|high), evidence (optional short paraphrase), source (optional assistant|user|system) }
+- inferredAttributes: object with keys skills, aptitudes, workStyles. Each key maps to an array of objects { label, confidence (optional low|medium|high), evidence (optional sentence linking back to the conversation), stage (required; established|developing|hobby) }.
 - summary: optional short (<= 2 sentences) recap of the new information learned in this turn.
 - readiness: one of G1, G2, G3, G4 reflecting the user's current career readiness based on the full conversation so far.
 
@@ -169,6 +119,17 @@ Return strictly formatted JSON with:
 **highlight**: Notable moments or achievements worth remembering
 - Examples: "built a Pomodoro calendar tool", "solved a real problem for myself"
 
+## Inferred Attributes
+
+- **skills**: Transferable abilities the user demonstrates or implies (e.g. "observational analysis", "community building").
+- **aptitudes**: Natural talents or competencies they are developing (e.g. "strategic thinking", "pattern recognition").
+- **workStyles**: Preferences or ways of operating (e.g. "thrives under pressure", "learns through experimentation").
+- Each attribute must include a \`stage\` field:
+  - \`established\` when the person relies on it to deliver real outcomes or has clear evidence of mastery.
+  - \`developing\` when they are actively practicing or recently applying the ability but still building confidence.
+  - \`hobby\` when it is only mentioned as casual enjoyment or early experimentation (e.g. "I play tennis on weekends").
+- Every attribute must cite evidence from the turns (paraphrased is fine) so we know why it was inferred.
+
 Guidelines:
 - Only add NEW insights that are not already present in this list: ${existingSummary}.
 - Capture the user's actual wording wherever possible (e.g. "obsessed with all-night beat-making" instead of "music production interest").
@@ -194,15 +155,81 @@ Guidelines:
   let parsed: ProfileInsightsResponseBody;
   try {
     parsed = JSON.parse(content) as ProfileInsightsResponseBody;
-  } catch {
-    parsed = { insights: [] };
+  } catch (error) {
+    console.error("[profile/insights] Failed to parse LLM response:", content, error);
+    return NextResponse.json({
+      insights: [],
+      summary: undefined,
+      readiness: undefined,
+      inferredAttributes: null,
+    });
   }
 
-  const insights = Array.isArray(parsed.insights) ? parsed.insights : [];
+  const normalizedInsights: ProfileInsightResponse[] = Array.isArray(parsed.insights)
+    ? parsed.insights
+        .filter(
+          (item): item is ProfileInsightResponse =>
+            Boolean(item) &&
+            typeof item.kind === "string" &&
+            typeof item.value === "string" &&
+            item.value.trim().length > 0
+        )
+        .map((item) => ({
+          ...item,
+          value: item.value.trim(),
+          confidence:
+            item.confidence === "low" || item.confidence === "medium" || item.confidence === "high"
+              ? item.confidence
+              : undefined,
+          evidence: typeof item.evidence === "string" ? item.evidence.trim() : undefined,
+          source:
+            item.source === "assistant" || item.source === "user" || item.source === "system"
+              ? item.source
+              : undefined,
+        }))
+    : [];
+
+  const sanitizeAttributeList = (value: unknown): InferredAttribute[] => {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .filter(
+        (item): item is InferredAttribute =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { label?: unknown }).label === "string"
+      )
+      .map((item) => ({
+        label: item.label.trim(),
+        confidence:
+          item.confidence === "low" || item.confidence === "medium" || item.confidence === "high"
+            ? item.confidence
+            : undefined,
+        evidence: typeof item.evidence === "string" ? item.evidence.trim() : undefined,
+        stage:
+          item.stage === "established" || item.stage === "developing" || item.stage === "hobby"
+            ? item.stage
+            : undefined,
+      }))
+      .filter((item) => item.label.length > 0);
+  };
+
+  const inferredAttributes: InferredAttributes = {
+    skills: sanitizeAttributeList(parsed.inferredAttributes?.skills),
+    aptitudes: sanitizeAttributeList(parsed.inferredAttributes?.aptitudes),
+    workStyles: sanitizeAttributeList(parsed.inferredAttributes?.workStyles),
+  };
+
+  const hasInferredAttributes =
+    inferredAttributes.skills.length > 0 ||
+    inferredAttributes.aptitudes.length > 0 ||
+    inferredAttributes.workStyles.length > 0;
 
   return NextResponse.json({
-    insights,
+    insights: normalizedInsights,
     summary: parsed.summary,
     readiness: parsed.readiness,
+    inferredAttributes: hasInferredAttributes ? inferredAttributes : null,
   });
 }

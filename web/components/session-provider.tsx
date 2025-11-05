@@ -41,6 +41,19 @@ export interface ProfileInsight {
 	updatedAt: number;
 }
 
+export interface ProfileAttribute {
+	label: string;
+	evidence?: string;
+	confidence?: "low" | "medium" | "high";
+	stage?: "established" | "developing" | "hobby";
+}
+
+export interface ProfileAttributeSnapshot {
+	skills: ProfileAttribute[];
+	aptitudes: ProfileAttribute[];
+	workStyles: ProfileAttribute[];
+}
+
 export interface MutualMoment {
 	id: string;
 	text: string;
@@ -84,6 +97,7 @@ export interface Profile {
 	hopes: string[];
 	boundaries: string[];
 	highlights: string[];
+	inferredAttributes: ProfileAttributeSnapshot;
 	mutualMoments: MutualMoment[];
 	lastTranscript?: string;
 	lastTranscriptId?: string;
@@ -151,6 +165,7 @@ interface SessionActions {
 			}
 		>
 	) => void;
+	appendInferredAttributes: (attributes: Partial<ProfileAttributeSnapshot> | null | undefined) => void;
 	updateProfileInsight: (id: string, updates: Partial<Pick<ProfileInsight, "value" | "kind" | "source">>) => void;
 	removeProfileInsight: (id: string) => void;
 	resetProfile: () => void;
@@ -240,9 +255,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [shouldSeedTeaserCard, setShouldSeedTeaserCard] = useState(false);
 
 	const turnCount = turns.length;
-	const insightCount = profile.insights.length;
-	const suggestionCount = suggestions.length;
-	const voteCount = Object.keys(votesByCareerId).length;
 
   useEffect(() => {
     if (started) {
@@ -279,12 +291,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 	const setProfile = useCallback((partial: Partial<Profile>) => {
 		updateProfile((prev) => {
+			const mergedAttributes = mergeAttributeSnapshots(
+				prev.inferredAttributes,
+				partial.inferredAttributes
+			);
 			const merged: Profile = {
 				...prev,
 				...partial,
 				insights: partial.insights ?? prev.insights,
 				onboardingResponses: partial.onboardingResponses ?? prev.onboardingResponses,
 				mutualMoments: partial.mutualMoments ?? prev.mutualMoments,
+				inferredAttributes: mergedAttributes,
 			};
 			return {
 				...merged,
@@ -342,6 +359,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				...summariseInsights(existing),
 			};
 		});
+	}, []);
+
+	const appendInferredAttributes = useCallback<SessionActions["appendInferredAttributes"]>((incoming) => {
+		if (!incoming) {
+			return;
+		}
+		updateProfile((prev) => ({
+			...prev,
+			inferredAttributes: mergeAttributeSnapshots(prev.inferredAttributes, incoming),
+		}));
 	}, []);
 
 	const updateProfileInsight = useCallback<SessionActions["updateProfileInsight"]>((id, updates) => {
@@ -461,6 +488,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('osmvp_session_started');
+        sessionStorage.removeItem('osmvp_suggestions');
+        sessionStorage.removeItem('osmvp_last_insight_count');
+        sessionStorage.removeItem('osmvp_votes');
       } catch {
         // ignore
       }
@@ -608,6 +638,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			setMode: (m) => setModeState(m),
 			setProfile,
 			appendProfileInsights,
+			appendInferredAttributes,
 			updateProfileInsight,
 			removeProfileInsight,
 			resetProfile,
@@ -664,6 +695,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setModeState,
 		setProfile,
 		appendProfileInsights,
+		appendInferredAttributes,
 		updateProfileInsight,
 		removeProfileInsight,
 		resetProfile,
@@ -729,6 +761,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log("Hopes", profile.hopes);
 		console.log("Boundaries", profile.boundaries);
 		console.log("Highlights", profile.highlights);
+		console.log("Inferred attributes", profile.inferredAttributes);
 		console.log("Onboarding responses", profile.onboardingResponses);
 		console.log("Mutual moments", profile.mutualMoments);
 		console.log("Insights", profile.insights);
@@ -752,8 +785,105 @@ function createEmptyProfile(): Profile {
 		hopes: [],
 		boundaries: [],
 		highlights: [],
+		inferredAttributes: {
+			skills: [],
+			aptitudes: [],
+			workStyles: [],
+		},
 		mutualMoments: [],
 	};
+}
+
+const ATTRIBUTE_CATEGORIES: Array<keyof ProfileAttributeSnapshot> = ["skills", "aptitudes", "workStyles"];
+const ATTRIBUTE_STAGE_PRIORITY: Record<"hobby" | "developing" | "established", number> = {
+	hobby: 0,
+	developing: 1,
+	established: 2,
+};
+
+function sanitizeAttributeEntry(entry: unknown): ProfileAttribute | null {
+	if (!entry || typeof entry !== "object") {
+		return null;
+	}
+	const candidate = entry as Partial<ProfileAttribute>;
+	if (typeof candidate.label !== "string") {
+		return null;
+	}
+	const label = candidate.label.trim();
+	if (label.length === 0) {
+		return null;
+	}
+	const confidence =
+		candidate.confidence === "low" || candidate.confidence === "medium" || candidate.confidence === "high"
+			? candidate.confidence
+			: undefined;
+	const evidence = typeof candidate.evidence === "string" ? candidate.evidence.trim() : undefined;
+	const stage =
+		candidate.stage === "established" || candidate.stage === "developing" || candidate.stage === "hobby"
+			? candidate.stage
+			: undefined;
+	return {
+		label,
+		confidence,
+		evidence: evidence && evidence.length > 0 ? evidence : undefined,
+		stage,
+	};
+}
+
+function mergeAttributeSnapshots(
+	current: ProfileAttributeSnapshot,
+	incoming?: Partial<ProfileAttributeSnapshot> | null
+): ProfileAttributeSnapshot {
+	if (!incoming) {
+		return current;
+	}
+
+	const cloneCategory = (entries: ProfileAttribute[]) => entries.map((item) => ({ ...item }));
+
+	const next: ProfileAttributeSnapshot = {
+		skills: cloneCategory(current.skills),
+		aptitudes: cloneCategory(current.aptitudes),
+		workStyles: cloneCategory(current.workStyles),
+	};
+
+		ATTRIBUTE_CATEGORIES.forEach((category) => {
+			const incomingEntries = incoming[category];
+			if (!Array.isArray(incomingEntries)) {
+				return;
+			}
+
+		const indexMap = new Map<string, number>();
+		next[category].forEach((item, index) => {
+			indexMap.set(item.label.toLowerCase(), index);
+		});
+
+			incomingEntries
+				.map(sanitizeAttributeEntry)
+				.filter((item): item is ProfileAttribute => item !== null)
+				.forEach((entry) => {
+					const key = entry.label.toLowerCase();
+					if (indexMap.has(key)) {
+						const existingIndex = indexMap.get(key)!;
+						const existing = next[category][existingIndex];
+					const existingStageRank = existing.stage ? ATTRIBUTE_STAGE_PRIORITY[existing.stage] : -1;
+					const incomingStageRank = entry.stage ? ATTRIBUTE_STAGE_PRIORITY[entry.stage] : -1;
+						next[category][existingIndex] = {
+							label: existing.label,
+							confidence: entry.confidence ?? existing.confidence,
+							evidence: entry.evidence ?? existing.evidence,
+							stage:
+								incomingStageRank > existingStageRank
+									? entry.stage ?? existing.stage
+									: existing.stage ?? entry.stage,
+						};
+					} else {
+						indexMap.set(key, next[category].length);
+						next[category].push(entry);
+					}
+				});
+		});
+
+	return next;
 }
 
 function summariseInsights(insights: ProfileInsight[]): ProfileAggregates {

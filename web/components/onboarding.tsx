@@ -9,6 +9,9 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useSession, InsightKind } from "@/components/session-provider";
+import { summarizeAttributeSignals } from "@/lib/suggestion-guards";
+import { buildHobbyDeepeningPrompt } from "@/lib/hobby-prompts";
+import { hasRequiredInsightMix } from "@/lib/suggestion-guards";
 import { buildRealtimeInstructions } from "@/lib/conversation-instructions";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { CareerSuggestion, ConversationTurn } from "@/components/session-provider";
@@ -31,6 +34,9 @@ const DEFAULT_OPENING =
 
 const REQUIRED_INSIGHT_KINDS: InsightKind[] = ["interest", "strength", "hope"];
 const FALLBACK_MIN_TURNS = 6;
+
+const POSITIVE_RESPONSE_REGEX = /\b(yes|yeah|yep|sure|definitely|absolutely|of course|i guess|i suppose|sounds right|i think so)\b/i;
+const NEGATIVE_RESPONSE_REGEX = /\b(no|nah|nope|not really|don['’]t think|do not)\b/i;
 
 const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
 	interest: "what you're into",
@@ -58,6 +64,8 @@ function looksLikeMutualMoment(text: string): boolean {
 }
 
 const REACTION_RETENTION_MS = 2 * 60 * 1000;
+const MIN_INSIGHTS_FOR_AUTO_SUGGESTIONS = 4;
+const MIN_USER_TURNS_FOR_AUTO_SUGGESTIONS = 5;
 
 type ReactionSnapshot = {
 	id: string;
@@ -120,11 +128,12 @@ export function Onboarding() {
 	const {
 		mode,
 		setMode,
-		profile,
-		setProfile,
-		appendProfileInsights,
-		addMutualMoment,
-		setSummary,
+	profile,
+	setProfile,
+	appendProfileInsights,
+	appendInferredAttributes,
+	addMutualMoment,
+	setSummary,
 		setVoice,
 		started,
 		setOnboardingStep,
@@ -170,6 +179,9 @@ const lastScrolledTurnCountRef = useRef<number>(0);
 const suggestionRevealTimeoutRef = useRef<number | null>(null);
 const lastSuggestionKeyRef = useRef<string>("");
 const initialAssistantHandledRef = useRef<boolean>(false);
+const lastHobbyPromptRef = useRef<string | null>(null);
+const pendingHobbyPromptRef = useRef<{ label: string; skills: string[]; fields: string[] } | null>(null);
+const lastHobbyProcessedTurnRef = useRef<number>(0);
 
 	const [realtimeState, realtimeControls] = useRealtimeSession({
 		sessionId,
@@ -178,16 +190,38 @@ const initialAssistantHandledRef = useRef<boolean>(false);
 		voice: REALTIME_VOICE_ID,
 	});
 
-	const userTurnsCount = useMemo(
-		() => turns.filter((turn) => turn.role === "user").length,
-		[turns]
-	);
+const userTurnsCount = useMemo(
+	() => turns.filter((turn) => turn.role === "user").length,
+	[turns]
+);
+
+const attributeSignals = useMemo(
+	() =>
+		summarizeAttributeSignals({
+			skills: profile.inferredAttributes.skills,
+			aptitudes: profile.inferredAttributes.aptitudes,
+			workStyles: profile.inferredAttributes.workStyles,
+		}),
+	[profile.inferredAttributes]
+);
+
+useEffect(() => {
+	pendingHobbyPromptRef.current = null;
+	lastHobbyProcessedTurnRef.current = 0;
+}, [sessionId]);
 
 useEffect(() => {
 	if (turns.length === 0) {
 		initialAssistantHandledRef.current = false;
 	}
 }, [turns.length]);
+
+useEffect(() => {
+	if (attributeSignals.careerSignalCount + attributeSignals.developingSignalCount > 0) {
+		lastHobbyPromptRef.current = null;
+		pendingHobbyPromptRef.current = null;
+	}
+}, [attributeSignals.careerSignalCount, attributeSignals.developingSignalCount]);
 
 	const insightCoverage = useMemo(() => {
 		const presentKinds = new Set(profile.insights.map((insight) => insight.kind));
@@ -453,6 +487,11 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 					}>;
 					summary?: string;
 					readiness?: Readiness;
+					inferredAttributes?: {
+						skills?: Array<{ label?: string; confidence?: "low" | "medium" | "high"; evidence?: string }>;
+						aptitudes?: Array<{ label?: string; confidence?: "low" | "medium" | "high"; evidence?: string }>;
+						workStyles?: Array<{ label?: string; confidence?: "low" | "medium" | "high"; evidence?: string }>;
+					} | null;
 				};
 				if (Array.isArray(data.insights)) {
 					appendProfileInsights(
@@ -476,11 +515,42 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 					setReadiness(data.readiness as Readiness);
 					setProfile({ readiness: data.readiness as Readiness });
 				}
+				if (data.inferredAttributes) {
+					appendInferredAttributes({
+						skills: (Array.isArray(data.inferredAttributes.skills)
+							? data.inferredAttributes.skills
+							: []
+						).filter((item): item is { label: string; confidence?: "low" | "medium" | "high"; evidence?: string; stage?: string } => typeof item?.label === "string").map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							evidence: item.evidence,
+							stage: item.stage === "established" || item.stage === "developing" || item.stage === "hobby" ? item.stage : undefined,
+						})),
+						aptitudes: (Array.isArray(data.inferredAttributes.aptitudes)
+							? data.inferredAttributes.aptitudes
+							: []
+						).filter((item): item is { label: string; confidence?: "low" | "medium" | "high"; evidence?: string; stage?: string } => typeof item?.label === "string").map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							evidence: item.evidence,
+							stage: item.stage === "established" || item.stage === "developing" || item.stage === "hobby" ? item.stage : undefined,
+						})),
+						workStyles: (Array.isArray(data.inferredAttributes.workStyles)
+							? data.inferredAttributes.workStyles
+							: []
+						).filter((item): item is { label: string; confidence?: "low" | "medium" | "high"; evidence?: string; stage?: string } => typeof item?.label === "string").map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							evidence: item.evidence,
+							stage: item.stage === "established" || item.stage === "developing" || item.stage === "hobby" ? item.stage : undefined,
+						})),
+						});
+					}
 			} catch (err) {
 				console.error("Failed to derive profile insights", err);
 			}
 		},
-		[appendProfileInsights, profile.insights, sessionId, setProfile, setSummary]
+		[appendProfileInsights, appendInferredAttributes, profile.insights, sessionId, setProfile, setSummary]
 	);
 
 	const ensureRealtimeConnected = useCallback(async () => {
@@ -812,22 +882,56 @@ useEffect(() => {
 	}, [suggestions.length]);
 
 	useEffect(() => {
-		if (!insightCoverage.isReady) {
-			return;
-		}
+	if (!insightCoverage.isReady) {
+		return;
+	}
 
-		const insightCount = profile.insights.length;
-		const lastCount = suggestionsLastInsightCountRef.current;
-		const shouldFetch =
-			!suggestionsFetchInFlightRef.current &&
-			(conversationPhase === "option-seeding" || conversationPhase === "commitment") &&
-			(suggestions.length === 0 || insightCount > lastCount);
+	const insightCount = profile.insights.length;
+	const userTurnCount = turns.filter((turn) => turn.role === "user").length;
+	const lastCount = suggestionsLastInsightCountRef.current;
+	const hasRequiredMix = hasRequiredInsightMix(profile.insights);
+	const depthScore = conversationRubric?.contextDepth ?? 0;
+	const hasCareerAttributes =
+		attributeSignals.careerSignalCount + attributeSignals.developingSignalCount > 0;
+	const hasEnoughContext =
+		insightCount >= MIN_INSIGHTS_FOR_AUTO_SUGGESTIONS &&
+		userTurnCount >= MIN_USER_TURNS_FOR_AUTO_SUGGESTIONS &&
+		hasRequiredMix &&
+		depthScore >= 1 &&
+		hasCareerAttributes;
+	const shouldFetch =
+		!suggestionsFetchInFlightRef.current &&
+		(conversationPhase === "option-seeding" || conversationPhase === "commitment") &&
+		hasEnoughContext &&
+		(suggestions.length === 0 || insightCount > lastCount);
 
-		if (!shouldFetch) {
-			return;
-		}
+	if (
+		(conversationPhase === "option-seeding" || conversationPhase === "commitment") &&
+		!hasCareerAttributes &&
+		attributeSignals.primaryHobbyLabel &&
+		lastHobbyPromptRef.current !== attributeSignals.primaryHobbyLabel
+	) {
+		lastHobbyPromptRef.current = attributeSignals.primaryHobbyLabel;
+		const { prompt, skills, fields } = buildHobbyDeepeningPrompt(attributeSignals.primaryHobbyLabel);
+		pendingHobbyPromptRef.current = {
+			label: attributeSignals.primaryHobbyLabel,
+			skills,
+			fields,
+		};
+		setTurns((prev) => [
+			...prev,
+			{
+				role: "assistant" as const,
+				text: prompt,
+			},
+		]);
+	}
 
-		suggestionsFetchInFlightRef.current = true;
+	if (!shouldFetch) {
+		return;
+	}
+
+	suggestionsFetchInFlightRef.current = true;
 	void (async () => {
 		try {
 			if (process.env.NODE_ENV !== "production") {
@@ -839,17 +943,34 @@ useEffect(() => {
 				});
 			}
 			const response = await fetch("/api/suggestions", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						insights: profile.insights.map((insight) => ({
-							kind: insight.kind,
-							value: insight.value,
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					insights: profile.insights.map((insight) => ({
+						kind: insight.kind,
+						value: insight.value,
+					})),
+					limit: 3,
+					votes: votesByCareerId,
+					attributes: {
+						skills: profile.inferredAttributes.skills.map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							stage: item.stage,
 						})),
-						limit: 3,
-						votes: votesByCareerId,
-					}),
-				});
+						aptitudes: profile.inferredAttributes.aptitudes.map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							stage: item.stage,
+						})),
+						workStyles: profile.inferredAttributes.workStyles.map((item) => ({
+							label: item.label,
+							confidence: item.confidence,
+							stage: item.stage,
+						})),
+					},
+				}),
+			});
 				if (!response.ok) {
 					throw new Error(`Suggestions request failed: ${response.status}`);
 				}
@@ -914,7 +1035,81 @@ useEffect(() => {
 				suggestionsFetchInFlightRef.current = false;
 			}
 		})();
-	}, [conversationPhase, insightCoverage.isReady, profile.insights, setSuggestions, suggestions, votesByCareerId]);
+	}, [
+		conversationPhase,
+		conversationRubric,
+		insightCoverage.isReady,
+		profile.insights,
+		profile.inferredAttributes,
+		attributeSignals,
+		setSuggestions,
+		suggestions,
+		turns,
+		votesByCareerId,
+		setTurns,
+	]);
+
+	useEffect(() => {
+		const pending = pendingHobbyPromptRef.current;
+		if (!pending) {
+			return;
+		}
+		if (turns.length === 0) {
+			return;
+		}
+		const lastTurn = turns[turns.length - 1];
+		if (!lastTurn || lastTurn.role !== "user") {
+			return;
+		}
+		if (lastHobbyProcessedTurnRef.current === turns.length) {
+			return;
+		}
+		lastHobbyProcessedTurnRef.current = turns.length;
+
+		const response = lastTurn.text.toLowerCase();
+		if (NEGATIVE_RESPONSE_REGEX.test(response)) {
+			pendingHobbyPromptRef.current = null;
+			return;
+		}
+
+		if (POSITIVE_RESPONSE_REGEX.test(response) || pending.skills.some((skill) => response.includes(skill.toLowerCase()))) {
+			appendInferredAttributes({
+				skills: pending.skills.map((label) => ({
+					label,
+					stage: "developing",
+					confidence: "medium",
+				})),
+			});
+
+			appendProfileInsights(
+				pending.skills.map((label) => ({
+					kind: "strength" as InsightKind,
+					value: label,
+					confidence: "medium",
+					source: "assistant",
+					evidence: "Mapped from hobby conversation",
+				}))
+			);
+
+			const fieldSummary =
+				pending.fields.length > 0
+					? `Those strengths show up in things like ${formatList(pending.fields.slice(0, 3))}.`
+					: "Those strengths have plenty of ways to show up.";
+			const followUpIntro = "Brilliant—that gives us something real to note.";
+			const followUp = `${followUpIntro} ${fieldSummary} Keen to dig into one of those, or is there another lane you're eyeing?`;
+
+			pendingHobbyPromptRef.current = null;
+			lastHobbyPromptRef.current = null;
+
+			setTurns((prev) => [
+				...prev,
+				{
+					role: "assistant",
+					text: followUp,
+				},
+			]);
+		}
+	}, [appendInferredAttributes, appendProfileInsights, setTurns, turns]);
 
 	useEffect(() => {
 		if (!insightCoverage.isReady) {

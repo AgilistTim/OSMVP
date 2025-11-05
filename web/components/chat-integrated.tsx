@@ -26,6 +26,8 @@ import { InlineCareerCard } from '@/components/inline-career-card-v2';
 import type { CareerSuggestion } from '@/components/session-provider';
 import '@/components/inline-career-card-v2.css';
 import { REALTIME_VOICE_ID } from '@/lib/realtime-voice';
+import { hasRequiredInsightMix, summarizeAttributeSignals } from '@/lib/suggestion-guards';
+import { buildHobbyDeepeningPrompt } from '@/lib/hobby-prompts';
 
 type MessageType = {
   message: string;
@@ -95,6 +97,22 @@ const UNREVIEWED_CARD_THRESHOLD = 3;
 const CARD_BACKLOG_TIMEOUT_MS = 90_000;
 const CARD_BACKLOG_NUDGE =
   "I’ve resurfaced your current cards—give them a quick 👍 or 👎 and I’ll pull fresh directions right after.";
+const MIN_INSIGHTS_FOR_SUGGESTIONS = 4;
+const MIN_USER_TURNS_FOR_SUGGESTIONS = 5;
+const POSITIVE_RESPONSE_REGEX = /\b(yes|yeah|yep|sure|definitely|absolutely|of course|i guess|i suppose|sounds right|i think so)\b/i;
+const NEGATIVE_RESPONSE_REGEX = /\b(no|nah|nope|not really|don['’]t think|do not)\b/i;
+const formatReadableList = (items: string[]): string => {
+  if (items.length === 0) {
+    return '';
+  }
+  if (items.length === 1) {
+    return items[0];
+  }
+  if (items.length === 2) {
+    return `${items[0]} or ${items[1]}`;
+  }
+  return `${items.slice(0, -1).join(', ')}, or ${items[items.length - 1]}`;
+};
 
 export function ChatIntegrated() {
   const router = useRouter();
@@ -106,6 +124,7 @@ export function ChatIntegrated() {
     votesByCareerId,
     voteCareer,
     appendProfileInsights,
+    appendInferredAttributes,
     setSuggestions,
     sessionId,
     conversationPhase,
@@ -161,6 +180,16 @@ export function ChatIntegrated() {
     return summary;
   }, [profile.insights]);
 
+  const attributeSignals = useMemo(
+    () =>
+      summarizeAttributeSignals({
+        skills: profile.inferredAttributes.skills,
+        aptitudes: profile.inferredAttributes.aptitudes,
+        workStyles: profile.inferredAttributes.workStyles,
+      }),
+    [profile.inferredAttributes]
+  );
+
   const unreviewedSuggestions = useMemo(
     () => suggestions.filter((card) => votesByCareerId[card.id] === undefined),
     [suggestions, votesByCareerId]
@@ -185,16 +214,28 @@ export function ChatIntegrated() {
 
     const coverage = conversationRubric?.insightCoverage;
     const insightScores = [
-      coverage?.interests ? 1 : Math.min(capturedInsights.interests.length / 3, 1),
-      coverage?.aptitudes ? 1 : Math.min(capturedInsights.strengths.length / 2, 1),
-      coverage?.goals ? 1 : Math.min(capturedInsights.goals.length / 2, 1),
+      coverage?.interests ? 1 : Math.min(capturedInsights.interests.length / 4, 1),
+      coverage?.aptitudes ? 1 : Math.min(capturedInsights.strengths.length / 3, 1),
+      coverage?.goals ? 1 : Math.min(capturedInsights.goals.length / 3, 1),
     ];
     const insightProgress = insightScores.reduce((sum, score) => sum + score, 0) / insightScores.length;
 
     const rawScore = insightProgress * 0.6 + rubricProgress * 0.4;
     let percent = Math.round(Math.min(rawScore, 1) * 100);
-    if (rubricProgress >= 0.95 && insightProgress >= 0.95) {
+    const rawDepth = conversationRubric?.contextDepth ?? 0;
+    const meetsReadyCriteria =
+      status === 'ready' &&
+      capturedInsights.interests.length >= 3 &&
+      capturedInsights.strengths.length >= 2 &&
+      capturedInsights.goals.length >= 2 &&
+      rawDepth >= 2;
+
+    if (!meetsReadyCriteria) {
+      percent = Math.min(percent, 94);
+    } else if (rubricProgress >= 0.95 && insightProgress >= 0.95) {
       percent = 100;
+    } else {
+      percent = Math.max(percent, 95);
     }
 
     let stageIndex = 0;
@@ -346,6 +387,19 @@ export function ChatIntegrated() {
   const toggleHeader = () => {
     setIsHeaderExpanded((prev) => !prev);
   };
+
+  useEffect(() => {
+    if (recentlyAddedItem) {
+      setIsHeaderExpanded(true);
+    }
+  }, [recentlyAddedItem]);
+
+  useEffect(() => {
+    if (attributeSignals.careerSignalCount + attributeSignals.developingSignalCount > 0) {
+      lastHobbyPromptRef.current = null;
+      pendingHobbyPromptRef.current = null;
+    }
+  }, [attributeSignals.careerSignalCount, attributeSignals.developingSignalCount]);
 
   useEffect(() => {
     if (progressPercent >= 100 && isHeaderExpanded) {
@@ -517,8 +571,12 @@ export function ChatIntegrated() {
   );
   
   // Track all suggestions that have ever been shown (for vote persistence) - only once on mount
-  const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
-  const hasInitializedAllSuggestions = useRef(false);
+const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
+const sessionInitializedRef = useRef(false);
+const hasInitializedAllSuggestions = useRef(false);
+const lastHobbyPromptRef = useRef<string | null>(null);
+const pendingHobbyPromptRef = useRef<{ label: string; skills: string[]; fields: string[] } | null>(null);
+const lastProcessedTurnRef = useRef<number>(turns.length);
   if (!hasInitializedAllSuggestions.current) {
     // Restore from current suggestions persisted during this session
     suggestions.forEach(s => allSuggestionsRef.current.set(s.id, s));
@@ -641,12 +699,93 @@ export function ChatIntegrated() {
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {
-    suggestions.forEach(s => {
+    if (!sessionInitializedRef.current) {
+      sessionInitializedRef.current = true;
+    }
+    suggestions.forEach((s) => {
       if (!allSuggestionsRef.current.has(s.id)) {
         allSuggestionsRef.current.set(s.id, s);
       }
     });
-  }, [suggestions, removeCardAnnouncement]);
+  }, [suggestions]);
+
+  useEffect(() => {
+    allSuggestionsRef.current.clear();
+    sessionInitializedRef.current = false;
+    suggestionsLastInsightCountRef.current = 0;
+    pendingHobbyPromptRef.current = null;
+    lastProcessedTurnRef.current = turns.length;
+    lastHobbyPromptRef.current = null;
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('osmvp_suggestions');
+        sessionStorage.removeItem('osmvp_last_insight_count');
+      } catch {
+        // ignore
+      }
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    const pending = pendingHobbyPromptRef.current;
+    if (!pending) {
+      return;
+    }
+    if (turns.length === 0) {
+      return;
+    }
+    const lastTurn = turns[turns.length - 1];
+    if (!lastTurn || lastTurn.role !== 'user') {
+      return;
+    }
+    if (lastProcessedTurnRef.current === turns.length) {
+      return;
+    }
+    lastProcessedTurnRef.current = turns.length;
+
+    const response = lastTurn.text.toLowerCase();
+
+    if (NEGATIVE_RESPONSE_REGEX.test(response)) {
+      pendingHobbyPromptRef.current = null;
+      return;
+    }
+
+    if (POSITIVE_RESPONSE_REGEX.test(response) || pending.skills.some((skill) => response.includes(skill.toLowerCase()))) {
+      appendInferredAttributes({
+        skills: pending.skills.map((label) => ({
+          label,
+          stage: 'developing',
+          confidence: 'medium',
+        })),
+        aptitudes: [],
+        workStyles: [],
+      });
+      appendProfileInsights(
+        pending.skills.map((label) => ({
+          kind: 'strength' as InsightKind,
+          value: label,
+          confidence: 'medium',
+          source: 'assistant',
+          evidence: 'Mapped from hobby conversation',
+        }))
+      );
+
+      const fieldOptions = pending.fields.length > 0 ? formatReadableList(pending.fields.slice(0, 3)) : '';
+      const followUp = fieldOptions
+        ? `Brilliant—that gives us something real to note. Those strengths show up loads in ${fieldOptions}. Fancy unpacking one of those, or is there another lane you want to size up?`
+        : "Brilliant—that gives us something real to note. Fancy unpacking where you'd like to apply those strengths?";
+
+      pendingHobbyPromptRef.current = null;
+      lastHobbyPromptRef.current = null;
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: followUp,
+        },
+      ]);
+    }
+  }, [appendInferredAttributes, appendProfileInsights, setTurns, turns]);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
@@ -883,6 +1022,11 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           evidence?: string;
           source?: 'assistant' | 'user' | 'system';
         }>;
+        inferredAttributes?: {
+          skills?: Array<{ label?: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string }>;
+          aptitudes?: Array<{ label?: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string }>;
+          workStyles?: Array<{ label?: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string }>;
+        } | null;
       };
       console.log('Insights API returned:', data.insights);
       if (Array.isArray(data.insights)) {
@@ -901,10 +1045,41 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         );
         console.log('Called appendProfileInsights with', data.insights.length, 'insights');
       }
+      if (data.inferredAttributes) {
+        appendInferredAttributes({
+          skills: (Array.isArray(data.inferredAttributes.skills)
+            ? data.inferredAttributes.skills
+            : []
+          ).filter((item): item is { label: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string; stage?: string } => typeof item?.label === 'string').map((item) => ({
+            label: item.label,
+            confidence: item.confidence,
+            evidence: item.evidence,
+            stage: item.stage === 'established' || item.stage === 'developing' || item.stage === 'hobby' ? item.stage : undefined,
+          })),
+          aptitudes: (Array.isArray(data.inferredAttributes.aptitudes)
+            ? data.inferredAttributes.aptitudes
+            : []
+          ).filter((item): item is { label: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string; stage?: string } => typeof item?.label === 'string').map((item) => ({
+            label: item.label,
+            confidence: item.confidence,
+            evidence: item.evidence,
+            stage: item.stage === 'established' || item.stage === 'developing' || item.stage === 'hobby' ? item.stage : undefined,
+          })),
+          workStyles: (Array.isArray(data.inferredAttributes.workStyles)
+            ? data.inferredAttributes.workStyles
+            : []
+          ).filter((item): item is { label: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string; stage?: string } => typeof item?.label === 'string').map((item) => ({
+            label: item.label,
+            confidence: item.confidence,
+            evidence: item.evidence,
+            stage: item.stage === 'established' || item.stage === 'developing' || item.stage === 'hobby' ? item.stage : undefined,
+          })),
+        });
+      }
     } catch (err) {
       console.error('Failed to derive profile insights', err);
   }
-}, [appendProfileInsights, profile.insights, sessionId]);
+}, [appendProfileInsights, appendInferredAttributes, profile.insights, sessionId]);
 
   const evaluateSuggestionFetch = useCallback(
     (
@@ -917,7 +1092,9 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       const insightCount = profile.insights.length;
       const turnList = turnSnapshot ?? turns;
       const turnCount = turnList.length;
+      const userTurnCount = turnList.filter((turn) => turn.role === 'user').length;
       const status = conversationRubric?.cardReadiness?.status ?? 'blocked';
+      const depthScore = conversationRubric?.contextDepth ?? 0;
       const explicitIdeas = Boolean(conversationRubric?.explicitIdeasRequest);
 
       const focusText = triggerText?.trim();
@@ -965,6 +1142,49 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           shouldFetch: true,
           fetchMode,
           allowCardPrompt: fetchMode === 'normal',
+          insightCount,
+          turnCount,
+          focusText,
+        } as const;
+      }
+
+      const meetsInsightContext =
+        insightCount >= MIN_INSIGHTS_FOR_SUGGESTIONS && hasRequiredInsightMix(profile.insights);
+      const meetsTurnContext = userTurnCount >= MIN_USER_TURNS_FOR_SUGGESTIONS;
+      const meetsDepthContext = depthScore >= 1;
+      const hasCareerAttributes =
+        attributeSignals.careerSignalCount + attributeSignals.developingSignalCount > 0;
+
+      if (
+        !force &&
+        !explicitIdeas &&
+        (!meetsInsightContext || !meetsTurnContext || !meetsDepthContext || !hasCareerAttributes)
+      ) {
+        if (
+          !hasCareerAttributes &&
+          attributeSignals.primaryHobbyLabel &&
+          lastHobbyPromptRef.current !== attributeSignals.primaryHobbyLabel
+        ) {
+          lastHobbyPromptRef.current = attributeSignals.primaryHobbyLabel;
+          const { prompt, skills, fields } = buildHobbyDeepeningPrompt(attributeSignals.primaryHobbyLabel);
+          pendingHobbyPromptRef.current = {
+            label: attributeSignals.primaryHobbyLabel,
+            skills,
+            fields,
+          };
+          setTurns((prev) => [
+            ...prev,
+            {
+              role: 'assistant' as const,
+              text: prompt,
+            },
+          ]);
+        }
+
+        return {
+          shouldFetch: false,
+          fetchMode: 'normal' as const,
+          allowCardPrompt: false,
           insightCount,
           turnCount,
           focusText,
@@ -1030,6 +1250,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       lastCardInteractionAt,
       requeueUnreviewedCards,
       setTurns,
+      attributeSignals,
     ]
   );
 
@@ -1104,6 +1325,23 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             transcript: recentTurns,
             focusStatement,
             previousSuggestions,
+            attributes: {
+              skills: profile.inferredAttributes.skills.map((item) => ({
+                label: item.label,
+                confidence: item.confidence,
+                stage: item.stage,
+              })),
+              aptitudes: profile.inferredAttributes.aptitudes.map((item) => ({
+                label: item.label,
+                confidence: item.confidence,
+                stage: item.stage,
+              })),
+              workStyles: profile.inferredAttributes.workStyles.map((item) => ({
+                label: item.label,
+                confidence: item.confidence,
+                stage: item.stage,
+              })),
+            },
           }),
         });
 
@@ -1274,6 +1512,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     [
       evaluateSuggestionFetch,
       profile.insights,
+      profile.inferredAttributes,
       mode,
       suggestions,
       turns,

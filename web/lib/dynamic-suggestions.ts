@@ -4,14 +4,27 @@ import type { InsightKind } from "@/components/session-provider";
 const OPENAI_SUGGESTION_MODEL = process.env.OPENAI_SUGGESTION_MODEL ?? "gpt-4.1-mini";
 const OPENAI_DOMAIN_MODEL = process.env.OPENAI_DOMAIN_MODEL ?? OPENAI_SUGGESTION_MODEL;
 
+type AttributeStage = "established" | "developing" | "hobby";
+
+export interface AttributeInput {
+    label: string;
+    confidence?: "low" | "medium" | "high";
+    stage?: AttributeStage;
+}
+
 export interface DynamicSuggestionInput {
-	insights: Array<{ kind: InsightKind; value: string }>;
-	votes: Record<string, 1 | 0 | -1 | undefined>;
-	limit?: number;
-	recentTurns?: Array<{ role: string; text: string }>;
-	transcriptSummary?: string;
+    insights: Array<{ kind: InsightKind; value: string }>;
+    votes: Record<string, 1 | 0 | -1 | undefined>;
+    limit?: number;
+    recentTurns?: Array<{ role: string; text: string }>;
+    transcriptSummary?: string;
     focusStatement?: string;
     previousSuggestions?: Array<{ title: string; summary?: string; distance?: CardDistance }>;
+    attributes?: {
+        skills?: AttributeInput[];
+        aptitudes?: AttributeInput[];
+        workStyles?: AttributeInput[];
+    };
 }
 
 export type CardDistance = "core" | "adjacent" | "unexpected";
@@ -41,6 +54,58 @@ export interface DynamicSuggestion {
     distance: CardDistance;
 }
 
+type AttributeBuckets = {
+    skills: string[];
+    aptitudes: string[];
+    work_styles: string[];
+};
+
+type CanonicalRoleLibraryEntry = {
+    keywords: string[];
+    titles: string[];
+};
+
+const CANONICAL_ROLE_LIBRARY: CanonicalRoleLibraryEntry[] = [
+    {
+        keywords: ["research", "analysis", "insight", "analytics", "data"],
+        titles: ["Research Analyst", "Market Research Associate", "Insights Coordinator", "Field Researcher"],
+    },
+    {
+        keywords: ["content", "writing", "story", "editor", "copy"],
+        titles: ["Content Strategist", "Editorial Researcher", "Content Marketing Specialist", "Editorial Assistant"],
+    },
+    {
+        keywords: ["product", "tech", "technology", "software"],
+        titles: ["Product Research Associate", "Technical Support Specialist", "Customer Insights Analyst", "Implementation Specialist"],
+    },
+    {
+        keywords: ["community", "team", "sports", "athlete"],
+        titles: ["Community Programs Coordinator", "Youth Development Coordinator", "Event Operations Specialist", "Partnerships Associate"],
+    },
+    {
+        keywords: ["travel", "fieldwork", "global", "international"],
+        titles: ["Field Operations Coordinator", "Travel Program Coordinator", "International Programs Associate", "Global Research Analyst"],
+    },
+    {
+        keywords: ["gaming", "esports", "game"],
+        titles: ["Community Manager", "Gameplay Insights Analyst", "User Research Associate", "Engagement Strategist"],
+    },
+    {
+        keywords: ["education", "learning", "training"],
+        titles: ["Learning Experience Designer", "Education Program Coordinator", "Training Content Specialist", "Instructional Associate"],
+    },
+    {
+        keywords: ["operations", "logistics", "planning"],
+        titles: ["Operations Coordinator", "Project Coordinator", "Program Specialist", "Logistics Analyst"],
+    },
+];
+
+type TransferableAttributes = {
+    established: AttributeBuckets;
+    developing: AttributeBuckets;
+    hobby: AttributeBuckets;
+};
+
 type ProfileEnvelope = {
     interests: string[];
     strengths: string[];
@@ -49,6 +114,7 @@ type ProfileEnvelope = {
     hopes: string[];
     constraints: string[];
     highlights: string[];
+    transferable_attributes: TransferableAttributes;
 };
 
 function groupInsightsByKind(insights: DynamicSuggestionInput["insights"]) {
@@ -73,6 +139,53 @@ function tokenize(text: string): string[] {
 const STOPWORDS = new Set<string>([
     "the","and","for","with","that","this","from","into","about","your","their","they","you","are","our","use","using","used","build","builds","based","help","guide","create","maker","builder","design","designer","consultant","coach","educator","teacher","content","curator","community","connector","ai","poc","proof","concept","business","startup","founder","small","medium","enterprise","sme","tool","tools","voice","user","assistant","what","when","where","how","why","goal","goals","daily","tasks","task","adds","then","asks","like","just","really","thing","things","pretty","much","lot","stuff","yeah","sure","okay","nothing","really"
 ]);
+
+function deriveCanonicalTitles(
+    insights: DynamicSuggestionInput["insights"],
+    attributes: TransferableAttributes,
+    focusStatement?: string,
+    transcriptSummary?: string
+): string[] {
+    const tokenSource: string[] = [];
+    insights.forEach((item) => tokenSource.push(item.value));
+    if (focusStatement) {
+        tokenSource.push(focusStatement);
+    }
+    if (transcriptSummary) {
+        tokenSource.push(transcriptSummary);
+    }
+
+    const appendAttributes = (entries: string[]) => {
+        entries.forEach((entry) => tokenSource.push(entry));
+    };
+
+    appendAttributes(attributes.established.skills);
+    appendAttributes(attributes.established.aptitudes);
+    appendAttributes(attributes.established.work_styles);
+    appendAttributes(attributes.developing.skills);
+    appendAttributes(attributes.developing.aptitudes);
+    appendAttributes(attributes.developing.work_styles);
+
+    const tokens = new Set<string>();
+    tokenSource.forEach((text) => tokenize(text).forEach((token) => tokens.add(token)));
+
+    const titleScores = new Map<string, number>();
+
+    CANONICAL_ROLE_LIBRARY.forEach((entry) => {
+        const matches = entry.keywords.reduce((acc, keyword) => (tokens.has(keyword) ? acc + 1 : acc), 0);
+        if (matches > 0) {
+            entry.titles.forEach((title, index) => {
+                const current = titleScores.get(title) ?? 0;
+                titleScores.set(title, current + matches + (entry.titles.length - index) * 0.1);
+            });
+        }
+    });
+
+    return Array.from(titleScores.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([title]) => title)
+        .slice(0, 8);
+}
 
 function jaccard(a: Set<string>, b: Set<string>): number {
     let inter = 0;
@@ -139,12 +252,120 @@ export async function generateDynamicSuggestions({
     transcriptSummary,
     focusStatement,
     previousSuggestions = [],
+    attributes,
 }: DynamicSuggestionInput): Promise<DynamicSuggestion[]> {
     if (insights.length === 0) {
         return [];
     }
 
-    const grouped = groupInsightsByKind(insights);
+    const inferStage = (stage?: AttributeStage, confidence?: "low" | "medium" | "high"): AttributeStage => {
+        if (stage === "established" || stage === "developing" || stage === "hobby") {
+            return stage;
+        }
+        if (confidence === "high") return "established";
+        if (confidence === "medium") return "developing";
+        return "hobby";
+    };
+
+    const emptyBuckets = (): AttributeBuckets => ({ skills: [], aptitudes: [], work_styles: [] });
+    const transferableBuckets: TransferableAttributes = {
+        established: emptyBuckets(),
+        developing: emptyBuckets(),
+        hobby: emptyBuckets(),
+    };
+
+    const attributeInsights: Array<{ kind: InsightKind; value: string }> = [];
+    const insightSet = new Set<string>();
+
+    const pushInsight = (kind: InsightKind, value: string) => {
+        const key = `${kind}:${value.toLowerCase()}`;
+        if (insightSet.has(key)) {
+            return;
+        }
+        insightSet.add(key);
+        attributeInsights.push({ kind, value });
+    };
+
+    const pushToBucket = (bucket: string[], label: string) => {
+        const normalized = label.trim();
+        if (!normalized) return;
+        if (!bucket.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
+            bucket.push(normalized);
+        }
+    };
+
+    const processAttributes = (entries: AttributeInput[] | undefined, category: keyof AttributeBuckets) => {
+        if (!entries) return;
+        entries.forEach((entry) => {
+            const label = entry.label.trim();
+            if (!label) {
+                return;
+            }
+            const stage = inferStage(entry.stage, entry.confidence);
+            pushToBucket(transferableBuckets[stage][category], label);
+
+            if (category === "skills") {
+                if (stage === "hobby") {
+                    pushInsight("hope", label);
+                } else {
+                    pushInsight("strength", label);
+                }
+            } else if (category === "aptitudes") {
+                if (stage === "hobby") {
+                    pushInsight("hope", label);
+                } else {
+                    pushInsight("strength", label);
+                }
+            } else {
+                pushInsight("highlight", label);
+            }
+        });
+    };
+
+    processAttributes(attributes?.skills, "skills");
+    processAttributes(attributes?.aptitudes, "aptitudes");
+    processAttributes(attributes?.workStyles, "work_styles");
+
+    const compositeInsights = [...insights, ...attributeInsights];
+
+    const establishedExamples = [
+        ...transferableBuckets.established.skills,
+        ...transferableBuckets.established.aptitudes,
+        ...transferableBuckets.established.work_styles,
+    ].slice(0, 4);
+    const developingExamples = [
+        ...transferableBuckets.developing.skills,
+        ...transferableBuckets.developing.aptitudes,
+        ...transferableBuckets.developing.work_styles,
+    ].slice(0, 4);
+    const hobbyExamples = [
+        ...transferableBuckets.hobby.skills,
+        ...transferableBuckets.hobby.aptitudes,
+        ...transferableBuckets.hobby.work_styles,
+    ].slice(0, 4);
+    const establishedTotal =
+        transferableBuckets.established.skills.length +
+        transferableBuckets.established.aptitudes.length +
+        transferableBuckets.established.work_styles.length;
+    const developingTotal =
+        transferableBuckets.developing.skills.length +
+        transferableBuckets.developing.aptitudes.length +
+        transferableBuckets.developing.work_styles.length;
+    const hobbyTotal =
+        transferableBuckets.hobby.skills.length +
+        transferableBuckets.hobby.aptitudes.length +
+        transferableBuckets.hobby.work_styles.length;
+
+    const promptHints: PromptHints = {
+        transferableAttributes: transferableBuckets,
+        hobbyOnly: establishedTotal === 0 && developingTotal === 0 && hobbyTotal > 0,
+        hobbyExamples,
+        establishedExamples,
+        developingExamples,
+        canonicalTitles: deriveCanonicalTitles(compositeInsights, transferableBuckets, focusStatement, transcriptSummary),
+    };
+
+    const grouped = groupInsightsByKind(compositeInsights);
 
     const openaiKey = process.env.OPENAI_API_KEY ?? null;
     const perplexityKey = process.env.PERPLEXITY_API_KEY ?? null;
@@ -164,6 +385,7 @@ export async function generateDynamicSuggestions({
         hopes: grouped.get("hope") ?? [],
         constraints: grouped.get("constraint") ?? grouped.get("boundary") ?? [],
         highlights: grouped.get("highlight") ?? [],
+        transferable_attributes: transferableBuckets,
     };
 
     const likes = Object.entries(votes)
@@ -175,14 +397,14 @@ export async function generateDynamicSuggestions({
 
     let motivationSummary: string | null = null;
     try {
-        motivationSummary = await buildMotivationSummary(insights);
+        motivationSummary = await buildMotivationSummary(compositeInsights);
     } catch (error) {
         if (process.env.NODE_ENV !== "production") {
             console.warn("[dynamic-suggestions] motivation summary failed", error);
         }
     }
 
-    const dominantKeywords = computeDominantKeywords(insights, transcriptSummary);
+    const dominantKeywords = computeDominantKeywords(compositeInsights, transcriptSummary);
     const avoidTitles = new Set<string>(
         previousSuggestions
             .map((item) => item.title.toLowerCase())
@@ -197,7 +419,7 @@ export async function generateDynamicSuggestions({
             perplexityKey,
             useOpenAI,
             profile,
-            insights,
+            insights: compositeInsights,
             motivationSummary,
             likes,
             dislikes,
@@ -209,6 +431,7 @@ export async function generateDynamicSuggestions({
             existing: suggestions,
             avoidTitles,
             previousSuggestions,
+            promptHints,
         });
 
         if (candidate) {
@@ -237,6 +460,7 @@ interface PerplexityContext {
     existing: DynamicSuggestion[];
     avoidTitles: Set<string>;
     previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
+    promptHints: PromptHints;
 }
 
 async function generateCardForDistance(context: PerplexityContext): Promise<DynamicSuggestion | null> {
@@ -257,6 +481,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         existing,
         avoidTitles,
         previousSuggestions,
+        promptHints,
     } = context;
 
     const maxAttempts = distance === "unexpected" ? 5 : 3;
@@ -295,6 +520,7 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             previousSuggestions,
             attempt,
             novelDomains,
+            promptHints,
         });
 
         console.info("[suggestions] requesting card", {
@@ -366,6 +592,7 @@ interface ModelRequestInput {
     attempt: number;
     novelDomains?: string[];
     previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
+    promptHints: PromptHints;
 }
 
 async function requestCardFromModel(params: ModelRequestInput): Promise<RawDynamicSuggestion | null> {
@@ -391,6 +618,7 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         attempt,
         novelDomains,
         previousSuggestions,
+        promptHints,
     } = params;
 
     if (!openaiKey) {
@@ -419,12 +647,13 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         return undefined;
     })();
 
-    const systemPrompt = buildSystemPrompt(distance, focusText);
+    const systemPrompt = buildSystemPrompt(distance, focusText, promptHints);
 
     const payload = {
         distance,
         attempt,
         user_profile: profile,
+        transferable_attributes: profile.transferable_attributes,
         insights: insights.map((item) => ({ kind: item.kind, value: item.value })),
         motivation_summary: motivationSummary,
         positive_votes: likes,
@@ -443,6 +672,7 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
             .join("\n"),
         dominant_keywords: dominantKeywords,
         target_domains: novelDomains,
+        attribute_context: promptHints,
     };
 
     const temperature = distance === "unexpected" ? 0.5 : 0.3;
@@ -521,6 +751,7 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         attempt,
         novelDomains,
         previousSuggestions,
+        promptHints,
     } = params;
 
     const apiKey = perplexityKey;
@@ -550,12 +781,13 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         return undefined;
     })();
 
-    const systemPrompt = buildSystemPrompt(distance, focusText);
+    const systemPrompt = buildSystemPrompt(distance, focusText, promptHints);
 
     const payload = {
         distance,
         attempt,
         user_profile: profile,
+        transferable_attributes: profile.transferable_attributes,
         insights: insights.map((item) => ({ kind: item.kind, value: item.value })),
         motivation_summary: motivationSummary,
         positive_votes: likes,
@@ -574,6 +806,7 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
             .join("\n"),
         dominant_keywords: dominantKeywords,
         target_domains: novelDomains,
+        attribute_context: promptHints,
     };
 
     const temperature = distance === "unexpected" ? 0.4 : 0.2;
@@ -634,17 +867,35 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
     }
 }
 
-function buildSystemPrompt(distance: CardDistance, focusStatement?: string): string {
+type PromptHints = {
+    transferableAttributes?: TransferableAttributes;
+    hobbyOnly?: boolean;
+    establishedExamples?: string[];
+    developingExamples?: string[];
+    hobbyExamples?: string[];
+    canonicalTitles?: string[];
+};
+
+function buildSystemPrompt(distance: CardDistance, focusStatement?: string, hints?: PromptHints): string {
     const base = [
         "You generate exactly one career pathway card per request.",
         "Respond with strict JSON: { \"card\": { ... } } and nothing else.",
         "Required card fields: title, summary, why_it_fits[], pathways[], next_steps[], micro_experiments[], neighbor_tags[], distance.",
         "Each array field must contain 1-3 concise bullet strings (no numbering).",
         "Keep copy concrete, based on the provided context.",
+        "Study user_profile.transferable_attributes.established / developing / hobby buckets to understand which capabilities are proven versus casual.",
+        "Ensure every card leans on a proven or developing capability and treats hobby-level abilities as practice steps or supporting context.",
         "Never reuse any titles from avoid_titles or previous_cards; invent new concepts.",
         "Do not recreate or lightly remix entries listed in already_provided_cards.",
         "Avoid repetition and do not invent personal details that were not provided.",
         "Use sentence case and avoid emoji or markdown formatting.",
+        "Make transferable skills and aptitudes the anchor of every section; casual interests or fandoms are supporting flavour only.",
+        "Prioritise economically viable career paths or consulting lanes with clear sources of income.",
+        "If you mention a side hustle, label it explicitly as a side hustle and show how it fits alongside a primary path.",
+        "Avoid fantasy or celebrity-dependent jobs (e.g. roles tied to a specific sports team or pop star). Keep outcomes broadly applicable.",
+        "Only bridge into domains when there is a demonstrated strength or aptitude that makes the leap credible.",
+        "Keep the title concise (max five words) and ensure it matches job boards or LinkedIn listings.",
+        "Avoid stacking descriptors in the title (e.g. no \"Sports Travel Research Consultant\"); place niche focus in the summary or bullets instead.",
     ];
 
     if (focusStatement) {
@@ -654,15 +905,50 @@ function buildSystemPrompt(distance: CardDistance, focusStatement?: string): str
         );
     }
 
+    const addContextList = (label: string, items?: string[]) => {
+        if (!items || items.length === 0) return;
+        const preview = items.slice(0, 3).join(", ");
+        base.push(`${label}: ${preview}.`);
+    };
+
+    if (hints) {
+        addContextList("Established capabilities to anchor", hints.establishedExamples);
+        addContextList("Developing capabilities to nurture", hints.developingExamples);
+        addContextList("Hobby-level interests", hints.hobbyExamples);
+
+        if (hints.hobbyOnly) {
+            const summary = hints.hobbyExamples && hints.hobbyExamples.length > 0
+                ? hints.hobbyExamples.join(", ")
+                : "hobby-level abilities";
+            base.push(
+                `The user currently only references hobby-level abilities (${summary}). Provide realistic starter pathways—assistant roles, certifications, structured practice, or community programs—before suggesting full professional outcomes.`
+            );
+            base.push(
+                "Spell out which transferable skills need to be built before they can earn money from this lane."
+            );
+        }
+
+        if (hints.canonicalTitles && hints.canonicalTitles.length > 0) {
+            const titlePreview = hints.canonicalTitles.slice(0, 6).join(", ");
+            base.push(
+                `Prefer titles drawn from: ${titlePreview}. If none fit perfectly, choose a close canonical role rather than inventing a new compound title.`
+            );
+        }
+    }
+
     if (distance === "core") {
         base.push(
             "Focus on deepening what they already build. Show refinement, packaging, or scaling opportunities inside their current lane.",
-            "Reference their stated wins or tools explicitly so it feels tailored."
+            "Reference their stated wins or tools explicitly so it feels tailored.",
+            "Flag any missing capability that would make the idea shaky and suggest how to shore it up.",
+            "Ensure the summary spells out why the role fits their proven strengths."
         );
     } else if (distance === "adjacent") {
         base.push(
             "Pivot their existing skills or inventory into a nearby audience or medium.",
-            "Explicitly mention the bridge from the current work to the new context, so it feels like a natural stretch."
+            "Explicitly mention the bridge from the current work to the new context, so it feels like a natural stretch.",
+            "Call out which strengths carry over so it does not read like a random hobby mash-up.",
+            "Keep the title grounded in recognisable roles from mainstream job boards."
         );
     } else {
         base.push(

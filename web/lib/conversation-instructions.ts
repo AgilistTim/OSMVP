@@ -93,6 +93,9 @@ export function buildRealtimeInstructions({
 				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, preview why the cards might be useful and point them to the details."
 			);
 			lines.push(
+				"When you preview the ideas, structure the response as a tight list (e.g., start each line with 🔹 or —) instead of a single dense paragraph so it's easy to scan."
+			);
+			lines.push(
 				"Keep the spoken response short—highlight the hunch behind the cards, then ask what lands or what feels off so you can iterate."
 			);
 			lines.push(
@@ -107,6 +110,9 @@ export function buildRealtimeInstructions({
 			);
 			lines.push(
 				"Do NOT enumerate the individual card titles or explain each one in the transcript. Instead, briefly preview why they matter (one sentence) and invite the user to check the cards."
+			);
+			lines.push(
+				"Lay out the preview as a short bullet-style list (use 🔹, 🔸, or em dashes) so multiple ideas don't blur into one block."
 			);
 			lines.push(
 				"Keep the spoken response tight—set up why the cards matter, invite reactions, and let the detailed copy live in the cards themselves."
