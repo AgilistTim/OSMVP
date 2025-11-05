@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Copy, Share2, Map } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Copy, Download, Map, RefreshCw, Share2 } from "lucide-react";
 import { useSession } from "@/components/session-provider";
 import {
 	buildExplorationSnapshot,
@@ -17,6 +17,16 @@ import { cn } from "@/lib/utils";
 import type { CareerSuggestion } from "@/components/session-provider";
 import { InlineCareerCard } from "@/components/inline-career-card-v2";
 import "@/components/inline-career-card-v2.css";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import type { JourneyVisualContext } from "@/lib/journey-visual";
+import type { JourneyVisualAsset } from "@/components/session-provider";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -174,6 +184,8 @@ interface ExplorationBodyProps {
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
+	journeyVisual: JourneyVisualAsset | null;
+	onVisualiseMap: () => void;
 }
 
 function ExplorationBody({
@@ -186,6 +198,8 @@ function ExplorationBody({
 	suggestions,
 	votesByCareerId,
 	voteCareer,
+	journeyVisual,
+	onVisualiseMap,
 }: ExplorationBodyProps) {
 	const router = useRouter();
 	const passionSummary =
@@ -204,10 +218,6 @@ function ExplorationBody({
 		router.push("/");
 	};
 
-	const handleVisualiseMap = () => {
-		router.push("/exploration-temp");
-	};
-
 	return (
 		<div className="exploration-container">
 			<div className="exploration-nav">
@@ -223,10 +233,14 @@ function ExplorationBody({
 				passions={passionSummary}
 				shareUrl={shareUrl}
 				sessionId={sessionId}
-				onVisualiseMap={handleVisualiseMap}
+				onVisualiseMap={onVisualiseMap}
 			/>
 
 			<JourneyStatsBar stats={stats} />
+
+			{journeyVisual ? (
+				<JourneyVisualSection visual={journeyVisual} onVisualiseMap={onVisualiseMap} />
+			) : null}
 
 			<IdeaStashSection
 				suggestions={suggestions}
@@ -421,6 +435,52 @@ function JourneyStatsBar({ stats }: { stats: JourneyStats }) {
 	);
 }
 
+function JourneyVisualSection({
+	visual,
+	onVisualiseMap,
+}: {
+	visual: JourneyVisualAsset;
+	onVisualiseMap: () => void;
+}) {
+	const dataUrl = `data:${visual.mimeType ?? "image/png"};base64,${visual.imageBase64}`;
+	return (
+		<section className="journey-visual-section">
+			<SectionHeader
+				eyebrow="Journey snapshot"
+				title="How your conversation maps out"
+				description="A shareable visual that maps the sparks, strengths, and directions you explored."
+			/>
+			<div className="journey-visual-grid">
+				<figure className="journey-visual-card tilted-card">
+					<img
+						src={dataUrl}
+						alt={`Journey visual in a ${visual.plan.themeLabel}`}
+						className="w-full rounded-md border bg-background"
+					/>
+				</figure>
+				<div className="journey-visual-meta tilted-card">
+					<h3 className="text-base font-semibold">Story beats</h3>
+					<p className="text-sm text-muted-foreground mt-1">{visual.plan.caption}</p>
+					<ul className="mt-3 space-y-1 text-sm">
+						{visual.plan.highlights.map((highlight) => (
+							<li key={highlight}>• {highlight}</li>
+						))}
+					</ul>
+					<p className="mt-3 text-xs text-muted-foreground">
+						Model: {visual.model} • Generated {new Date(visual.createdAt).toLocaleString()}
+					</p>
+					<div className="mt-4">
+						<Button type="button" variant="outline" onClick={onVisualiseMap}>
+							<RefreshCw className="mr-2 size-4" aria-hidden />
+							Regenerate visual
+						</Button>
+					</div>
+				</div>
+			</div>
+		</section>
+	);
+}
+
 function IdeaStashSection({
 	suggestions,
 	votesByCareerId,
@@ -528,7 +588,15 @@ function TimelineColumn({ title, items, emptyMessage }: { title: string; items: 
 }
 
 export function ExplorationView() {
-	const { profile, suggestions, votesByCareerId, sessionId, voteCareer } = useSession();
+	const {
+		profile,
+		suggestions,
+		votesByCareerId,
+		sessionId,
+		voteCareer,
+		journeyVisual,
+		setJourneyVisual,
+	} = useSession();
 
 	const snapshot = useMemo(() => buildExplorationSnapshot(profile, suggestions, votesByCareerId), [
 		profile,
@@ -567,17 +635,245 @@ export function ExplorationView() {
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
 
+	type VisualStatus = "idle" | "loading" | "error" | "ready";
+	const [visualOpen, setVisualOpen] = useState(false);
+	const [visualStatus, setVisualStatus] = useState<VisualStatus>("idle");
+	const [visualError, setVisualError] = useState<string | null>(null);
+	const isGenerating = visualStatus === "loading";
+
+	const buildContext = useMemo(() => {
+		const context: JourneyVisualContext = {
+			sessionId,
+			profile: {
+				insights: profile.insights,
+				inferredAttributes: profile.inferredAttributes,
+				goals: profile.goals,
+				hopes: profile.hopes,
+				highlights: profile.highlights,
+				mutualMoments: profile.mutualMoments,
+				interests: profile.interests,
+				strengths: profile.strengths,
+				readiness: profile.readiness,
+			},
+			suggestions: suggestions.map((item) => ({
+				id: item.id,
+				title: item.title,
+				summary: item.summary,
+				distance: item.distance,
+				whyItFits: item.whyItFits,
+				nextSteps: item.nextSteps,
+				microExperiments: item.microExperiments,
+			})),
+			votes: votesByCareerId,
+			snapshot: {
+				themes: snapshot.themes,
+				discoveryInsights: snapshot.discoveryInsights,
+			},
+		};
+		return context;
+	}, [profile, sessionId, snapshot.discoveryInsights, snapshot.themes, suggestions, votesByCareerId]);
+
+	const base64ToBlob = (base64: string, mime = "image/png") => {
+		if (typeof window === "undefined" || typeof window.atob !== "function") {
+			throw new Error("Base64 decoding is not supported in this environment.");
+		}
+		const byteCharacters = window.atob(base64);
+		const byteNumbers = new Array(byteCharacters.length);
+		for (let i = 0; i < byteCharacters.length; i += 1) {
+			byteNumbers[i] = byteCharacters.charCodeAt(i);
+		}
+		const byteArray = new Uint8Array(byteNumbers);
+		return new Blob([byteArray], { type: mime });
+	};
+
+	const visualPlan = journeyVisual?.plan ?? null;
+	const visualDataUrl = journeyVisual
+		? `data:${journeyVisual.mimeType ?? "image/png"};base64,${journeyVisual.imageBase64}`
+		: null;
+	const visualMeta = journeyVisual
+		? { model: journeyVisual.model, created: journeyVisual.createdAt }
+		: null;
+
+const triggerGeneration = async () => {
+		setVisualStatus("loading");
+		setVisualError(null);
+		try {
+			const response = await fetch("/api/journey/visual", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ context: buildContext }),
+			});
+			if (!response.ok) {
+				const errorPayload = await response.json().catch(() => ({}));
+				const message =
+					typeof errorPayload?.message === "string"
+						? errorPayload.message
+						: "We couldn't sketch the journey yet.";
+				setVisualStatus("error");
+				setVisualError(message);
+				return;
+			}
+			const data = await response.json();
+			const createdAt = typeof data.created === "number" ? data.created : Date.now();
+			setJourneyVisual({
+				imageBase64: data.image,
+				plan: data.plan,
+				model: data.model,
+				createdAt,
+				mimeType: (typeof data.mimeType === "string" ? data.mimeType : undefined) ?? "image/png",
+			});
+			setVisualError(null);
+			setVisualStatus("ready");
+		} catch (error) {
+			console.error("[ExplorationView] failed to generate visual", error);
+			setVisualStatus("error");
+			setVisualError("Something went sideways while sketching the journey.");
+		}
+	};
+
+	const handleVisualiseMap = () => {
+		setVisualOpen(true);
+		if (journeyVisual) {
+			setVisualStatus("ready");
+			setVisualError(null);
+			return;
+		}
+		void triggerGeneration();
+	};
+
+	const handleOpenChange = (open: boolean) => {
+		setVisualOpen(open);
+		if (!open && visualStatus === "error") {
+			setVisualStatus("idle");
+			setVisualError(null);
+		}
+	};
+
+	const handleDownload = () => {
+		if (!journeyVisual) return;
+		try {
+			const blob = base64ToBlob(journeyVisual.imageBase64, journeyVisual.mimeType ?? "image/png");
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = "journey-visual.png";
+			link.click();
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error("[ExplorationView] failed to download journey visual", error);
+		}
+	};
+
+	const handleCopyCaption = async () => {
+		if (!journeyVisual) return;
+		try {
+			await navigator.clipboard.writeText(
+				`${journeyVisual.plan.caption}\n${journeyVisual.plan.highlights.join("\n")}`
+			);
+		} catch (error) {
+			console.error("[ExplorationView] failed to copy caption", error);
+		}
+	};
+
 	return (
-		<ExplorationBody
-			snapshot={snapshot}
-			userName={userName}
-			discoveryDate={discoveryDate}
-			sessionId={sessionId}
-			shareUrl={shareUrl}
-			stats={stats}
-			suggestions={suggestions}
-			votesByCareerId={votesByCareerId}
-			voteCareer={voteCareer}
-		/>
+		<>
+			<ExplorationBody
+				snapshot={snapshot}
+				userName={userName}
+				discoveryDate={discoveryDate}
+				sessionId={sessionId}
+				shareUrl={shareUrl}
+				stats={stats}
+				suggestions={suggestions}
+				votesByCareerId={votesByCareerId}
+				voteCareer={voteCareer}
+				journeyVisual={journeyVisual}
+				onVisualiseMap={handleVisualiseMap}
+			/>
+			<Dialog open={visualOpen} onOpenChange={handleOpenChange}>
+				<DialogContent className="max-w-4xl">
+					<DialogHeader>
+						<DialogTitle>Visualise your journey</DialogTitle>
+						<DialogDescription>
+							We’re sketching a shareable snapshot of the conversation, strengths, and paths you uncovered.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="flex flex-col gap-6">
+						{visualStatus === "loading" ? (
+							<div className="flex flex-col items-center justify-center py-12 gap-2 text-muted-foreground">
+								<div className="h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" aria-hidden />
+								<p>Sketching your journey…</p>
+							</div>
+						) : null}
+						{visualStatus === "error" && visualError ? (
+							<div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+								<p>{visualError}</p>
+								<Button
+									type="button"
+									variant="outline"
+									className="mt-3"
+									onClick={() => {
+										void triggerGeneration();
+									}}
+								>
+									<RefreshCw className="mr-2 size-4" aria-hidden />
+									Try again
+								</Button>
+							</div>
+						) : null}
+				{visualStatus === "ready" && visualPlan && visualDataUrl ? (
+					<div className="flex flex-col gap-4">
+						<div className="rounded-lg border bg-muted/30 p-4">
+							<img
+								src={visualDataUrl}
+								alt={`Journey visual in a ${visualPlan.themeLabel}`}
+								className="w-full rounded-md border bg-background"
+							/>
+						</div>
+								<div className="rounded-lg border bg-muted/40 p-4">
+									<h3 className="text-base font-semibold">Story beats</h3>
+									<p className="text-sm text-muted-foreground mt-1">{visualPlan.caption}</p>
+									<ul className="mt-3 space-y-1 text-sm">
+										{visualPlan.highlights.map((highlight) => (
+											<li key={highlight}>• {highlight}</li>
+										))}
+									</ul>
+									{visualMeta ? (
+										<p className="mt-3 text-xs text-muted-foreground">
+											Model: {visualMeta.model} • Generated {new Date(visualMeta.created).toLocaleString()}
+										</p>
+									) : null}
+								</div>
+					</div>
+				) : null}
+			</div>
+			<DialogFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<div className="flex gap-2">
+							<Button
+								type="button"
+								variant="outline"
+								disabled={isGenerating}
+								onClick={() => {
+									void triggerGeneration();
+								}}
+							>
+								<RefreshCw className="mr-2 size-4" aria-hidden />
+								{visualStatus === "ready" ? "Regenerate" : "Generate"}
+							</Button>
+						</div>
+				<div className="flex gap-2">
+					<Button type="button" variant="outline" disabled={!visualPlan || !journeyVisual} onClick={handleCopyCaption}>
+						<Copy className="mr-2 size-4" aria-hidden />
+						Copy caption
+					</Button>
+					<Button type="button" disabled={!journeyVisual || isGenerating} onClick={handleDownload}>
+						<Download className="mr-2 size-4" aria-hidden />
+						Download image
+					</Button>
+				</div>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }

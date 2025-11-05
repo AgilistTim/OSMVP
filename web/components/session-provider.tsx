@@ -9,6 +9,7 @@ import {
 } from "@/lib/conversation-phases";
 import { computeRubricScores } from "@/lib/conversation-phases";
 import { extractConversationInsights } from "@/lib/conversation-engagement";
+import type { JourneyVisualPlan } from "@/lib/journey-visual";
 
 export type SessionMode = "text" | "voice" | null;
 
@@ -131,6 +132,14 @@ export interface CareerSuggestion {
 	}[];
 }
 
+export interface JourneyVisualAsset {
+	imageBase64: string;
+	plan: JourneyVisualPlan;
+	model: string;
+	createdAt: number;
+	mimeType?: string;
+}
+
 interface SessionState {
 	mode: SessionMode;
 	profile: Profile;
@@ -153,6 +162,7 @@ interface SessionState {
 	conversationPhaseRationale: string[];
 	conversationRubric: ConversationRubric | null;
 	shouldSeedTeaserCard: boolean;
+	journeyVisual: JourneyVisualAsset | null;
 }
 
 interface SessionActions {
@@ -184,6 +194,7 @@ interface SessionActions {
 	setTurns: React.Dispatch<React.SetStateAction<ConversationTurn[]>>;
 	overrideConversationPhase: (phase: ConversationPhase, rationale?: string[]) => void;
 	clearTeaserSeed: () => void;
+	setJourneyVisual: (visual: JourneyVisualAsset | null) => void;
 }
 
 const SessionContext = createContext<(SessionState & SessionActions) | null>(null);
@@ -253,6 +264,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [conversationPhaseRationale, setConversationPhaseRationale] = useState<string[]>([]);
 	const [conversationRubric, setConversationRubric] = useState<ConversationRubric | null>(null);
 	const [shouldSeedTeaserCard, setShouldSeedTeaserCard] = useState(false);
+	const [journeyVisual, setJourneyVisualState] = useState<JourneyVisualAsset | null>(null);
 
 	const turnCount = turns.length;
 
@@ -472,6 +484,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setShouldSeedTeaserCard(false);
 	}, []);
 
+	const setJourneyVisual = useCallback<SessionActions["setJourneyVisual"]>((visual) => {
+		setJourneyVisualState(visual);
+	}, []);
+
   const resetProfile = useCallback(() => {
     setProfile(createEmptyProfile());
     setCandidates([]);
@@ -485,6 +501,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setConversationPhaseRationale([]);
 		setConversationRubric(null);
     setShouldSeedTeaserCard(false);
+		setJourneyVisualState(null);
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('osmvp_session_started');
@@ -504,6 +521,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		updateOnboardingStep,
 		setVoiceState,
 		setTurnsState,
+		setJourneyVisualState,
 	]);
 
   const beginSession = useCallback(() => {
@@ -635,6 +653,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			conversationPhaseRationale,
 			conversationRubric,
 			shouldSeedTeaserCard,
+			journeyVisual,
 			setMode: (m) => setModeState(m),
 			setProfile,
 			appendProfileInsights,
@@ -676,6 +695,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			setTurns: (updater) => setTurnsState(updater),
 			overrideConversationPhase,
 			clearTeaserSeed,
+			setJourneyVisual,
 		}),
 	[
 		mode,
@@ -692,6 +712,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		conversationPhaseRationale,
 		conversationRubric,
 		shouldSeedTeaserCard,
+		journeyVisual,
 		setModeState,
 		setProfile,
 		appendProfileInsights,
@@ -716,6 +737,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setTurnsState,
 		overrideConversationPhase,
 		clearTeaserSeed,
+		setJourneyVisual,
 	]
 );
 
