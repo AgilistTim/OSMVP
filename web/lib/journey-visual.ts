@@ -88,28 +88,117 @@ const THEME_LIBRARY: ThemeDefinition[] = [
 ];
 
 const FALLBACK_STRENGTH = "resourcefulness";
+const FALLBACK_THEME_ID = "adventure-trail";
+const KEYWORD_STOP_WORDS = new Set([
+	"and",
+	"the",
+	"that",
+	"with",
+	"from",
+	"into",
+	"your",
+	"you",
+	"using",
+	"for",
+	"this",
+	"those",
+	"their",
+	"them",
+	"they",
+	"our",
+	"it's",
+	"its",
+	"also",
+	"then",
+	"than",
+	"over",
+	"under",
+	"onto",
+	"about",
+	"across",
+	"around",
+	"toward",
+	"towards",
+	"through",
+	"while",
+	"after",
+	"before",
+]);
 
-function pickTheme(
-	context: JourneyVisualContext,
-	topKeywords: string[]
-): ThemeDefinition {
+function sanitizeKeywords(keywords: string[], limit: number): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+
+	for (const raw of keywords) {
+		const clean = raw.replace(/[^a-z0-9-]/gi, "");
+		if (!clean) continue;
+		const lower = clean.toLowerCase();
+		if (lower.length <= 2) continue;
+		if (KEYWORD_STOP_WORDS.has(lower)) continue;
+		if (seen.has(lower)) continue;
+		seen.add(lower);
+		result.push(clean);
+		if (result.length >= limit) break;
+	}
+
+	return result;
+}
+
+function pickTheme(context: JourneyVisualContext, topKeywords: string[]): ThemeDefinition {
+	const fallbackTheme = THEME_LIBRARY.find((t) => t.id === FALLBACK_THEME_ID)!;
+	let bestTheme = fallbackTheme;
+	let bestScore = 0;
+
 	for (const candidate of THEME_LIBRARY) {
-		if (candidate.id === "adventure-trail") continue;
-		const matched = candidate.keywords.every((regex) =>
-			topKeywords.some((keyword) => regex.test(keyword))
-		);
-		if (matched) {
-			return candidate;
+		if (candidate.id === FALLBACK_THEME_ID) continue;
+
+		const score = candidate.keywords.reduce((acc, regex) => {
+			return acc + (topKeywords.some((keyword) => regex.test(keyword)) ? 1 : 0);
+		}, 0);
+
+		if (score > bestScore) {
+			bestScore = score;
+			bestTheme = candidate;
 		}
 	}
-	if (topKeywords.some((keyword) => /(travel|journey|explore|adventure)/i.test(keyword))) {
-		return THEME_LIBRARY.find((t) => t.id === "adventure-trail")!;
+
+	if (bestScore === 0 && topKeywords.some((keyword) => /(travel|journey|explore|adventure)/i.test(keyword))) {
+		return fallbackTheme;
 	}
-	const sportsCandidate = THEME_LIBRARY.find(
-		(t) => t.id === "sports-playbook" && topKeywords.some((keyword) => t.keywords[0].test(keyword))
-	);
-	if (sportsCandidate) return sportsCandidate;
-	return THEME_LIBRARY.find((t) => t.id === "adventure-trail")!;
+
+	return bestTheme;
+}
+
+function resolveThemeDetails(
+	theme: ThemeDefinition,
+	context: {
+		domainCue: string;
+		headlineInterest: string;
+		goal?: string;
+		suggestionTitles: string[];
+	}
+): Pick<ThemeDefinition, "scene" | "palette" | "motifs"> {
+	if (theme.id !== FALLBACK_THEME_ID) {
+		return {
+			scene: theme.scene,
+			palette: theme.palette,
+			motifs: theme.motifs,
+		};
+	}
+
+	const pathLabels = context.suggestionTitles.slice(0, 3).join(", ");
+	const journeyFocus =
+		pathLabels ||
+		context.goal ||
+		context.headlineInterest ||
+		context.domainCue ||
+		"the user’s developing interests";
+
+	return {
+		scene: `adaptive journey storyboard or collage tailored to ${context.domainCue}, flowing from the initial spark (${context.headlineInterest}) through active experimentation and into ${journeyFocus}. Each scene can morph into environments (labs, studios, workshops, arenas) that make sense for those interests rather than resembling a literal fantasy map.`,
+		palette: `colour story that starts with warm curiosity tones and gradually shifts into hues inspired by ${journeyFocus}; allow the palette to borrow from the user’s domain (e.g., neon tech glows, theatre lighting gels, athletic club colours).`,
+		motifs: `handwritten annotations, pins, digital overlays, ${context.domainCue} tools/icons, collaborative silhouettes, optional wayfinding arrows or timelines—avoid parchment map tropes unless the conversation explicitly mentioned them.`,
+	};
 }
 
 function rankKeywords(context: JourneyVisualContext): string[] {
@@ -203,11 +292,25 @@ export function buildJourneyVisualPlan(context: JourneyVisualContext): JourneyVi
 	const strengths = pickStrengths(context);
 	const topSuggestions = pickSavedSuggestions(context);
 	const goal = selectGoal(context);
+	const suggestionTitles = topSuggestions.map((suggestion) => suggestion.title);
+	const landmarkCues = sanitizeKeywords(keywords, 6);
 
 	const headlineInterest =
 		context.profile.interests[0] ??
 		context.snapshot?.themes[0]?.label ??
 		"curiosity";
+
+	const domainCue =
+		sanitizeKeywords(keywords, 5).join(", ") ||
+		[headlineInterest, strengths[0], suggestionTitles[0]].filter(Boolean).join(", ") ||
+		"their interests";
+
+	const themeDetails = resolveThemeDetails(theme, {
+		domainCue,
+		headlineInterest,
+		goal,
+		suggestionTitles,
+	});
 
 	const captionParts = [
 		`Started with an interest in ${headlineInterest}`,
@@ -238,10 +341,11 @@ export function buildJourneyVisualPlan(context: JourneyVisualContext): JourneyVi
 		`Core strengths: ${strengths.join(", ")}`,
 		topSuggestions.length > 0 ? `Key milestones:\n${timelineCallouts}` : null,
 		goal ? `Destination banner: ${goal}` : null,
-		`Scene: ${theme.scene}`,
-		`Palette: ${theme.palette}`,
-		`Motifs: ${theme.motifs}`,
-		"Composition: cinematic landscape illustration, layered depth, clear focal points, hand-drawn annotations and labels, no photorealistic text but include stylised signage.",
+		`Scene: ${themeDetails.scene}`,
+		`Palette: ${themeDetails.palette}`,
+		`Motifs: ${themeDetails.motifs}`,
+		landmarkCues.length > 0 ? `Landmark labels should nod to: ${landmarkCues.join(", ")}` : null,
+		"Composition: pick a narrative layout (panels, sweeping panorama, collage, or storyboard) that matches the user’s domain; show clear progression from starting spark to next mission with meaningful captions or signposts; weave in environment cues, tools, and collaborators that reflect their interests; feel free to lean into whichever visual language best suits the theme instead of forcing a single style.",
 	];
 
 	return {
@@ -253,4 +357,3 @@ export function buildJourneyVisualPlan(context: JourneyVisualContext): JourneyVi
 		keywords,
 	};
 }
-

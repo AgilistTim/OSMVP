@@ -249,34 +249,38 @@
 
 .new-item-chip {
   position: absolute;
-  top: -8px;
-  right: 0;
-  background: #a3e635;
-  color: #065f46;
-  padding: 0.25rem 0.75rem;
+  top: -18px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  background: #bef264;
+  color: #14532d;
+  padding: 0.4rem 1.25rem;
   border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  animation: chipAppear 3s ease-in-out forwards;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  box-shadow: 0 8px 20px rgba(20, 83, 45, 0.25);
+  animation: chipFloatUp 3.4s ease-in-out forwards;
   pointer-events: none;
+  z-index: 3;
 }
 
-@keyframes chipAppear {
+@keyframes chipFloatUp {
   0% {
     opacity: 0;
-    transform: translateY(0);
+    transform: translate(-50%, 10px);
   }
   15% {
     opacity: 1;
-    transform: translateY(-10px);
+    transform: translate(-50%, 0);
   }
-  85% {
+  75% {
     opacity: 1;
-    transform: translateY(-10px);
+    transform: translate(-50%, -60px);
   }
   100% {
     opacity: 0;
-    transform: translateY(0);
+    transform: translate(-50%, -140px);
   }
 }
 

@@ -389,12 +389,6 @@ export function ChatIntegrated() {
   };
 
   useEffect(() => {
-    if (recentlyAddedItem) {
-      setIsHeaderExpanded(true);
-    }
-  }, [recentlyAddedItem]);
-
-  useEffect(() => {
     if (attributeSignals.careerSignalCount + attributeSignals.developingSignalCount > 0) {
       lastHobbyPromptRef.current = null;
       pendingHobbyPromptRef.current = null;

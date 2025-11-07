@@ -76,6 +76,14 @@ export async function POST(req: NextRequest) {
 			requestPayload.response_format = "b64_json";
 		}
 
+		console.log("[journey/visual] Image prompt", {
+			model,
+			size,
+			quality: quality ?? "standard",
+			theme: plan.themeId,
+			prompt: plan.imagePrompt,
+		});
+
 		const response = await fetch("https://api.openai.com/v1/images/generations", {
 			method: "POST",
 			headers: {
