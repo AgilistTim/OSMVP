@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { ConversationPhase } from "@/lib/conversation-phases";
 import { getSystemPrompt } from "@/lib/system-prompt";
 import { REALTIME_VOICE_ID } from "@/lib/realtime-voice";
 
@@ -6,6 +7,7 @@ type TokenRequestBody = {
   sessionId?: string;
   voice?: string;
   instructions?: string;
+  phase?: ConversationPhase;
 };
 
 interface OpenAIRealtimeResponse {
@@ -51,11 +53,20 @@ export async function POST(req: NextRequest) {
   const voice =
     typeof body.voice === "string" && body.voice.length > 0 ? body.voice : REALTIME_VOICE_ID;
   let instructions: string | undefined;
+  const phase =
+    typeof body.phase === "string" &&
+    (body.phase === "warmup" ||
+      body.phase === "story-mining" ||
+      body.phase === "pattern-mapping" ||
+      body.phase === "option-seeding" ||
+      body.phase === "commitment")
+      ? (body.phase as ConversationPhase)
+      : undefined;
 
   if (typeof body.instructions === "string" && body.instructions.trim().length > 0) {
     instructions = body.instructions.trim();
   } else {
-    instructions = await getSystemPrompt();
+    instructions = await getSystemPrompt({ phase });
   }
 
   const sessionConfig: Record<string, unknown> = {

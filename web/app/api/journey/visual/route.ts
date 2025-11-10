@@ -21,6 +21,9 @@ function validateContext(raw: unknown): JourneyVisualContext | null {
 	if (!ctx.profile || !Array.isArray(ctx.profile.insights) || !ctx.profile.inferredAttributes) {
 		return null;
 	}
+	if (!Array.isArray(ctx.profile.activitySignals)) {
+		ctx.profile.activitySignals = [];
+	}
 	if (!Array.isArray(ctx.suggestions) || !ctx.votes) {
 		return null;
 	}

@@ -8,7 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { useSession, InsightKind } from "@/components/session-provider";
+import { useSession } from "@/components/session-provider";
+import type { ActivitySignalCategory, InsightKind } from "@/components/session-provider";
 import { summarizeAttributeSignals } from "@/lib/suggestion-guards";
 import { buildHobbyDeepeningPrompt } from "@/lib/hobby-prompts";
 import { hasRequiredInsightMix } from "@/lib/suggestion-guards";
@@ -132,6 +133,7 @@ export function Onboarding() {
 	setProfile,
 	appendProfileInsights,
 	appendInferredAttributes,
+	appendActivitySignals,
 	addMutualMoment,
 	setSummary,
 		setVoice,
@@ -472,6 +474,10 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 							kind: insight.kind,
 							value: insight.value,
 						})),
+						existingActivitySignals: (profile.activitySignals ?? []).map((signal) => ({
+							category: signal.category,
+							statement: signal.statement,
+						})),
 					}),
 				});
 				if (!response.ok) {
@@ -492,6 +498,14 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 						aptitudes?: Array<{ label?: string; confidence?: "low" | "medium" | "high"; evidence?: string }>;
 						workStyles?: Array<{ label?: string; confidence?: "low" | "medium" | "high"; evidence?: string }>;
 					} | null;
+					activitySignals?: Array<{
+						statement?: string;
+						category?: ActivitySignalCategory | string;
+						supportingSkills?: unknown;
+						inferredGoals?: unknown;
+						confidence?: "low" | "medium" | "high";
+						evidence?: string;
+					}>;
 				};
 				if (Array.isArray(data.insights)) {
 					appendProfileInsights(
@@ -544,13 +558,50 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 							evidence: item.evidence,
 							stage: item.stage === "established" || item.stage === "developing" || item.stage === "hobby" ? item.stage : undefined,
 						})),
-						});
-					}
+					});
+				}
+				if (Array.isArray(data.activitySignals) && data.activitySignals.length > 0) {
+					const sanitizeStringList = (value: unknown): string[] => {
+						if (!Array.isArray(value)) {
+							return [];
+						}
+						return value
+							.filter((entry): entry is string => typeof entry === "string")
+							.map((entry) => entry.trim())
+							.filter((entry) => entry.length > 0);
+					};
+
+					appendActivitySignals(
+						data.activitySignals
+							.filter((item): item is {
+								statement: string;
+								category?: ActivitySignalCategory | string;
+								supportingSkills?: unknown;
+								inferredGoals?: unknown;
+								confidence?: "low" | "medium" | "high";
+								evidence?: string;
+							} => typeof item?.statement === "string")
+							.map((item) => ({
+								statement: item.statement.trim(),
+								category:
+									item.category === "hobby" || item.category === "side_hustle" || item.category === "career_intent"
+										? (item.category as ActivitySignalCategory)
+										: "hobby",
+								supportingSkills: sanitizeStringList(item.supportingSkills),
+								inferredGoals: sanitizeStringList(item.inferredGoals),
+								confidence:
+									item.confidence === "low" || item.confidence === "medium" || item.confidence === "high"
+										? item.confidence
+										: undefined,
+								evidence: typeof item.evidence === "string" ? item.evidence : undefined,
+							}))
+					);
+				}
 			} catch (err) {
 				console.error("Failed to derive profile insights", err);
 			}
 		},
-		[appendProfileInsights, appendInferredAttributes, profile.insights, sessionId, setProfile, setSummary]
+		[appendProfileInsights, appendInferredAttributes, appendActivitySignals, profile.activitySignals, profile.insights, sessionId, setProfile, setSummary]
 	);
 
 	const ensureRealtimeConnected = useCallback(async () => {
@@ -566,8 +617,9 @@ const showSuggestionPriming = insightCoverage.isReady && suggestionRevealState =
 			enableMicrophone: mode === "voice",
 			enableAudioOutput: mode === "voice",
 			voice: REALTIME_VOICE_ID,
+			phase: conversationPhase,
 		});
-	}, [mode, realtimeControls, realtimeState.status]);
+	}, [mode, realtimeControls, realtimeState.status, conversationPhase]);
 
 	const createRealtimeId = useCallback(() => crypto.randomUUID().replace(/-/g, "").slice(0, 32), []);
 
@@ -1283,7 +1335,7 @@ useEffect(() => {
 		? null
 		: (
 			<div className="voice-mode-stack">
-				<VoiceControls state={realtimeState} controls={realtimeControls} />
+				<VoiceControls state={realtimeState} controls={realtimeControls} phase={conversationPhase} />
 				<Card className="voice-mode-panel">
 					<div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/80">Voice mode</div>
 					<div className="text-base font-medium whitespace-pre-line">{displayedQuestion}</div>

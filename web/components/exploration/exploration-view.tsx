@@ -647,6 +647,7 @@ export function ExplorationView() {
 			profile: {
 				insights: profile.insights,
 				inferredAttributes: profile.inferredAttributes,
+				activitySignals: profile.activitySignals,
 				goals: profile.goals,
 				hopes: profile.hopes,
 				highlights: profile.highlights,

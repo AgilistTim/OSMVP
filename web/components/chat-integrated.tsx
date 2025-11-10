@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import '@chatscope/chat-ui-kit-styles/dist/default/styles.min.css';
 import {
   MainContainer,
@@ -14,7 +14,7 @@ import { CustomMessageInput } from '@/components/custom-message-input';
 import '@/components/custom-message-input.css';
 import { useSession } from '@/components/session-provider';
 import { buildRealtimeInstructions } from '@/lib/conversation-instructions';
-import type { ConversationTurn, InsightKind } from '@/components/session-provider';
+import type { ConversationTurn, InsightKind, ActivitySignalCategory } from '@/components/session-provider';
 
 import type { LucideIcon } from 'lucide-react';
 import { BarChart3, CheckCircle2, ChevronDown, Sparkles, Target, Trophy, FileText } from 'lucide-react';
@@ -93,6 +93,12 @@ const PROGRESS_STAGES: ProgressStage[] = [
 const PROGRESS_READY_MESSAGE =
   "Love what you've shared so far. I've drafted your first idea set—tap MY PAGE to peek, and keep riffing if you want me to sharpen it.";
 
+const CARD_REVEAL_DELAY_MS = 3200;
+
+const SHOULD_EAGER_CONNECT =
+  process.env.NEXT_PUBLIC_REALTIME_EAGER === '1' ||
+  (process.env.NEXT_PUBLIC_REALTIME_EAGER !== '0' && process.env.NODE_ENV !== 'production');
+
 const UNREVIEWED_CARD_THRESHOLD = 3;
 const CARD_BACKLOG_TIMEOUT_MS = 90_000;
 const CARD_BACKLOG_NUDGE =
@@ -125,6 +131,7 @@ export function ChatIntegrated() {
     voteCareer,
     appendProfileInsights,
     appendInferredAttributes,
+    appendActivitySignals,
     setSuggestions,
     sessionId,
     conversationPhase,
@@ -268,6 +275,14 @@ export function ChatIntegrated() {
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
   const cardStatusIdRef = useRef<string | null>(null);
+  const cardRevealTimerRef = useRef<number | null>(null);
+  const cardStatusProgressStyle = useMemo(
+    () =>
+      ({
+        ['--card-progress-duration' as string]: `${CARD_REVEAL_DELAY_MS}ms`,
+      } as CSSProperties),
+    []
+  );
   // Basket drawer removed - voted cards now shown on MY PAGE
 
   const insightCategories = useMemo(() => {
@@ -457,6 +472,7 @@ export function ChatIntegrated() {
   const lastProcessedTurnCountRef = useRef(turns.length);
   const lastRubricUpdateAtRef = useRef<number>(0);
   const lastRubricTurnCountRef = useRef<number>(0);
+  const eagerConnectAttemptedRef = useRef(false);
   const backlogNudgeSentRef = useRef(false);
 
   useEffect(() => {
@@ -560,9 +576,18 @@ export function ChatIntegrated() {
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
-      'Oh, that triggers some ideas. Let me pull them together and share them—hold on one second.',
+      "That sparks a few possibilities. These aren’t recommendations yet—vote them up or down so I can narrow in. Give me a second to line them up.",
     []
   );
+
+  useEffect(() => {
+    return () => {
+      if (cardRevealTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(cardRevealTimerRef.current);
+        cardRevealTimerRef.current = null;
+      }
+    };
+  }, []);
   
   // Track all suggestions that have ever been shown (for vote persistence) - only once on mount
 const allSuggestionsRef = useRef<Map<string, typeof suggestions[0]>>(new Map());
@@ -915,71 +940,84 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       insertAfterTurnIndex: currentTurnCount,
       revealIndex: index,
     }));
-    
-    // Add all messages in a single batch (CSS will handle staggered reveal)
-    setCardMessages(prev => {
-      const withUpdatedStatus = prev.map((msg) =>
-        msg.type === 'card-status' && msg.statusId === statusId
-          ? { ...msg, status: 'ready' as const }
-          : msg
-      );
 
-      const existingIds = new Set(
-        withUpdatedStatus
-          .filter(m => m.type === 'career-card' && m.careerSuggestion)
-          .map(m => m.careerSuggestion!.id)
-      );
+    const applyCardsToTimeline = () => {
+      setCardMessages(prev => {
+        const withUpdatedStatus = prev.map((msg) =>
+          msg.type === 'card-status' && msg.statusId === statusId
+            ? { ...msg, status: 'ready' as const }
+            : msg
+        );
 
-      const filteredCards = newCardMessages.filter(msg => {
-        const id = msg.careerSuggestion?.id;
-        if (!id) return false;
-        if (existingIds.has(id)) {
-          return false;
+        const existingIds = new Set(
+          withUpdatedStatus
+            .filter(m => m.type === 'career-card' && m.careerSuggestion)
+            .map(m => m.careerSuggestion!.id)
+        );
+
+        const filteredCards = newCardMessages.filter(msg => {
+          const id = msg.careerSuggestion?.id;
+          if (!id) return false;
+          if (existingIds.has(id)) {
+            return false;
+          }
+          existingIds.add(id);
+          return true;
+        });
+
+        if (filteredCards.length === 0) {
+          console.log('[ChatIntegrated] Skipping card injection; all suggestions already shown.');
+          return withUpdatedStatus;
         }
-        existingIds.add(id);
-        return true;
+
+        console.log('[ChatIntegrated] Added', filteredCards.length, 'cards with staggered reveal');
+        return [...withUpdatedStatus, ...filteredCards];
       });
 
-      if (filteredCards.length === 0) {
-        console.log('[ChatIntegrated] Skipping card injection; all suggestions already shown.');
-        return withUpdatedStatus;
+      if (statusId && typeof window !== 'undefined') {
+        window.setTimeout(() => {
+          setCardMessages((prev) => {
+            const next = prev.filter(
+              (msg) => !(msg.type === 'card-status' && msg.statusId === statusId)
+            );
+            if (cardStatusIdRef.current === statusId) {
+              cardStatusIdRef.current = null;
+            }
+            return next;
+          });
+        }, 1200);
       }
 
-      console.log('[ChatIntegrated] Added', filteredCards.length, 'cards with staggered reveal');
-      return [...withUpdatedStatus, ...filteredCards];
-    });
+      lastCardAnnouncementTurnRef.current = null;
+      userTurnsSinceLastSuggestionRef.current = 0;
+      lastSuggestionTurnRef.current = currentTurnCount;
 
-    if (statusId) {
-      window.setTimeout(() => {
-        setCardMessages((prev) => {
-          const next = prev.filter(
-            (msg) => !(msg.type === 'card-status' && msg.statusId === statusId)
-          );
-          if (cardStatusIdRef.current === statusId) {
-            cardStatusIdRef.current = null;
-          }
-          return next;
+      if (mode === 'voice') {
+        setVoiceCardList((prev) => {
+          const merged = new Map<string, CareerSuggestion>();
+          newSuggestions.forEach((suggestion) => {
+            merged.set(suggestion.id, suggestion);
+          });
+          prev.forEach((card) => {
+            if (!merged.has(card.id)) {
+              merged.set(card.id, card);
+            }
+          });
+          return Array.from(merged.values());
         });
-      }, 1200);
-    }
+      }
+    };
 
-    lastCardAnnouncementTurnRef.current = null;
-    userTurnsSinceLastSuggestionRef.current = 0;
-    lastSuggestionTurnRef.current = currentTurnCount;
-
-    if (mode === 'voice') {
-      setVoiceCardList((prev) => {
-        const merged = new Map<string, CareerSuggestion>();
-        newSuggestions.forEach((suggestion) => {
-          merged.set(suggestion.id, suggestion);
-        });
-        prev.forEach((card) => {
-          if (!merged.has(card.id)) {
-            merged.set(card.id, card);
-          }
-        });
-        return Array.from(merged.values());
-      });
+    if (typeof window !== 'undefined' && CARD_REVEAL_DELAY_MS > 0) {
+      if (cardRevealTimerRef.current !== null) {
+        window.clearTimeout(cardRevealTimerRef.current);
+      }
+      cardRevealTimerRef.current = window.setTimeout(() => {
+        cardRevealTimerRef.current = null;
+        applyCardsToTimeline();
+      }, CARD_REVEAL_DELAY_MS);
+    } else {
+      applyCardsToTimeline();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestions, mode]);
@@ -1003,6 +1041,10 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             kind: insight.kind,
             value: insight.value,
           })),
+          existingActivitySignals: (profile.activitySignals ?? []).map((signal) => ({
+            category: signal.category,
+            statement: signal.statement,
+          })),
         }),
       });
       if (!response.ok) {
@@ -1021,6 +1063,14 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           aptitudes?: Array<{ label?: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string }>;
           workStyles?: Array<{ label?: string; confidence?: 'low' | 'medium' | 'high'; evidence?: string }>;
         } | null;
+        activitySignals?: Array<{
+          statement?: string;
+          category?: ActivitySignalCategory | string;
+          supportingSkills?: unknown;
+          inferredGoals?: unknown;
+          confidence?: 'low' | 'medium' | 'high';
+          evidence?: string;
+        }>;
       };
       console.log('Insights API returned:', data.insights);
       if (Array.isArray(data.insights)) {
@@ -1070,10 +1120,47 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           })),
         });
       }
+      if (Array.isArray(data.activitySignals) && data.activitySignals.length > 0) {
+        const sanitizeStringList = (value: unknown): string[] => {
+          if (!Array.isArray(value)) {
+            return [];
+          }
+          return value
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        };
+
+        appendActivitySignals(
+          data.activitySignals
+            .filter((item): item is {
+              statement: string;
+              category?: ActivitySignalCategory | string;
+              supportingSkills?: unknown;
+              inferredGoals?: unknown;
+              confidence?: 'low' | 'medium' | 'high';
+              evidence?: string;
+            } => typeof item?.statement === 'string')
+            .map((item) => ({
+              statement: item.statement.trim(),
+              category:
+                item.category === 'hobby' || item.category === 'side_hustle' || item.category === 'career_intent'
+                  ? (item.category as ActivitySignalCategory)
+                  : 'hobby',
+              supportingSkills: sanitizeStringList(item.supportingSkills),
+              inferredGoals: sanitizeStringList(item.inferredGoals),
+              confidence:
+                item.confidence === 'low' || item.confidence === 'medium' || item.confidence === 'high'
+                  ? item.confidence
+                  : undefined,
+              evidence: typeof item.evidence === 'string' ? item.evidence : undefined,
+            }))
+        );
+      }
     } catch (err) {
       console.error('Failed to derive profile insights', err);
   }
-}, [appendProfileInsights, appendInferredAttributes, profile.insights, sessionId]);
+}, [appendProfileInsights, appendInferredAttributes, appendActivitySignals, profile.activitySignals, profile.insights, sessionId]);
 
   const evaluateSuggestionFetch = useCallback(
     (
@@ -1547,6 +1634,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           enableMicrophone: mode === 'voice',
           enableAudioOutput: true,
           voice: REALTIME_VOICE_ID,
+          phase: conversationPhase,
         });
         
         // Wait a bit for connection to stabilize
@@ -2021,13 +2109,16 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
                       <div className="card-status-content">
                         <span className="card-status-dot card-status-dot--ready" />
                         <span className="card-status-text">
-                          Cards are ready—scroll down or tap MY PAGE to explore them.
+                          Cards are ready—these are exploratory. React with 👍 or 👎 so I can sharpen what comes next.
                         </span>
                       </div>
                     ) : (
                       <div className="card-status-content">
                         <span className="card-status-spinner" aria-hidden />
-                        <span className="card-status-text">Pulling some idea cards for you…</span>
+                        <span className="card-status-text">
+                          Lining up a first batch of idea cards so you can vote them in or out.
+                        </span>
+                        <div className="card-status-progress" style={cardStatusProgressStyle} aria-hidden />
                       </div>
                     )}
                   </div>
@@ -2135,6 +2226,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             <VoiceControls
               state={realtimeState}
               controls={realtimeControls}
+              phase={conversationPhase}
               onStart={() => {
                 if (!voiceBaselineCapturedRef.current) {
                   voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));

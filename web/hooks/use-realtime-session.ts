@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ConversationPhase } from "@/lib/conversation-phases";
 
 export interface RealtimeSessionConfig {
   sessionId: string;
@@ -8,6 +9,7 @@ export interface RealtimeSessionConfig {
   voice?: string;
   enableMicrophone?: boolean;
   enableAudioOutput?: boolean;
+  phase?: ConversationPhase;
 }
 
 export type RealtimeStatus =
@@ -41,7 +43,7 @@ export interface RealtimeSessionControls {
   disconnect: () => Promise<void>;
   sendEvent: (event: unknown) => void;
   setOnResponseCompleted: (handler: (() => void) | null) => void;
-  waitForConversationItem: (id: string) => Promise<void>;
+  waitForConversationItem: (id: string, timeoutMs?: number) => Promise<void>;
   pauseMicrophone: () => void;
   resumeMicrophone: () => void;
   cancelActiveResponse: () => void;
@@ -747,7 +749,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     statusRef.current = status;
   }, [status]);
 
-  const waitForConversationItem = useCallback((id: string): Promise<void> => {
+  const waitForConversationItem = useCallback((id: string, timeoutMs = 2500): Promise<void> => {
     if (!id) {
       return Promise.resolve();
     }
@@ -757,10 +759,33 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     }
 
     return new Promise<void>((resolve, reject) => {
+      let settled = false;
       if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-        console.info("[realtime:wait-register]", { id });
+        console.info("[realtime:wait-register]", { id, timeoutMs });
       }
+      const timeoutHandle =
+        typeof window !== "undefined" && timeoutMs > 0
+          ? window.setTimeout(() => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              pendingItemResolversRef.current.delete(id);
+              if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+                console.warn("[realtime:wait-timeout]", { id, timeoutMs });
+              }
+              reject(new Error("Conversation item acknowledgement timed out"));
+            }, timeoutMs)
+          : null;
+
       pendingItemResolversRef.current.set(id, (status) => {
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
         if (status === "added") {
           if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
             console.info("[realtime:wait-resolved]", { id });
@@ -768,7 +793,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           resolve();
         } else {
           if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-            console.warn("[realtime:wait-rejected]", { id });
+            console.warn("[realtime:wait-rejected]", { id, status });
           }
           reject(new Error("Conversation item was not acknowledged"));
         }

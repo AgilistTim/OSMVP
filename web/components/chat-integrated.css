@@ -579,6 +579,8 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .card-status-spinner {
@@ -603,7 +605,7 @@
 
 .card-status-text {
   display: inline-block;
-  max-width: 460px;
+  max-width: 100%;
 }
 
 @keyframes cardStatusSpin {
@@ -612,6 +614,41 @@
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+.card-status-progress {
+  position: relative;
+  width: min(320px, 100%);
+  min-width: 160px;
+  height: 4px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.card-status-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #0f172a;
+  transform-origin: left;
+  animation: cardStatusProgress var(--card-progress-duration, 3s) ease-out forwards;
+}
+
+@keyframes cardStatusProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .card-status-content {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

@@ -45,4 +45,14 @@ describe("system prompt", () => {
 		expect(content).not.toMatch(/career report/i);
 		expect(content).not.toMatch(/professional career coach/i);
 	});
+
+	it("appends story-mining guardrails when requested", async () => {
+		const prompt = await getSystemPrompt({ phase: "story-mining" });
+		expect(prompt).toBeTruthy();
+		const content = prompt ?? "";
+
+		expect(content).toContain("# Story-Mining Prompt Addendum");
+		expect(content).toMatch(/Story-Mining Guardrails/i);
+		expect(content).toMatch(/forced-choice nudges/i);
+	});
 });

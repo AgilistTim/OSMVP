@@ -16,6 +16,7 @@ function createContext(partial?: Partial<JourneyVisualContext>): JourneyVisualCo
 		interests: [],
 		strengths: [],
 		readiness: "G1",
+		activitySignals: [],
 	};
 	const profile = {
 		...baseProfile,

@@ -6,15 +6,17 @@ import type {
 	RealtimeSessionControls,
 	RealtimeSessionState,
 } from "@/hooks/use-realtime-session";
+import type { ConversationPhase } from "@/lib/conversation-phases";
 import { REALTIME_VOICE_ID } from "@/lib/realtime-voice";
 
 interface VoiceControlsProps {
 	state: RealtimeSessionState;
 	controls: RealtimeSessionControls;
 	onStart?: () => void;
+	phase?: ConversationPhase;
 }
 
-export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) {
+export function VoiceControls({ state, controls, onStart, phase }: VoiceControlsProps) {
 	const statusMessage = (() => {
 		switch (state.status) {
 			case "requesting-token":
@@ -47,7 +49,7 @@ export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) 
 			if (state.microphone === "inactive") {
 				onStart?.();
 				await controls.disconnect();
-				await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID });
+				await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID, phase });
 				return;
 			}
 			// Already connected + active mic; nothing to do beyond marking start
@@ -56,7 +58,7 @@ export function VoiceControls({ state, controls, onStart }: VoiceControlsProps) 
 		}
 
 		onStart?.();
-		await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID });
+		await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID, phase });
 	};
 
 	return (

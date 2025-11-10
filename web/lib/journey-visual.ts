@@ -6,6 +6,7 @@ export interface JourneyVisualContext {
 	profile: Pick<
 		Profile,
 		| "insights"
+		| "activitySignals"
 		| "inferredAttributes"
 		| "goals"
 		| "hopes"
@@ -220,6 +221,12 @@ function rankKeywords(context: JourneyVisualContext): string[] {
 	context.profile.goals.forEach((goal) => bump(goal, 3));
 	context.profile.hopes.forEach((hope) => bump(hope, 2));
 	context.profile.highlights.forEach((highlight) => bump(highlight, 1));
+	context.profile.activitySignals.forEach((signal) => {
+		const baseWeight = signal.category === "career_intent" ? 4 : signal.category === "side_hustle" ? 3 : 1;
+		bump(signal.statement, baseWeight);
+		signal.supportingSkills.forEach((skill) => bump(skill, baseWeight + 1));
+		signal.inferredGoals.forEach((goal) => bump(goal, baseWeight + 1));
+	});
 
 	context.suggestions.forEach((suggestion) => {
 		bump(suggestion.title, 1);
@@ -251,6 +258,16 @@ function pickStrengths(context: JourneyVisualContext): string[] {
 	context.profile.strengths.forEach((value) => {
 		strengths.set(value, Math.max(strengths.get(value) ?? 0, 1));
 	});
+	context.profile.activitySignals.forEach((signal) => {
+		const weight = signal.category === "career_intent" ? 3 : signal.category === "side_hustle" ? 2 : 1;
+		signal.supportingSkills.forEach((skill) => {
+			const trimmed = skill.trim();
+			if (!trimmed) {
+				return;
+			}
+			strengths.set(trimmed, Math.max(strengths.get(trimmed) ?? 0, weight));
+		});
+	});
 
 	const ranked = Array.from(strengths.entries()).sort((a, b) => b[1] - a[1]);
 	if (ranked.length === 0) {
@@ -281,6 +298,7 @@ function selectGoal(context: JourneyVisualContext): string | undefined {
 	return (
 		context.profile.goals[0] ??
 		context.profile.hopes[0] ??
+		context.profile.activitySignals.find((signal) => signal.inferredGoals.length > 0)?.inferredGoals[0] ??
 		context.profile.mutualMoments[0]?.text ??
 		context.profile.highlights[0]
 	);

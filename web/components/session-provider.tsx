@@ -55,6 +55,20 @@ export interface ProfileAttributeSnapshot {
 	workStyles: ProfileAttribute[];
 }
 
+export type ActivitySignalCategory = "hobby" | "side_hustle" | "career_intent";
+
+export interface ActivitySignal {
+	id: string;
+	statement: string;
+	category: ActivitySignalCategory;
+	supportingSkills: string[];
+	inferredGoals: string[];
+	confidence?: "low" | "medium" | "high";
+	evidence?: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface MutualMoment {
 	id: string;
 	text: string;
@@ -104,6 +118,7 @@ export interface Profile {
 	lastTranscriptId?: string;
 	lastAssistantTranscript?: string;
 	lastAssistantTranscriptId?: string;
+	activitySignals: ActivitySignal[];
 }
 
 export interface CareerCardCandidate {
@@ -176,6 +191,17 @@ interface SessionActions {
 		>
 	) => void;
 	appendInferredAttributes: (attributes: Partial<ProfileAttributeSnapshot> | null | undefined) => void;
+	appendActivitySignals: (
+		signals: Array<{
+			id?: string;
+			statement: string;
+			category: ActivitySignalCategory;
+			supportingSkills?: string[];
+			inferredGoals?: string[];
+			confidence?: "low" | "medium" | "high";
+			evidence?: string;
+		}>
+	) => void;
 	updateProfileInsight: (id: string, updates: Partial<Pick<ProfileInsight, "value" | "kind" | "source">>) => void;
 	removeProfileInsight: (id: string) => void;
 	resetProfile: () => void;
@@ -307,14 +333,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				prev.inferredAttributes,
 				partial.inferredAttributes
 			);
-			const merged: Profile = {
-				...prev,
-				...partial,
-				insights: partial.insights ?? prev.insights,
-				onboardingResponses: partial.onboardingResponses ?? prev.onboardingResponses,
-				mutualMoments: partial.mutualMoments ?? prev.mutualMoments,
-				inferredAttributes: mergedAttributes,
-			};
+				const merged: Profile = {
+					...prev,
+					...partial,
+					insights: partial.insights ?? prev.insights,
+					onboardingResponses: partial.onboardingResponses ?? prev.onboardingResponses,
+					mutualMoments: partial.mutualMoments ?? prev.mutualMoments,
+					inferredAttributes: mergedAttributes,
+					activitySignals: partial.activitySignals ?? prev.activitySignals,
+				};
 			return {
 				...merged,
 				...summariseInsights(merged.insights),
@@ -381,6 +408,114 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			...prev,
 			inferredAttributes: mergeAttributeSnapshots(prev.inferredAttributes, incoming),
 		}));
+	}, []);
+
+	const appendActivitySignals = useCallback<SessionActions["appendActivitySignals"]>((incoming) => {
+		if (!incoming || incoming.length === 0) {
+			return;
+		}
+
+		type SanitizedSignal = {
+			id?: string;
+			statement: string;
+			category: ActivitySignalCategory;
+			supportingSkills: string[];
+			inferredGoals: string[];
+			confidence?: "low" | "medium" | "high";
+			evidence?: string;
+		};
+
+		const sanitizedEntries: Array<SanitizedSignal | null> = incoming
+			.map((item) => {
+				if (!item || typeof item.statement !== "string") {
+					return null;
+				}
+				const statement = item.statement.trim();
+				if (!statement) {
+					return null;
+				}
+				const category =
+					item.category === "hobby" || item.category === "side_hustle" || item.category === "career_intent"
+						? item.category
+						: null;
+				if (!category) {
+					return null;
+				}
+				const supportingSkills = dedupeStringsCaseInsensitive(
+					Array.isArray(item.supportingSkills) ? item.supportingSkills : []
+				);
+				const inferredGoals = dedupeStringsCaseInsensitive(
+					Array.isArray(item.inferredGoals) ? item.inferredGoals : []
+				);
+				const confidence =
+					item.confidence === "low" || item.confidence === "medium" || item.confidence === "high"
+						? item.confidence
+						: undefined;
+				const evidence =
+					typeof item.evidence === "string" && item.evidence.trim().length > 0
+						? item.evidence.trim()
+						: undefined;
+				return {
+					id: item.id,
+					statement,
+					category,
+					supportingSkills,
+					inferredGoals,
+					confidence,
+					evidence,
+				};
+			});
+
+		const sanitized = sanitizedEntries.filter((item): item is SanitizedSignal => item !== null);
+
+		if (sanitized.length === 0) {
+			return;
+		}
+
+		updateProfile((prev) => {
+			const now = Date.now();
+			const nextSignals = [...prev.activitySignals];
+			sanitized.forEach((signal) => {
+				const key = `${signal.category}:${signal.statement.toLowerCase()}`;
+				const existingIndex = nextSignals.findIndex(
+					(existing) => `${existing.category}:${existing.statement.toLowerCase()}` === key
+				);
+				if (existingIndex >= 0) {
+					const existing = nextSignals[existingIndex];
+					nextSignals[existingIndex] = {
+						...existing,
+						supportingSkills: dedupeStringsCaseInsensitive([
+							...existing.supportingSkills,
+							...signal.supportingSkills,
+						]),
+						inferredGoals: dedupeStringsCaseInsensitive([
+							...existing.inferredGoals,
+							...signal.inferredGoals,
+						]),
+						confidence: signal.confidence ?? existing.confidence,
+						evidence: signal.evidence ?? existing.evidence,
+						updatedAt: now,
+					};
+				} else {
+					nextSignals.push({
+						id: signal.id ?? crypto.randomUUID(),
+						statement: signal.statement,
+						category: signal.category,
+						supportingSkills: signal.supportingSkills,
+						inferredGoals: signal.inferredGoals,
+						confidence: signal.confidence,
+						evidence: signal.evidence,
+						createdAt: now,
+						updatedAt: now,
+					});
+				}
+			});
+
+			return {
+				...prev,
+				activitySignals: nextSignals,
+			};
+		});
 	}, []);
 
 	const updateProfileInsight = useCallback<SessionActions["updateProfileInsight"]>((id, updates) => {
@@ -658,6 +793,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			setProfile,
 			appendProfileInsights,
 			appendInferredAttributes,
+			appendActivitySignals,
 			updateProfileInsight,
 			removeProfileInsight,
 			resetProfile,
@@ -717,6 +853,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setProfile,
 		appendProfileInsights,
 		appendInferredAttributes,
+		appendActivitySignals,
 		updateProfileInsight,
 		removeProfileInsight,
 		resetProfile,
@@ -786,6 +923,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log("Inferred attributes", profile.inferredAttributes);
 		console.log("Onboarding responses", profile.onboardingResponses);
 		console.log("Mutual moments", profile.mutualMoments);
+		console.log("Activity signals", profile.activitySignals);
 		console.log("Insights", profile.insights);
 		console.log("Suggestions", suggestions);
 		console.log("Turns", turns);
@@ -813,6 +951,7 @@ function createEmptyProfile(): Profile {
 			workStyles: [],
 		},
 		mutualMoments: [],
+		activitySignals: [],
 	};
 }
 
@@ -906,6 +1045,20 @@ function mergeAttributeSnapshots(
 		});
 
 	return next;
+}
+
+function dedupeStringsCaseInsensitive(values: string[] = []): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	values.forEach((value) => {
+		const trimmed = typeof value === "string" ? value.trim() : "";
+		if (!trimmed) return;
+		const key = trimmed.toLowerCase();
+		if (seen.has(key)) return;
+		seen.add(key);
+		result.push(trimmed);
+	});
+	return result;
 }
 
 function summariseInsights(insights: ProfileInsight[]): ProfileAggregates {

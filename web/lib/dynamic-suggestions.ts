@@ -117,6 +117,72 @@ type ProfileEnvelope = {
     transferable_attributes: TransferableAttributes;
 };
 
+const GROUNDED_VERBS = ["build", "launch", "start", "design", "coach", "mentor", "organise", "organize", "lead", "write", "ship", "sell", "prototype", "analyze", "analyse", "research"];
+const FANTASY_GOAL_PATTERNS = [
+    /play\s+for\b/i,
+    /sign\s+for\b/i,
+    /\b(be|become)\s+(a\s+)?pro\b/i,
+    /\bbecome\s+famous\b/i,
+    /\bworld\s+cup\b/i,
+    /\bchampions\s+league\b/i,
+    /\bolympic/i,
+    /\bharvard/i,
+    /\bnba\b/i,
+    /\bnfl\b/i,
+    /\bhollywood\b/i,
+    /\bcelebrity\b/i,
+];
+const SPORTS_CLUB_KEYWORDS = ["arsenal", "chelsea", "liverpool", "manchester", "real madrid", "barcelona", "juventus", "psg", "bayern", "dortmund"];
+const PRO_SPORTS_TERMS = ["football", "soccer", "basketball", "premier league", "premier", "world cup", "champions league", "nba", "nfl"];
+
+function isGroundedGoal(goal: string, provenCapabilityCount: number): boolean {
+    const lower = goal.toLowerCase();
+    if (FANTASY_GOAL_PATTERNS.some((pattern) => pattern.test(lower))) {
+        return false;
+    }
+    if (SPORTS_CLUB_KEYWORDS.some((club) => lower.includes(club))) {
+        return false;
+    }
+
+    const hasGroundedVerb = GROUNDED_VERBS.some((verb) => lower.includes(verb));
+    if (hasGroundedVerb) {
+        return true;
+    }
+
+    if (provenCapabilityCount === 0) {
+        const hasProVerb = /\b(play|coach|join|win|sign|score|become)\b/.test(lower);
+        const mentionsProArena = PRO_SPORTS_TERMS.some((term) => lower.includes(term));
+        if (hasProVerb && mentionsProArena) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function sanitizeGoalInsights(
+    insights: Array<{ kind: InsightKind; value: string }>,
+    attributes: TransferableAttributes
+): Array<{ kind: InsightKind; value: string }> {
+    const provenCapabilityCount =
+        attributes.established.skills.length +
+        attributes.established.aptitudes.length +
+        attributes.established.work_styles.length +
+        attributes.developing.skills.length +
+        attributes.developing.aptitudes.length +
+        attributes.developing.work_styles.length;
+
+    return insights.map((item) => {
+        if (item.kind !== "goal") {
+            return item;
+        }
+        if (isGroundedGoal(item.value, provenCapabilityCount)) {
+            return item;
+        }
+        return { kind: "hope", value: item.value };
+    });
+}
+
 function groupInsightsByKind(insights: DynamicSuggestionInput["insights"]) {
 	const grouped = new Map<InsightKind, string[]>();
 	insights.forEach((item) => {
@@ -166,8 +232,20 @@ function deriveCanonicalTitles(
     appendAttributes(attributes.developing.aptitudes);
     appendAttributes(attributes.developing.work_styles);
 
-    const tokens = new Set<string>();
-    tokenSource.forEach((text) => tokenize(text).forEach((token) => tokens.add(token)));
+    const allTokens = new Set<string>();
+    tokenSource.forEach((text) => tokenize(text).forEach((token) => allTokens.add(token)));
+
+    const hobbyTokens = new Set<string>();
+    [
+        ...attributes.hobby.skills,
+        ...attributes.hobby.aptitudes,
+        ...attributes.hobby.work_styles,
+    ].forEach((entry) => tokenize(entry).forEach((token) => hobbyTokens.add(token)));
+
+    const nonHobbyTokens = new Set(allTokens);
+    hobbyTokens.forEach((token) => nonHobbyTokens.delete(token));
+
+    const tokens = nonHobbyTokens.size > 0 ? nonHobbyTokens : allTokens;
 
     const titleScores = new Map<string, number>();
 
@@ -326,8 +404,6 @@ export async function generateDynamicSuggestions({
     processAttributes(attributes?.aptitudes, "aptitudes");
     processAttributes(attributes?.workStyles, "work_styles");
 
-    const compositeInsights = [...insights, ...attributeInsights];
-
     const establishedExamples = [
         ...transferableBuckets.established.skills,
         ...transferableBuckets.established.aptitudes,
@@ -355,6 +431,14 @@ export async function generateDynamicSuggestions({
         transferableBuckets.hobby.skills.length +
         transferableBuckets.hobby.aptitudes.length +
         transferableBuckets.hobby.work_styles.length;
+
+    const normalizedInsights = sanitizeGoalInsights(insights, transferableBuckets);
+    if (normalizedInsights.length === 0) {
+        return [];
+    }
+
+    const compositeInsights = [...normalizedInsights, ...attributeInsights];
+
 
     const promptHints: PromptHints = {
         transferableAttributes: transferableBuckets,
@@ -932,6 +1016,16 @@ function buildSystemPrompt(distance: CardDistance, focusStatement?: string, hint
             const titlePreview = hints.canonicalTitles.slice(0, 6).join(", ");
             base.push(
                 `Prefer titles drawn from: ${titlePreview}. If none fit perfectly, choose a close canonical role rather than inventing a new compound title.`
+            );
+        }
+
+        if (hints.hobbyExamples && hints.hobbyExamples.length > 0) {
+            const hobbyPreview = hints.hobbyExamples.slice(0, 4).join(", ");
+            base.push(
+                `Hobby-only signals (${hobbyPreview}) are acknowledgement material only. Mention them inside why_it_fits to show you listened, but do NOT anchor the title, summary, pathways, next_steps, or micro_experiments to them.`
+            );
+            base.push(
+                "Angles to explore and next steps must reference transferable capabilities, market-facing experiments, or neutral practice reps—not casual fandoms or pickup hobbies."
             );
         }
     }

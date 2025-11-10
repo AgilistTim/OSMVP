@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import type { ConversationPhase } from "@/lib/conversation-phases";
 import { getSystemPrompt } from "@/lib/system-prompt";
 
 interface ConversationTurn {
@@ -11,6 +12,11 @@ interface ChatRequestBody {
   turns: ConversationTurn[];
   profile?: Record<string, unknown>;
   suggestions?: Array<{ id: string; title: string }>;
+  phase?: ConversationPhase;
+}
+
+function isConversationPhase(value: unknown): value is ConversationPhase {
+  return value === "warmup" || value === "story-mining" || value === "pattern-mapping" || value === "option-seeding" || value === "commitment";
 }
 
 export async function POST(request: Request) {
@@ -24,6 +30,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json()) as ChatRequestBody;
   const { turns, profile, suggestions } = body;
+  const phase = isConversationPhase(body.phase) ? body.phase : undefined;
 
   if (!Array.isArray(turns) || turns.length === 0) {
     return NextResponse.json(
@@ -33,7 +40,7 @@ export async function POST(request: Request) {
   }
 
   const openai = new OpenAI({ apiKey });
-  const basePrompt = await getSystemPrompt();
+  const basePrompt = await getSystemPrompt({ phase });
 
   // Build context about the user's profile and suggestions
   let contextInfo = "";
@@ -105,4 +112,3 @@ Then continue the conversation naturally after the cards appear.`;
     );
   }
 }
-
