@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import type { ConversationPhase } from "@/lib/conversation-phases";
+import type { ConversationPhase, ConversationFocus, InsightSnapshot } from "@/lib/conversation-phases";
+import { computeRubricScores } from "@/lib/conversation-phases";
+import { buildRealtimeInstructions } from "@/lib/conversation-instructions";
 import { getSystemPrompt } from "@/lib/system-prompt";
 
 interface ConversationTurn {
@@ -13,6 +15,7 @@ interface ChatRequestBody {
   profile?: Record<string, unknown>;
   suggestions?: Array<{ id: string; title: string }>;
   phase?: ConversationPhase;
+  votes?: Record<string, 1 | 0 | -1 | undefined>;
 }
 
 function isConversationPhase(value: unknown): value is ConversationPhase {
@@ -29,7 +32,7 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as ChatRequestBody;
-  const { turns, profile, suggestions } = body;
+  const { turns, profile, suggestions, votes } = body;
   const phase = isConversationPhase(body.phase) ? body.phase : undefined;
 
   if (!Array.isArray(turns) || turns.length === 0) {
@@ -40,46 +43,70 @@ export async function POST(request: Request) {
   }
 
   const openai = new OpenAI({ apiKey });
-  const basePrompt = await getSystemPrompt({ phase });
+
+  const profileInsights = sanitizeInsights((profile as { insights?: unknown })?.insights as Array<{ kind?: unknown; value?: unknown }>);
+
+  const suggestionCount = Array.isArray(suggestions) ? suggestions.length : 0;
+  const votesByCareerId = votes ?? {};
+
+  const rubric = computeRubricScores({
+    turns,
+    insights: profileInsights,
+    votes: votesByCareerId,
+    suggestionCount,
+    prevRubric: null,
+  });
+
+  const focusToPhase: Record<ConversationFocus, ConversationPhase> = {
+    rapport: "warmup",
+    story: "story-mining",
+    pattern: "pattern-mapping",
+    ideation: "option-seeding",
+    decision: "commitment",
+  };
+
+  const effectivePhase = phase ?? focusToPhase[rubric.recommendedFocus] ?? "story-mining";
+  const basePrompt = await getSystemPrompt({ phase: effectivePhase });
+  if (!basePrompt) {
+    return NextResponse.json({ error: "Unable to load system prompt" }, { status: 500 });
+  }
 
   // Build context about the user's profile and suggestions
   let contextInfo = "";
-  if (profile) {
-    const insights = (profile.insights as Array<{ kind: string; value: string }>) || [];
-    if (insights.length > 0) {
-      contextInfo += "\n\nUser insights discovered so far:\n";
-      contextInfo += insights.map((i) => `- ${i.kind}: ${i.value}`).join("\n");
-    }
+  if (profileInsights.length > 0) {
+    contextInfo += "User insights discovered so far:\n";
+    contextInfo += profileInsights.map((i) => `- ${i.kind}: ${i.value}`).join("\n");
   }
   if (suggestions && suggestions.length > 0) {
-    contextInfo += "\n\nCareer suggestions shown to user:\n";
+    contextInfo += `${contextInfo ? "\n\n" : ""}Career suggestions shown to user:\n`;
     contextInfo += suggestions.map((s) => `- ${s.title}`).join("\n");
   }
 
-  const systemMessage = `${basePrompt}${contextInfo}
+  const guidanceText = buildRealtimeInstructions({
+    phase: effectivePhase,
+    rubric,
+    allowCardPrompt: true,
+  });
 
-## CRITICAL RULE: NO REPETITION
-**NEVER repeat back what the user just said.** If they say "AI and LLMs", DO NOT respond with "Sounds like you're into AI and large language models." They know what they said. Skip the echo and ask a specific follow-up question immediately.
+  const systemSections = [basePrompt.trim()];
+  if (contextInfo.trim().length > 0) {
+    systemSections.push(`## Session Context\n${contextInfo.trim()}`);
+  }
+  if (guidanceText && guidanceText.trim().length > 0) {
+    systemSections.push(`## Phase Guidance\n${guidanceText.trim()}`);
+  }
 
-❌ BAD: "That's awesome! Sounds like you're really into collecting and trading Pokémon cards."
-✅ GOOD: "Nice! How do you decide which ones to trade?"
+  const systemMessage = systemSections.join("\n\n");
 
-You are having a casual, peer-level conversation with a Gen Z user about their career interests, strengths, and aspirations. Keep responses:
-- Short and conversational (2-3 sentences max)
-- Curious and engaging, not formal or therapy-like
-- Focused on understanding what they're into, what they're good at, and what they hope for
-- UK English spelling and casual tone
-- **Never repeat back what they just said** - move the conversation forward
-
-Ask follow-up questions naturally. Avoid motivational interviewing language or being overly supportive. Just be a curious peer helping them explore.
-
-## When Career Cards Are About To Be Generated
-If you notice the user has shared enough about their interests, strengths, and goals (typically after 3-5 exchanges), naturally transition by saying something like:
-- "That triggers some thoughts - let me generate some idea cards and share them with you..."
-- "Based on what you've shared, let me pull together some career ideas you might vibe with..."
-- "I'm seeing some patterns here - give me a sec to surface some options for you..."
-
-Then continue the conversation naturally after the cards appear.`;
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[api/chat] System prompt payload", {
+      phase: effectivePhase,
+      baseLength: basePrompt.length,
+      contextLength: contextInfo.trim().length,
+      guidanceLength: guidanceText?.length ?? 0,
+      preview: systemMessage.slice(0, 400),
+    });
+  }
 
   // Convert turns to OpenAI message format
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -111,4 +138,32 @@ Then continue the conversation naturally after the cards appear.`;
       { status: 500 }
     );
   }
+}
+const INSIGHT_KINDS: Array<InsightSnapshot["kind"]> = [
+  "interest",
+  "strength",
+  "constraint",
+  "goal",
+  "frustration",
+  "hope",
+  "boundary",
+  "highlight",
+];
+
+function sanitizeInsights(raw?: Array<{ kind?: unknown; value?: unknown }>): InsightSnapshot[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((item) => {
+      const kind = typeof item.kind === "string" && INSIGHT_KINDS.includes(item.kind as InsightSnapshot["kind"])
+        ? (item.kind as InsightSnapshot["kind"])
+        : undefined;
+      const value = typeof item.value === "string" ? item.value.trim() : "";
+      if (!kind || value.length === 0) {
+        return null;
+      }
+      return { kind, value } satisfies InsightSnapshot;
+    })
+    .filter((item): item is InsightSnapshot => Boolean(item));
 }

@@ -213,6 +213,8 @@ const INSIGHT_PATTERNS: Array<{ kind: InsightKind; regex: RegExp }> = [
 	{ kind: "strength", regex: /\b(?:i(?:'m| am)?\s*(?:good|great|strong) at|i\s*(?:can|could|manage to))\s+([^.!?]+)/i },
 	{ kind: "strength", regex: /\b(?:i\s*(?:build|built|create|created|develop|developed|prototype|prototyped))\s+([^.!?]+)/i },
 	{ kind: "interest", regex: /\b(?:i(?:'m| am)?\s*(?:into|interested in|passionate about|love|enjoy|fascinated by))\s+([^.!?]+)/i },
+	{ kind: "interest", regex: /\b(?:just\s*)?(?:play(?:ing)?|watch(?:ing)?|work(?:ing)?\s+on|build(?:ing)?|mak(?:e|ing)|design(?:ing)?|draw(?:ing)?|film(?:ing)?|record(?:ing)?|edit(?:ing)?|write(?:ing)?|learn(?:ing)?)\s+([^.!?]+)/i },
+	{ kind: "interest", regex: /^\s*(?:yeah\s+|just\s+)?(?:football|soccer|basketball|tennis|cricket|rugby|volleyball|gaming|cod(?:ing)?|programming|drawing|painting|art|music|tiktok|youtube|streams?|cooking|baking|skating|cycling|running|gym|lifting|fashion|photography)([^.!?]*)$/i },
 	{ kind: "constraint", regex: /\b(?:i\s*(?:don't want|wouldn't|won't|avoid|can't|refuse|prefer not) to)\s+([^.!?]+)/i },
 	{ kind: "constraint", regex: /\bno interest in\s+([^.!?]+)/i },
 	{ kind: "constraint", regex: /\bnot comfortable with\s+([^.!?]+)/i },
