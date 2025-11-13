@@ -230,12 +230,22 @@ export function ChatIntegrated() {
     const rawScore = insightProgress * 0.6 + rubricProgress * 0.4;
     let percent = Math.round(Math.min(rawScore, 1) * 100);
     const rawDepth = conversationRubric?.contextDepth ?? 0;
-    const meetsReadyCriteria =
+    const voteValues = Object.values(votesByCareerId ?? {});
+    const reviewedCardCount = voteValues.filter((value) => value !== undefined).length;
+    const positiveVoteCount = voteValues.filter((value) => value === 1).length;
+    const hasMeaningfulCardSignal = reviewedCardCount >= 3 || positiveVoteCount >= 1;
+    const meetsInsightReady =
       status === 'ready' &&
       capturedInsights.interests.length >= 3 &&
       capturedInsights.strengths.length >= 2 &&
       capturedInsights.goals.length >= 2 &&
       rawDepth >= 2;
+    const meetsCardReady =
+      status === 'ready' &&
+      rawDepth >= 2 &&
+      suggestions.length >= 3 &&
+      hasMeaningfulCardSignal;
+    const meetsReadyCriteria = meetsInsightReady || meetsCardReady;
 
     if (!meetsReadyCriteria) {
       percent = Math.min(percent, 94);
@@ -259,7 +269,7 @@ export function ChatIntegrated() {
       currentStage: PROGRESS_STAGES[stageIndex],
       nextStage: PROGRESS_STAGES[stageIndex + 1] ?? null,
     };
-  }, [capturedInsights, conversationRubric]);
+  }, [capturedInsights, conversationRubric, suggestions.length, votesByCareerId]);
 
   const [mode, setMode] = useState<'text' | 'voice'>('text');
   const [isTyping, setIsTyping] = useState(false);
