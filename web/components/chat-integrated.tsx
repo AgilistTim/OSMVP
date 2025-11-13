@@ -1625,6 +1625,68 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     // Derive insights from the updated conversation
     void deriveInsights(nextTurns);
 
+    const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns, triggerText: trimmed });
+    if (evalResult.shouldFetch) {
+      if (mode === 'text') {
+        announceCardFetch();
+      }
+      void fetchSuggestions({
+        reason: 'pre-response',
+        suppressFollowupMessage: true,
+        evaluation: evalResult,
+      });
+    }
+
+    if (mode === 'text') {
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            turns: nextTurns,
+            profile: { insights: profile.insights },
+            suggestions: suggestions.map((card) => ({ id: card.id, title: card.title })),
+            votes: votesByCareerId,
+            phase: conversationPhase,
+          }),
+        });
+
+        const responseText = await response.text();
+        let parsed: { reply?: string; error?: string } | undefined;
+        try {
+          parsed = responseText ? (JSON.parse(responseText) as { reply?: string; error?: string }) : undefined;
+        } catch {
+          parsed = undefined;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `[chat] request failed (${response.status}) ${parsed?.error ?? response.statusText}`.trim()
+          );
+        }
+
+        const data = parsed ?? {};
+        const replyText =
+          typeof data.reply === 'string' && data.reply.trim().length > 0
+            ? data.reply.trim()
+            : "I'm thinking through that—mind sharing a tiny detail while I queue ideas?";
+
+        setTurns((prev) => [...prev, { role: 'assistant', text: replyText }]);
+      } catch (error) {
+        console.error('[ChatIntegrated] Text chat error', error);
+        setTurns((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: "Sorry, I'm having trouble staying online. Give it another go in a moment?",
+          },
+        ]);
+      } finally {
+        setIsTyping(false);
+      }
+      return;
+    }
+
     try {
       // Ensure Realtime connection is active
       if (realtimeState.status !== 'connected') {
@@ -1671,17 +1733,6 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         console.warn('[Realtime] Message acknowledgment timeout:', err);
       }
 
-      const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns, triggerText: trimmed });
-      if (evalResult.shouldFetch) {
-        if (mode === 'text') {
-          announceCardFetch();
-        }
-        void fetchSuggestions({
-          reason: 'pre-response',
-          suppressFollowupMessage: true,
-          evaluation: evalResult,
-        });
-      }
       const allowCardPrompt =
         (evalResult.shouldFetch && evalResult.allowCardPrompt) ||
         (conversationRubric?.cardReadiness?.status === 'ready' && suggestions.length > 0);
@@ -1756,6 +1807,8 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     evaluateSuggestionFetch,
     announceCardFetch,
     suggestions,
+    profile.insights,
+    votesByCareerId,
   ]);
 
   useEffect(() => {
