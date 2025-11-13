@@ -191,10 +191,48 @@ export function SuggestionCards({
 			});
 			
 			// Calculate active card index based on scroll position
-			const cardWidth = container.querySelector('.suggestion-card')?.clientWidth || 300;
-			const gap = 16; // approximate gap
-			const newIndex = Math.round(scrollLeft / (cardWidth + gap));
-			setActiveCardIndex(Math.max(0, Math.min(newIndex, Math.max(cardCount - 1, 0))));
+			const firstCard = container.querySelector<HTMLElement>(".suggestion-card");
+			let cardWidth = firstCard?.clientWidth ?? 0;
+			if (!cardWidth && firstCard) {
+				cardWidth = firstCard.getBoundingClientRect().width;
+			}
+			if (!cardWidth) {
+				cardWidth = 300;
+			}
+
+			const track = container.querySelector<HTMLElement>(".suggestion-track");
+			let gap = 0;
+			if (track) {
+				const computed = window.getComputedStyle(track);
+				const gapValue =
+					computed.getPropertyValue("column-gap") ||
+					computed.getPropertyValue("gap") ||
+					computed.getPropertyValue("grid-column-gap");
+				if (gapValue) {
+					const parsed = parseFloat(gapValue);
+					if (!Number.isNaN(parsed)) {
+						gap = parsed;
+					}
+				}
+				if (!gap) {
+					const varValue = computed.getPropertyValue("--suggestion-card-gap");
+					if (varValue) {
+						const parsed = parseFloat(varValue);
+						if (!Number.isNaN(parsed)) {
+							gap = parsed;
+						}
+					}
+				}
+			}
+			if (!gap) {
+				gap = 16;
+			}
+
+			const step = cardWidth + gap;
+			if (step > 0) {
+				const newIndex = Math.round(scrollLeft / step);
+				setActiveCardIndex(Math.max(0, Math.min(newIndex, Math.max(cardCount - 1, 0))));
+			}
 		};
 
 		const scheduleUpdate = () => {

@@ -32,6 +32,24 @@ export function buildRealtimeInstructions({
 }: BuildRealtimeInstructionsInput): string | undefined {
 	const lines = [...baseGuidance.filter((line) => typeof line === "string" && line.trim().length > 0)];
 
+	if (!lines.some((line) => line.toLowerCase().includes("british"))) {
+		lines.push(
+			"Keep every spoken and written response in natural British English—maintain the same UK accent and spelling throughout the conversation, even mid-response."
+		);
+	}
+
+	if (!lines.some((line) => line.toLowerCase().includes("surface at least one specific skill"))) {
+		lines.push(
+			"Always surface at least one specific skill, strength, or habit you can infer from what they shared (even if they shrug it off). Anchor it to the behaviour you just heard and note where it already helps them or others."
+		);
+	}
+
+	if (!lines.some((line) => line.toLowerCase().includes("downplay themselves"))) {
+		lines.push(
+			"If they downplay themselves with phrases like “not really” or “I just make it work”, respond by naming the skill you’re hearing (e.g. time management, reliability, patience) and ask for a concrete example or who benefits when they do it."
+		);
+	}
+
 	const phaseTip = PHASE_TIPS[phase];
 	if (phaseTip) {
 		lines.push(phaseTip);
@@ -47,6 +65,11 @@ export function buildRealtimeInstructions({
 
 		if (rubric.engagementStyle === "blocked") {
 			lines.push("User energy seems low. Keep prompts lightweight and specific to coax a fresh detail.");
+		}
+		if (!rubric.insightCoverage.aptitudes) {
+			lines.push(
+				"We still owe them named strengths. Call out the practical skill you notice (balancing revision with caregiving, anchoring a defence, keeping plans moving) and ask where else it shows up so we can log it as a strength."
+			);
 		}
 		if (rubric.explicitIdeasRequest || rubric.readinessBias === "seeking-options") {
 			lines.push("They are open to ideas - frame suggestions as experiments and ask what lands or misses.");

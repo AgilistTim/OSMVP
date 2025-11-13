@@ -28,6 +28,7 @@ import '@/components/inline-career-card-v2.css';
 import { REALTIME_VOICE_ID } from '@/lib/realtime-voice';
 import { hasRequiredInsightMix, summarizeAttributeSignals } from '@/lib/suggestion-guards';
 import { buildHobbyDeepeningPrompt } from '@/lib/hobby-prompts';
+import { STORAGE_KEYS } from '@/lib/storage-keys';
 
 type MessageType = {
   message: string;
@@ -286,6 +287,7 @@ export function ChatIntegrated() {
   const voiceBaselineCapturedRef = useRef(false);
   const cardStatusIdRef = useRef<string | null>(null);
   const cardRevealTimerRef = useRef<number | null>(null);
+  const pendingVoiceCardQueueRef = useRef<Array<() => void>>([]);
   const cardStatusProgressStyle = useMemo(
     () =>
       ({
@@ -496,12 +498,12 @@ export function ChatIntegrated() {
   if (suggestionsLastInsightCountRef.current === 0 && typeof window !== 'undefined') {
     try {
       // Clean up any legacy localStorage entry
-      localStorage.removeItem('osmvp_last_insight_count');
+      localStorage.removeItem(STORAGE_KEYS.lastInsightCount);
     } catch {
       // ignore
     }
     try {
-      const stored = sessionStorage.getItem('osmvp_last_insight_count');
+      const stored = sessionStorage.getItem(STORAGE_KEYS.lastInsightCount);
       if (stored) {
         suggestionsLastInsightCountRef.current = parseInt(stored, 10);
         console.log('[ChatIntegrated] Restored last insight count:', suggestionsLastInsightCountRef.current);
@@ -517,12 +519,12 @@ export function ChatIntegrated() {
   if (!hasInitializedShownIds.current && typeof window !== 'undefined') {
     try {
       // Clean up any legacy localStorage entry
-      localStorage.removeItem('osmvp_shown_suggestion_ids');
+      localStorage.removeItem(STORAGE_KEYS.shownSuggestionIds);
     } catch {
       // ignore
     }
     try {
-      const stored = sessionStorage.getItem('osmvp_shown_suggestion_ids');
+      const stored = sessionStorage.getItem(STORAGE_KEYS.shownSuggestionIds);
       if (stored) {
         const ids = JSON.parse(stored) as string[];
         shownSuggestionIdsRef.current = new Set(ids);
@@ -747,8 +749,8 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     lastHobbyPromptRef.current = null;
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.removeItem('osmvp_suggestions');
-        sessionStorage.removeItem('osmvp_last_insight_count');
+        sessionStorage.removeItem(STORAGE_KEYS.suggestions);
+        sessionStorage.removeItem(STORAGE_KEYS.lastInsightCount);
       } catch {
         // ignore
       }
@@ -922,7 +924,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     if (typeof window !== 'undefined') {
       try {
         const idsArray = Array.from(shownSuggestionIdsRef.current);
-        sessionStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
+        sessionStorage.setItem(STORAGE_KEYS.shownSuggestionIds, JSON.stringify(idsArray));
         console.log('[ChatIntegrated] Saved shown suggestion IDs to sessionStorage:', idsArray.length);
       } catch (error) {
         console.error('[ChatIntegrated] Failed to save shown suggestion IDs to sessionStorage:', error);
@@ -951,7 +953,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       revealIndex: index,
     }));
 
-    const applyCardsToTimeline = () => {
+    const runCardInjection = () => {
       setCardMessages(prev => {
         const withUpdatedStatus = prev.map((msg) =>
           msg.type === 'card-status' && msg.statusId === statusId
@@ -1018,19 +1020,42 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       }
     };
 
+    const scheduleCardInjection = () => {
+      if (mode === 'voice' && realtimeState.activeResponseId) {
+        console.log('[ChatIntegrated] Deferring card injection until current response finishes', {
+          activeResponseId: realtimeState.activeResponseId,
+          pendingCount: pendingVoiceCardQueueRef.current.length,
+        });
+        pendingVoiceCardQueueRef.current.push(() => {
+          console.log('[ChatIntegrated] Running deferred card injection');
+          runCardInjection();
+        });
+        if (pendingVoiceCardQueueRef.current.length === 1) {
+          realtimeControls.setOnResponseCompleted(() => {
+            const queue = pendingVoiceCardQueueRef.current.splice(0);
+            realtimeControls.setOnResponseCompleted(null);
+            queue.forEach((fn) => fn());
+          });
+        }
+        return;
+      }
+
+      runCardInjection();
+    };
+
     if (typeof window !== 'undefined' && CARD_REVEAL_DELAY_MS > 0) {
       if (cardRevealTimerRef.current !== null) {
         window.clearTimeout(cardRevealTimerRef.current);
       }
       cardRevealTimerRef.current = window.setTimeout(() => {
         cardRevealTimerRef.current = null;
-        applyCardsToTimeline();
+        scheduleCardInjection();
       }, CARD_REVEAL_DELAY_MS);
     } else {
-      applyCardsToTimeline();
+      scheduleCardInjection();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions, mode]);
+  }, [suggestions, mode, realtimeState.activeResponseId, realtimeControls]);
 
   // Derive insights from conversation
 const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
@@ -1522,7 +1547,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           if (typeof window !== 'undefined') {
             try {
-              sessionStorage.setItem('osmvp_last_insight_count', insightCount.toString());
+              sessionStorage.setItem(STORAGE_KEYS.lastInsightCount, insightCount.toString());
               console.log('[Suggestions] Saved last insight count to sessionStorage:', insightCount);
             } catch (error) {
               console.error('[Suggestions] Failed to save last insight count to sessionStorage:', error);
@@ -1849,57 +1874,127 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
     // In voice mode, add final user voice to transcript so history stays complete
     if (mode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
+      const transcriptId = latestTranscript.id;
       const userText = latestTranscript.text.trim();
       if (!userText) {
         return;
       }
 
-      const exists = turns.some((t) => t.role === 'user' && t.text === userText);
-      if (exists) {
+      let updatedTurns: ConversationTurn[] | null = null;
+      let inserted = false;
+
+      setTurns((prev) => {
+        const existingIndex =
+          transcriptId !== undefined
+            ? prev.findIndex(
+                (turn) => turn.role === 'user' && turn.transcriptId === transcriptId
+              )
+            : -1;
+
+        if (existingIndex >= 0) {
+          if (prev[existingIndex].text === userText) {
+            return prev;
+          }
+          const next = [...prev];
+          next[existingIndex] = { ...next[existingIndex], text: userText };
+          updatedTurns = next;
+          return next;
+        }
+
+        if (prev.some((t) => t.role === 'user' && t.text === userText)) {
+          return prev;
+        }
+
+        const next = [
+          ...prev,
+          {
+            role: 'user' as const,
+            text: userText,
+            transcriptId,
+          },
+        ];
+        updatedTurns = next;
+        inserted = true;
+        return next;
+      });
+
+      if (!updatedTurns) {
         return;
       }
 
-      const userVoiceTurn: ConversationTurn = {
-        role: 'user',
-        text: userText,
-      };
-      const updatedTurns = [...turns, userVoiceTurn];
-
-      setTurns(updatedTurns);
       void deriveInsights(updatedTurns);
 
-      const evalResult = evaluateSuggestionFetch({ turnSnapshot: updatedTurns });
-      if (evalResult.shouldFetch) {
-        void fetchSuggestions({
-          reason: 'voice-pre-response',
-          suppressFollowupMessage: true,
-          evaluation: evalResult,
-        });
+      if (inserted) {
+        const evalResult = evaluateSuggestionFetch({ turnSnapshot: updatedTurns });
+        if (evalResult.shouldFetch) {
+          void fetchSuggestions({
+            reason: 'voice-pre-response',
+            suppressFollowupMessage: true,
+            evaluation: evalResult,
+          });
+        }
       }
       return;
     }
 
     if (latestTranscript.role === 'assistant') {
-      // Check if we already have this message in our turns
-      const alreadyExists = turns.some(
-        (t) => t.role === 'assistant' && t.text === latestTranscript.text
-      );
+      const transcriptId = latestTranscript.id;
+      const assistantText = latestTranscript.text.trim();
+      if (!assistantText) {
+        return;
+      }
 
-      if (!alreadyExists && latestTranscript.text.trim()) {
-        console.log('[Realtime] Adding assistant response:', latestTranscript.text);
+      let updatedTurns: ConversationTurn[] | null = null;
+      let inserted = false;
+      let previousText: string | undefined;
 
-        const assistantTurn: ConversationTurn = {
-          role: 'assistant',
-          text: latestTranscript.text,
-        };
+      setTurns((prev) => {
+        const existingIndex =
+          transcriptId !== undefined
+            ? prev.findIndex(
+                (turn) => turn.role === 'assistant' && turn.transcriptId === transcriptId
+              )
+            : -1;
 
-        setTurns((prev) => [...prev, assistantTurn]);
-        setIsTyping(false);
+        if (existingIndex >= 0) {
+          if (prev[existingIndex].text === assistantText) {
+            return prev;
+          }
+          const next = [...prev];
+          previousText = prev[existingIndex].text;
+          next[existingIndex] = { ...next[existingIndex], text: assistantText };
+          updatedTurns = next;
+          return next;
+        }
 
-        // Derive insights after assistant responds
-        void deriveInsights([...turns, assistantTurn]);
+        const next = [
+          ...prev,
+          {
+            role: 'assistant' as const,
+            text: assistantText,
+            transcriptId,
+          },
+        ];
+        updatedTurns = next;
+        inserted = true;
+        return next;
+      });
 
-        const lower = latestTranscript.text.toLowerCase();
+      if (!updatedTurns) {
+        return;
+      }
+
+      if (inserted) {
+        console.log('[Realtime] Adding assistant response:', assistantText);
+      } else if (previousText !== assistantText) {
+        console.log('[Realtime] Updating assistant response:', assistantText);
+      }
+
+      setIsTyping(false);
+      void deriveInsights(updatedTurns);
+
+      if (inserted) {
+        const lower = assistantText.toLowerCase();
         const requestedCards =
           lower.includes('let me build some cards') ||
           lower.includes('cards just popped') ||
