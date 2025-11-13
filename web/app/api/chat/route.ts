@@ -16,6 +16,9 @@ interface ChatRequestBody {
   suggestions?: Array<{ id: string; title: string }>;
   phase?: ConversationPhase;
   votes?: Record<string, 1 | 0 | -1 | undefined>;
+  allowCardPrompt?: boolean;
+  cardPromptTone?: "normal" | "fallback";
+  seedTeaserCard?: boolean;
 }
 
 function isConversationPhase(value: unknown): value is ConversationPhase {
@@ -85,7 +88,9 @@ export async function POST(request: Request) {
   const guidanceText = buildRealtimeInstructions({
     phase: effectivePhase,
     rubric,
-    allowCardPrompt: true,
+    allowCardPrompt: body.allowCardPrompt ?? true,
+    cardPromptTone: body.cardPromptTone ?? "normal",
+    seedTeaserCard: body.seedTeaserCard ?? false,
   });
 
   const systemSections = [basePrompt.trim()];

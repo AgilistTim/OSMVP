@@ -1637,6 +1637,16 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       });
     }
 
+    const allowCardPrompt =
+      (evalResult.shouldFetch && evalResult.allowCardPrompt) ||
+      (conversationRubric?.cardReadiness?.status === 'ready' && suggestions.length > 0);
+    const cardPromptTone =
+      evalResult.shouldFetch && evalResult.fetchMode === 'fallback'
+        ? 'fallback'
+        : lastSuggestionModeRef.current === 'fallback'
+        ? 'fallback'
+        : 'normal';
+
     if (mode === 'text') {
       try {
         const response = await fetch('/api/chat', {
@@ -1648,6 +1658,9 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             suggestions: suggestions.map((card) => ({ id: card.id, title: card.title })),
             votes: votesByCareerId,
             phase: conversationPhase,
+            allowCardPrompt,
+            cardPromptTone,
+            seedTeaserCard: shouldSeedTeaserCard,
           }),
         });
 
@@ -1683,6 +1696,9 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         ]);
       } finally {
         setIsTyping(false);
+        if (shouldSeedTeaserCard) {
+          clearTeaserSeed();
+        }
       }
       return;
     }
@@ -1732,16 +1748,6 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       } catch (err) {
         console.warn('[Realtime] Message acknowledgment timeout:', err);
       }
-
-      const allowCardPrompt =
-        (evalResult.shouldFetch && evalResult.allowCardPrompt) ||
-        (conversationRubric?.cardReadiness?.status === 'ready' && suggestions.length > 0);
-      const cardPromptTone =
-        evalResult.shouldFetch && evalResult.fetchMode === 'fallback'
-          ? 'fallback'
-          : lastSuggestionModeRef.current === 'fallback'
-          ? 'fallback'
-          : 'normal';
 
       // Request a response from the model
       const guidanceText = buildRealtimeInstructions({
