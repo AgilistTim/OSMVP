@@ -47,16 +47,18 @@ describe("WelcomeScreen", () => {
   it("renders value proposition and CTA", () => {
     render(<WelcomeScreen />);
 
-    expect(
-      screen.getByRole("heading", { name: /write the mission you want to work on/i })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start the chat/i })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: /chat\. discover\. do\./i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /let.?s talk/i })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: /the offscript mission/i })).toBeInTheDocument();
+    expect(screen.getByText(/Live events that don’t feel like school/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /meet mirai/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
   });
 
   it("defaults to text mode when starting without a selection", () => {
     render(<WelcomeScreen />);
 
-    fireEvent.click(screen.getByRole("button", { name: /start the chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /let.?s talk/i }));
 
     expect(mockSession.beginSession).toHaveBeenCalledTimes(1);
     expect(mockRouter.push).toHaveBeenCalledWith("/chat-integrated");
@@ -66,7 +68,7 @@ describe("WelcomeScreen", () => {
     mockSession.mode = "voice";
     render(<WelcomeScreen />);
 
-    fireEvent.click(screen.getByRole("button", { name: /start the chat/i }));
+    fireEvent.click(screen.getByRole("button", { name: /let.?s talk/i }));
 
     expect(mockSession.setMode).not.toHaveBeenCalled();
     expect(mockSession.beginSession).toHaveBeenCalledTimes(1);

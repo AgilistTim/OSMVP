@@ -1,76 +1,35 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session-provider";
 
-const VALUE_CARDS = [
-	{
-		title: "Name the mission",
-		text: "Surface the problems, people, or causes you actually want to back – not just the subjects on your timetable.",
-	},
-	{
-		title: "Translate your worth",
-		text: "Turn projects, side hustles, and everyday wins into proof of what you can deliver next.",
-	},
-	{
-		title: "Co-pilot with your people",
-		text: "Share a living mission page with parents, mentors, or supporters so everyone pulls in the same direction.",
-	},
-	{
-		title: "Experiment on purpose",
-		text: "Keep running low-stakes experiments, capture what you learn, and adjust your roadmap without starting again.",
-	},
+const MISSION_BULLETS = [
+	"Live events that don’t feel like school",
+	"1:1 support, online and on your terms",
+	"Real-world projects, not just quizzes",
 ];
 
-const HOW_STEPS = [
-	{
-		step: "1",
-		title: "Start with your world",
-		text: "We talk about the projects, people, and playlists you’re already obsessed with so we’re designing from energy, not emptiness.",
-	},
-	{
-		step: "2",
-		title: "Map possibility spaces",
-		text: "We connect your mission to creators, founders, and communities rewriting the rules – plus small actions you can try this week.",
-	},
-	{
-		step: "3",
-		title: "Build your Offscript playbook",
-		text: "Collect insights, next experiments, and talking points in a page you can share with the people backing you.",
-	},
-];
+const MISSION_VIDEO_SRC = "/videos/t4-credibility-learning-value-1x1-ad.mp4";
 
-const SUMMIT_REASON_ITEMS: Array<
-	| {
-			type: "text";
-			title: string;
-			body: string;
-		}
-	| {
-			type: "video";
-			title: string;
-			src: string;
-			poster: string;
-			aspectRatio?: string;
-		}
-> = [
+const MIRAI_SLIDES = [
 	{
-		type: "text",
-		title: "Discover futures you didn’t know existed",
-		body: "Don’t just hear the same old stories. Discover new voices. Meet YouTubers, entrepreneurs and innovators showing real, unexpected paths beyond school.",
+		id: "meet-mirai",
+		label: "Meet MirAI",
+		body: "The more you share what you’re into, the smarter MirAI gets at finding your next move.",
+		aside: "No tests. No forms. Just a real conversation.",
 	},
 	{
-		type: "text",
-		title: "Dive into workshops, AI tools, and hands-on sessions designed to help you thrive.",
-		body: "Learn practical skills like negotiation, AI tools, and entrepreneurship in interactive sessions. You’ll test, try, and leave ready to start your own journey.",
+		id: "careers-boring",
+		label: "Careers advice. Boring?",
+		body: "MirAI’s built different. She learns from what inspires you and ignores the rest. She’ll show you what’s possible and how to get there.",
+		aside: "Expect playlists, creators, and paths you actually care about.",
 	},
 	{
-		type: "video",
-		title: "OFFSCRIPT summit careers fair highlight",
-		src: "https://player.vimeo.com/progressive_redirect/playback/1123513240/rendition/1080p/file.mp4?loc=external&log_user=0&signature=8e702256c89bc581889f69feb9fce68f043ffc2f640af97472b2372107de8f73",
-		poster: "https://offscriptgen.com/wp-content/uploads/2025/10/offscript-summit-careers-fair.png",
-		aspectRatio: "16 / 9",
+		id: "future-shared",
+		label: "Your future. Shared.",
+		body: "Own your vision, show what makes you stand out, and build your journey with your people.",
+		aside: "Save your ideas, share them when you’re ready, and keep everyone aligned.",
 	},
 ];
 
@@ -81,16 +40,30 @@ export function WelcomeScreen() {
 	const heroCards = useMemo(
 		() => [
 			{
-				title: "Mission > job title",
-				text: "Figure out the change you care about before you worry about the role.",
+				title: "You",
+				text: "I’m obsessed with upcycling clothes but don’t know how to make it real.",
 			},
 			{
-				title: "Allies included",
-				text: "Keep friends, parents, and mentors aligned with a living mission page.",
+				title: "MirAI",
+				text: "Let’s test a Cardiff makers’ market this weekend—I’ll line up tools, costs, and first customers.",
+			},
+			{
+				title: "MirAI",
+				text: "I’m saving the plan to your Journey page so you can share it with friends or mentors.",
 			},
 		],
 		[]
 	);
+
+	const [activeSlide, setActiveSlide] = useState(0);
+
+	const handlePrev = () => {
+		setActiveSlide((current) => (current === 0 ? MIRAI_SLIDES.length - 1 : current - 1));
+	};
+
+	const handleNext = () => {
+		setActiveSlide((current) => (current === MIRAI_SLIDES.length - 1 ? 0 : current + 1));
+	};
 
 	function handleStart() {
 		beginSession();
@@ -100,28 +73,24 @@ export function WelcomeScreen() {
 	return (
 		<main className="landing-page" role="main">
 			<section className="hero-section" aria-labelledby="landing-hero-title">
-			<div className="hero-content">
-				<span className="hero-kicker">Offscript Generation</span>
-				<h1 id="landing-hero-title" className="hero-title">
-					Write the mission you want to work on
-				</h1>
-				<p className="hero-subtitle">
-					We’re the personal mission co-pilot spun out from the OFFSCRIPT summit crew.
-				</p>
-				<p className="hero-body">
-					Recognise your worth, name the problems you actually care about, and test bespoke routes that fit you— not someone else’s playbook.
-				</p>
-				<div className="hero-actions">
-					<button type="button" className="primary-button hero-cta" onClick={handleStart}>
-						Start the chat
-					</button>
-					<p className="hero-actions-note">No sign-up. 15 minutes to grab your first experiments.</p>
+				<div className="hero-content">
+					<h1 id="landing-hero-title" className="hero-title">
+						Chat. Discover. Do.
+					</h1>
+					<p className="hero-subtitle">
+						Talk to MirAI and get real ideas for what to do next. Jobs, side hustles or paths you’ve never thought of. Time to flip the script.
+					</p>
+					<div className="hero-actions">
+						<button type="button" className="primary-button hero-cta" onClick={handleStart}>
+							LET’S TALK
+						</button>
+						<p className="hero-actions-note">No sign-up. 5 minutes to create your future.</p>
+					</div>
 				</div>
-			</div>
 				<div className="hero-visual" aria-hidden="true">
 					<div className="hero-card-stack">
-						{heroCards.map((card) => (
-							<div key={card.title} className="hero-card">
+						{heroCards.map((card, index) => (
+							<div key={`${card.title}-${index}`} className="hero-card">
 								<p className="hero-card-title">{card.title}</p>
 								<p className="hero-card-text">{card.text}</p>
 							</div>
@@ -130,98 +99,107 @@ export function WelcomeScreen() {
 				</div>
 		</section>
 
-		<section className="summit-reasons" aria-labelledby="summit-reasons-title">
-			<header className="summit-reasons__header">
-				<h2 id="summit-reasons-title" className="section-header">
-					Reasons to attend for youth
-				</h2>
-			</header>
-			<div className="summit-reasons__grid">
-				{SUMMIT_REASON_ITEMS.map((item) =>
-					item.type === "text" ? (
-						<article key={item.title} className="summit-reasons__item">
-							<div className="summit-reasons__text">
-								<h3>{item.title}</h3>
-								<p>{item.body}</p>
-							</div>
-						</article>
-					) : (
-						<div key={item.title} className="summit-reasons__item summit-reasons__item--video">
-							<div className="summit-reasons__video-wrapper">
-								<video
-									className="summit-reasons__video"
-									src={item.src}
-									poster={item.poster}
-									playsInline
-									autoPlay
-									muted
-									loop
-									controls
-									style={item.aspectRatio ? { aspectRatio: item.aspectRatio } : undefined}
-								>
-									Your browser does not support the video tag.
-								</video>
-							</div>
-						</div>
-					)
-				)}
-			</div>
-		</section>
-
-		<section className="value-props" aria-labelledby="landing-value-title">
-				<h2 id="landing-value-title" className="section-header">
-					What You Get:
-				</h2>
-				{VALUE_CARDS.map((card) => (
-					<article key={card.title} className="value-card">
-						<h3 className="value-card-title">{card.title}</h3>
-						<p className="value-card-text">{card.text}</p>
-					</article>
-				))}
-			</section>
-
-			<section className="how-it-works" aria-labelledby="landing-how-title">
-				<div className="how-grid">
-					<header>
-						<h2 id="landing-how-title" className="section-header">
-							How It Actually Works:
-						</h2>
-						<p className="value-card-text">We start where you are, not where we think you should be.</p>
-					</header>
-					{HOW_STEPS.map((step) => (
-						<article key={step.step} className="how-step step-card" data-step={step.step}>
-							<div className="how-step-number" aria-hidden="true">
-								{step.step}
-							</div>
-							<h3 className="how-step-title">{step.title}</h3>
-							<p className="how-step-text">{step.text}</p>
-						</article>
+			<section className="mirai-carousel" aria-labelledby="mirai-carousel-title">
+				<header className="mirai-carousel-header">
+					<p className="mirai-carousel-eyebrow">How MirAI helps</p>
+					<h2 id="mirai-carousel-title" className="mirai-carousel-title">
+						Three quick reasons to start talking
+					</h2>
+				</header>
+				<div className="mirai-carousel-body">
+					<button
+						type="button"
+						className="mirai-carousel-nav mirai-carousel-nav--prev"
+						onClick={handlePrev}
+						aria-label="Show previous MirAI highlight"
+					>
+						<span aria-hidden="true">←</span>
+					</button>
+					<div className="mirai-carousel-viewport">
+						{MIRAI_SLIDES.map((slide, index) => (
+							<article
+								key={slide.id}
+								id={slide.id}
+								className={`mirai-slide ${index === activeSlide ? "mirai-slide--active" : ""}`}
+								role="tabpanel"
+								aria-hidden={index !== activeSlide}
+							>
+								<div className="mirai-slide-art" aria-hidden="true">
+									<div className="mirai-slide-artwork">
+										<span>{slide.label}</span>
+									</div>
+								</div>
+								<div className="mirai-slide-copy">
+									<h3>{slide.label}</h3>
+									<p>{slide.body}</p>
+									<div className="mirai-slide-aside">{slide.aside}</div>
+								</div>
+							</article>
+						))}
+					</div>
+					<button
+						type="button"
+						className="mirai-carousel-nav mirai-carousel-nav--next"
+						onClick={handleNext}
+						aria-label="Show next MirAI highlight"
+					>
+						<span aria-hidden="true">→</span>
+					</button>
+				</div>
+				<div className="mirai-carousel-dots" role="tablist" aria-label="MirAI highlights">
+					{MIRAI_SLIDES.map((slide, index) => (
+						<button
+							key={slide.id}
+							type="button"
+							className={`mirai-carousel-dot ${index === activeSlide ? "mirai-carousel-dot--active" : ""}`}
+							onClick={() => setActiveSlide(index)}
+							role="tab"
+							aria-selected={index === activeSlide}
+							aria-controls={slide.id}
+							tabIndex={index === activeSlide ? 0 : -1}
+						>
+							<span className="visually-hidden">{slide.label}</span>
+						</button>
 					))}
 				</div>
 			</section>
 
-			<section className="cta-section" aria-labelledby="landing-cta-title">
-				<h2 id="landing-cta-title" className="cta-title">
-					Ready to start?
-				</h2>
-				<p className="cta-text">
-					No signup required. No email collection. Just start the conversation.
-				</p>
-				<p className="cta-text">
-					{
-						"We'll begin by chatting about what you're currently into and what you're trying to figure out. Takes about 15-30 minutes, and you can always come back to continue later."
-					}
-				</p>
-				<button type="button" className="primary-button primary-cta-button" onClick={handleStart}>
-					Start YOUR discussion
-				</button>
+			<section className="mission-section" aria-labelledby="mission-heading">
+				<div className="mission-content">
+					<div className="mission-copy">
+						<p className="mission-eyebrow">Who we are</p>
+						<h2 id="mission-heading" className="mission-title">
+							The OffScript mission
+						</h2>
+						<p className="mission-text">
+							The OffScript mission is to help young people everywhere take ownership of their next steps and find purpose
+							through live events, online support and real-world learning.
+						</p>
+						<ul className="mission-bullets">
+							{MISSION_BULLETS.map((item) => (
+								<li key={item}>
+									<span>{item}</span>
+								</li>
+							))}
+						</ul>
+					</div>
+					<div className="mission-video">
+						<div className="mission-video-frame">
+							<video
+								src={MISSION_VIDEO_SRC}
+								className="mission-video-player"
+								playsInline
+								controls
+								loop
+								muted
+							>
+								Your browser does not support the video tag.
+							</video>
+						</div>
+						<p className="mission-video-caption">Watch how OffScript helps you turn ideas into real next steps.</p>
+					</div>
+				</div>
 			</section>
-
-			<div className="sticky-cta" role="complementary" aria-label="Start your Off-script discussion">
-				<button type="button" className="primary-button primary-cta-button sticky-cta-button" onClick={handleStart}>
-					Start YOUR discussion
-				</button>
-			</div>
 		</main>
 	);
 }

@@ -53,7 +53,7 @@ const INSIGHT_KIND_LABELS: Record<InsightKind, string> = {
 const INSIGHT_KIND_COACHING: Partial<Record<InsightKind, string>> = {
 	interest: "Ask what they're into right now or what they've been working on.",
 	strength:
-		"Point out what they're good at using their own words (e.g. 'Sounds like you're really good at noticing details') and ask how they use that skill.",
+		"Spot the hidden skill in what they just described (balancing revision with caregiving = time management, keeping defence tight = awareness) and say it out loud. Follow with “Where else does that show up?” or “Who benefits when you do that?” so we can log it as a strength. If they say “not really” or “nothing”, hand them forced choices like “Which lands closer—keeping people on track, solving tech niggles, or making sure plans actually happen?”",
 	hope:
 		"If they seem unsure, suggest what it sounds like they want ('Sounds like you want people to feel something from your photos') and ask if that's right.",
 };
