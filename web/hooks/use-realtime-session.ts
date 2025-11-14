@@ -335,8 +335,11 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           }
           break;
         }
+        case "response.done":
         case "response.completed": {
-          const responseId = event.response?.id;
+          const responseId =
+            (event.response?.id as string | undefined) ??
+            (event.response_id as string | undefined);
           if (responseId && responseStartTimesRef.current.has(responseId)) {
             const start = responseStartTimesRef.current.get(responseId)!;
             setLastLatencyMs(Date.now() - start);

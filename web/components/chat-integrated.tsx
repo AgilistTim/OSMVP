@@ -19,7 +19,7 @@ import type { ConversationTurn, InsightKind, ActivitySignalCategory } from '@/co
 import type { LucideIcon } from 'lucide-react';
 import { BarChart3, CheckCircle2, ChevronDown, Sparkles, Target, Trophy, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
 import { InlineCareerCard } from '@/components/inline-career-card-v2';
@@ -123,6 +123,7 @@ const formatReadableList = (items: string[]): string => {
 
 export function ChatIntegrated() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     profile,
     turns,
@@ -272,7 +273,7 @@ export function ChatIntegrated() {
     };
   }, [capturedInsights, conversationRubric, suggestions.length, votesByCareerId]);
 
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice'>('voice');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -296,6 +297,48 @@ export function ChatIntegrated() {
     []
   );
   // Basket drawer removed - voted cards now shown on MY PAGE
+
+  const modeInitializedRef = useRef(false);
+
+  const persistChatMode = useCallback((value: 'text' | 'voice') => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.chatMode, value);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[ChatIntegrated] Failed to persist chat mode', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modeInitializedRef.current) {
+      return;
+    }
+
+    let initialMode: 'text' | 'voice' = 'voice';
+    const queryMode = searchParams?.get('mode')?.toLowerCase();
+    if (queryMode === 'text' || queryMode === 'voice') {
+      initialMode = queryMode;
+    } else if (typeof window !== 'undefined') {
+      try {
+        const storedMode = sessionStorage.getItem(STORAGE_KEYS.chatMode);
+        if (storedMode === 'text' || storedMode === 'voice') {
+          initialMode = storedMode;
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[ChatIntegrated] Failed to read stored chat mode', error);
+        }
+      }
+    }
+
+    setMode(initialMode);
+    persistChatMode(initialMode);
+    modeInitializedRef.current = true;
+  }, [searchParams, persistChatMode]);
 
   const insightCategories = useMemo(() => {
     const categories: Array<{
@@ -459,14 +502,19 @@ export function ChatIntegrated() {
       // Switch to voice UI, do not auto-connect or resume mic yet.
       // VoiceControls will connect/resume mic on Start Voice.
       setVoiceSessionStarted(false);
+      persistChatMode('voice');
+      modeInitializedRef.current = true;
       setMode('voice');
     } else {
       // Switch to text: pause mic if connected, keep session alive.
       try { realtimeControls.pauseMicrophone(); } catch { /* noop */ }
       setVoiceSessionStarted(false);
+      setVoiceCardList([]);
+      persistChatMode('text');
+      modeInitializedRef.current = true;
       setMode('text');
     }
-  }, [mode, realtimeControls]);
+  }, [mode, realtimeControls, persistChatMode]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
@@ -1020,6 +1068,19 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       }
     };
 
+    const flushPendingVoiceQueue = () => {
+      if (pendingVoiceCardQueueRef.current.length === 0) {
+        return;
+      }
+      const queue = pendingVoiceCardQueueRef.current.splice(0);
+      realtimeControls.setOnResponseCompleted(null);
+      queue.forEach((fn) => fn());
+    };
+
+    if (mode === 'voice' && !realtimeState.activeResponseId) {
+      flushPendingVoiceQueue();
+    }
+
     const scheduleCardInjection = () => {
       if (mode === 'voice' && realtimeState.activeResponseId) {
         console.log('[ChatIntegrated] Deferring card injection until current response finishes', {
@@ -1032,9 +1093,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
         });
         if (pendingVoiceCardQueueRef.current.length === 1) {
           realtimeControls.setOnResponseCompleted(() => {
-            const queue = pendingVoiceCardQueueRef.current.splice(0);
-            realtimeControls.setOnResponseCompleted(null);
-            queue.forEach((fn) => fn());
+            flushPendingVoiceQueue();
           });
         }
         return;
@@ -1795,13 +1854,22 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
       realtimeControls.cancelActiveResponse();
 
-      const responseModalities = mode === 'voice' ? ['audio'] : ['text'];
-      const responsePayload: Record<string, unknown> = {
-        output_modalities: responseModalities,
-      };
-      if (responseModalities.includes('audio')) {
-        responsePayload.voice = REALTIME_VOICE_ID;
+      if (mode === 'voice') {
+        if (shouldSeedTeaserCard) {
+          clearTeaserSeed();
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          console.info('[chat-integrated] Voice turn relying on auto response', {
+            phase: conversationPhase,
+            guidanceLength: guidanceText?.length ?? 0,
+          });
+        }
+        return;
       }
+
+      const responsePayload: Record<string, unknown> = {
+        output_modalities: ['text'],
+      };
       if (guidanceText) {
         if (process.env.NODE_ENV !== 'production') {
           console.info('[chat-integrated] Sending phase instructions', {
@@ -2368,134 +2436,90 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           </div>
         </>
       ) : (
-        <div className="voice-mode-container" style={{ padding: '2rem', textAlign: 'center' }}>
-          <div style={{ marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
-                Voice Mode
-              </h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleModeToggle}
-                style={{ gap: '0.5rem' }}
-              >
-                <FileText className="w-4 h-4" />
-                Switch to Text
-              </Button>
+        <div className="voice-mode-container">
+          <header className="voice-mode-header">
+            <div className="voice-mode-intro">
+              <p className="voice-mode-eyebrow">MirAI voice</p>
+              <h2 className="voice-mode-title">Talk to MirAI</h2>
+              <p className="voice-mode-description">
+                Share what you’re into and hear real ideas for what to do next—jobs, side hustles, or sparks you’ve never considered.
+              </p>
             </div>
-            <p style={{ color: '#666', marginBottom: '2rem' }}>
-              Click Start Voice to begin speaking with the AI assistant.
-            </p>
-            <VoiceControls
-              state={realtimeState}
-              controls={realtimeControls}
-              phase={conversationPhase}
-              onStart={() => {
-                if (!voiceBaselineCapturedRef.current) {
-                  voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
-                  voiceBaselineCapturedRef.current = true;
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="voice-mode-text-toggle"
+              onClick={handleModeToggle}
+            >
+              <FileText className="w-4 h-4" aria-hidden />
+              <span>Switch to text</span>
+            </Button>
+          </header>
+
+          <VoiceControls
+            state={realtimeState}
+            controls={realtimeControls}
+            phase={conversationPhase}
+            onStart={() => {
+              if (!voiceBaselineCapturedRef.current) {
+                voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+                voiceBaselineCapturedRef.current = true;
+              }
+              suggestionsLastInsightCountRef.current = 0;
+              suggestionsFetchInFlightRef.current = false;
+              setVoiceSessionStarted(true);
+              setVoiceCardList((prev) => {
+                if (prev.length === 0) {
+                  return suggestions;
                 }
-                suggestionsLastInsightCountRef.current = 0;
-                suggestionsFetchInFlightRef.current = false;
-                setVoiceSessionStarted(true);
-                setVoiceCardList((prev) => {
-                  if (prev.length === 0) {
-                    return suggestions;
-                  }
-                  const merged = new Map<string, CareerSuggestion>();
-                  suggestions.forEach((card) => {
-                    merged.set(card.id, card);
-                  });
-                  prev.forEach((card) => {
-                    if (!merged.has(card.id)) {
-                      merged.set(card.id, card);
-                    }
-                  });
-                  return Array.from(merged.values());
+                const merged = new Map<string, CareerSuggestion>();
+                suggestions.forEach((card) => {
+                  merged.set(card.id, card);
                 });
-              }}
-            />
-          </div>
-          
-          {/* Show only last assistant message in voice mode */}
-          {(() => {
-            if (!voiceSessionStarted) {
-              return null;
-            }
-            const lastAssistantTurn = turns.filter(t => t.role === 'assistant').slice(-1)[0];
-            return lastAssistantTurn ? (
-              <div style={{ marginTop: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto 0' }}>
-                <div
-                  style={{
-                    padding: '1.5rem',
-                    backgroundColor: '#d8fdf0',
-                    borderRadius: '12px',
-                    fontSize: '1.1rem',
-                    lineHeight: '1.6',
-                  }}
-                >
-                  {lastAssistantTurn.text}
-                </div>
-              </div>
-            ) : null;
-          })()}
-          
-          {/* Loading indicator for suggestions */}
-          {loadingSuggestions && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <div
-                style={{
-                  padding: '1.5rem',
-                  backgroundColor: '#d8fdf0',
-                  borderRadius: '12px',
-                  fontSize: '1.1rem',
-                  lineHeight: '1.6',
-                  textAlign: 'center',
-                  maxWidth: '600px',
-                  margin: '0 auto',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '20px',
-                      border: '3px solid #10b981',
-                      borderTopColor: 'transparent',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
-                    }}
-                  />
-                  <span>I&apos;m finding some career paths for you based on what you&apos;ve shared. Give me a moment to pull the details together...</span>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Show career cards in voice mode (keep visible while new ones load) */}
-          {voiceSessionStarted && voiceSuggestions.length > 0 && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <h4
-                style={{
-                  fontSize: '1.25rem',
-                  fontWeight: '600',
-                  marginBottom: '1.5rem',
-                  textAlign: 'center',
-                  color: '#111827',
-                }}
-              >
-                Career Paths to Explore
-              </h4>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                  maxWidth: '800px',
-                  margin: '0 auto',
-                }}
-              >
+                prev.forEach((card) => {
+                  if (!merged.has(card.id)) {
+                    merged.set(card.id, card);
+                  }
+                });
+                return Array.from(merged.values());
+              });
+            }}
+            onStop={() => {
+              setVoiceSessionStarted(false);
+              setVoiceCardList([]);
+            }}
+          />
+
+          <section className="voice-mode-feedback" aria-live="polite">
+            {voiceSessionStarted ? (() => {
+              const lastAssistantTurn = turns.filter((turn) => turn.role === 'assistant').slice(-1)[0];
+              if (!lastAssistantTurn) {
+                return (
+                  <p className="voice-mode-placeholder">
+                    MirAI will speak back and show the transcript here once the conversation starts.
+                  </p>
+                );
+              }
+              return <div className="voice-mode-reply">{lastAssistantTurn.text}</div>;
+            })() : (
+              <p className="voice-mode-placeholder">
+                Start the chat to hear MirAI and see your live transcript.
+              </p>
+            )}
+          </section>
+
+          {loadingSuggestions ? (
+            <section className="voice-mode-panel voice-mode-panel--loading" aria-live="polite">
+              <div className="voice-mode-spinner" aria-hidden />
+              <p>I’m lining up tailored paths based on what you’re sharing…</p>
+            </section>
+          ) : null}
+
+          {voiceSessionStarted && voiceSuggestions.length > 0 ? (
+            <section className="voice-mode-suggestions" aria-live="polite">
+              <h3 className="voice-mode-suggestions-title">Career paths to explore</h3>
+              <div className="voice-mode-suggestions-list">
                 {voiceSuggestions.map((suggestion) => (
                   <InlineCareerCard
                     key={suggestion.id}
@@ -2504,58 +2528,44 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
                     onVote={(value) => {
                       const current = votesByCareerId[suggestion.id];
                       const cardTitle = suggestion.title;
-                      
-                      // Toggle vote: if clicking same value, remove vote
+
                       if (current === value) {
                         voteCareer(suggestion.id, null);
-                      } else {
-                        voteCareer(suggestion.id, value);
-                        
-                        // Add contextual follow-up message after voting
-                        setTimeout(() => {
-                          let followUpText = '';
-                          if (value === 1) {
-                            followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
-                          } else if (value === 0) {
-                            followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
-                          } else if (value === -1) {
-                            followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
-                          }
-                          
-                          if (followUpText) {
-                            const followUpTurn: ConversationTurn = {
-                              role: 'assistant',
-                              text: followUpText,
-                            };
-                            setTurns((prev) => [...prev, followUpTurn]);
-                          }
-                        }, 500);
+                        return;
                       }
+
+                      voteCareer(suggestion.id, value);
+
+                      window.setTimeout(() => {
+                        let followUpText = "";
+                        if (value === 1) {
+                          followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
+                        } else if (value === 0) {
+                          followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
+                        } else if (value === -1) {
+                          followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
+                        }
+
+                        if (followUpText) {
+                          const followUpTurn: ConversationTurn = {
+                            role: "assistant",
+                            text: followUpText,
+                          };
+                          setTurns((prev) => [...prev, followUpTurn]);
+                        }
+                      }, 500);
                     }}
                   />
                 ))}
               </div>
-            </div>
-          )}
+            </section>
+          ) : null}
 
-          {!loadingSuggestions && voiceSessionStarted && voiceSuggestions.length === 0 && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <div
-                style={{
-                  padding: '1.5rem',
-                  backgroundColor: '#eef2ff',
-                  borderRadius: '12px',
-                  fontSize: '1rem',
-                  lineHeight: '1.6',
-                  textAlign: 'center',
-                  maxWidth: '600px',
-                  margin: '0 auto',
-                }}
-              >
-                I’m still listening and gathering more of your story—keep talking and I’ll surface fresh cards as soon as they’re ready.
-              </div>
-            </div>
-          )}
+          {voiceSessionStarted && !loadingSuggestions && voiceSuggestions.length === 0 ? (
+            <section className="voice-mode-panel voice-mode-panel--hint">
+              <p>Keep talking and I’ll surface live ideas you can save or skip.</p>
+            </section>
+          ) : null}
         </div>
       )}
 
