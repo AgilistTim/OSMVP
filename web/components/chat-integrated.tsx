@@ -278,12 +278,15 @@ export function ChatIntegrated() {
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+const [readyToastVisible, setReadyToastVisible] = useState(false);
+const [readyToastDismissed, setReadyToastDismissed] = useState(false);
   const [recentlyAddedItem, setRecentlyAddedItem] = useState<string | null>(null);
   const newItemTimerRef = useRef<number | null>(null);
   const previousInsightIdsRef = useRef<Set<string>>(new Set());
   const hasInitializedInsightsRef = useRef(false);
   const hasAnnouncedReadinessRef = useRef(false);
+const hasAutoCollapsedReadyRef = useRef(false);
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
   const cardStatusIdRef = useRef<string | null>(null);
@@ -378,6 +381,10 @@ export function ChatIntegrated() {
     () => insightCategories.reduce((acc, category) => acc + category.count, 0),
     [insightCategories]
   );
+  const canExpandInsights = useMemo(
+    () => insightCategories.some((category) => category.count > 0),
+    [insightCategories]
+  );
 
   useEffect(() => {
     const currentIds = new Set(profile.insights.map((insight) => insight.id));
@@ -466,10 +473,26 @@ export function ChatIntegrated() {
   }, [attributeSignals.careerSignalCount, attributeSignals.developingSignalCount]);
 
   useEffect(() => {
-    if (progressPercent >= 100 && isHeaderExpanded) {
-      setIsHeaderExpanded(false);
+    if (progressPercent < 100) {
+      hasAutoCollapsedReadyRef.current = false;
+      setReadyToastVisible(false);
+      if (readyToastDismissed) {
+        setReadyToastDismissed(false);
+      }
+      return;
     }
-  }, [progressPercent, isHeaderExpanded]);
+
+    if (!readyToastDismissed) {
+      setReadyToastVisible(true);
+    }
+
+    if (!hasAutoCollapsedReadyRef.current && isHeaderExpanded) {
+      setIsHeaderExpanded(false);
+      hasAutoCollapsedReadyRef.current = true;
+    } else if (!hasAutoCollapsedReadyRef.current) {
+      hasAutoCollapsedReadyRef.current = true;
+    }
+  }, [progressPercent, isHeaderExpanded, readyToastDismissed]);
 
   useEffect(() => {
     if (progressPercent < 100) {
@@ -515,6 +538,26 @@ export function ChatIntegrated() {
       setMode('text');
     }
   }, [mode, realtimeControls, persistChatMode]);
+
+  const handleReadyToastOpenInsights = useCallback(() => {
+    setReadyToastVisible(false);
+    setReadyToastDismissed(true);
+
+    if (canExpandInsights) {
+      setIsHeaderExpanded(true);
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          const insightsButton = document.querySelector<HTMLButtonElement>('.consolidated-badge');
+          insightsButton?.focus();
+        });
+      }
+    }
+  }, [canExpandInsights]);
+
+  const handleReadyToastDismiss = useCallback(() => {
+    setReadyToastVisible(false);
+    setReadyToastDismissed(true);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
@@ -2200,7 +2243,6 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
   }, [messages]);
 
   const headerState = progressPercent >= 100 ? 'ready' : isHeaderExpanded ? 'expanded' : 'collapsed';
-  const canExpandInsights = insightCategories.some((category) => category.count > 0);
 
   return (
     <div className="chat-integrated-wrapper">
@@ -2245,12 +2287,9 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           {chipText ? <div className="new-item-chip">+ {chipText}</div> : null}
         </div>
 
-        {progressPercent >= 100 ? (
-          <div className="ready-banner">
-            <span className="ready-dot" aria-hidden />
-            <span className="ready-text">
-              We’ve got enough to spin up your starter page. Tap MY PAGE to peek, or keep sharing to sharpen it.
-            </span>
+        {progressPercent < 100 ? (
+          <div className="header-status-row" role="status" aria-live="polite">
+            <div className="progress-hint">Keep talking and I’ll keep shaping your page in real time.</div>
           </div>
         ) : null}
 
@@ -2301,9 +2340,8 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             ) : (
               <div className="progress-section-expanded ready-expanded-note">
                 <div className="progress-title-expanded">Ideas unlocked</div>
-                <div className="progress-subtitle-expanded">
-                  Keep riffing if you want me to fine-tune or chase new angles. Everything new feeds your page live.
-                </div>
+                <div className="progress-subtitle-expanded">Keep riffing if you want me to fine-tune or chase new angles.</div>
+                <div className="progress-subtitle-expanded secondary">Everything new feeds your page live — MY PAGE is good to go.</div>
               </div>
             )}
           </div>
@@ -2320,6 +2358,32 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           </Button>
         </div>
       </div>
+
+      {readyToastVisible ? (
+        <div className="ready-toast" role="status" aria-live="polite" aria-atomic="true">
+          <div className="ready-toast-surface">
+            <div className="ready-toast-copy">
+              <p className="ready-toast-title">MirAI is ready.</p>
+              <p className="ready-toast-message">
+                Your starter page’s live. Open the insights to see what I’ve packed in and tweak anything before you share it.
+              </p>
+            </div>
+            <div className="ready-toast-actions">
+              <Button
+                type="button"
+                size="sm"
+                className="ready-toast-primary"
+                onClick={handleReadyToastOpenInsights}
+              >
+                Open insights
+              </Button>
+              <button type="button" className="ready-toast-dismiss" onClick={handleReadyToastDismiss}>
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Chat Interface */}
       {mode === 'text' ? (
