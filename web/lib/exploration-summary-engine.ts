@@ -53,6 +53,114 @@ Output JSON with keys:
 
 Use British English. Keep tone direct, positive, grounded.`;
 
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNullableString(value: unknown): value is string | null | undefined {
+	return (
+		typeof value === "string" ||
+		value === null ||
+		typeof value === "undefined"
+	);
+}
+
+function asGeneratedSummary(candidate: unknown): GeneratedSummary | null {
+	if (!candidate || typeof candidate !== "object") {
+		return null;
+	}
+
+	const summary = candidate as Partial<GeneratedSummary>;
+	if (
+		!isStringArray(summary.themes) ||
+		!isStringArray(summary.strengths) ||
+		!isNullableString(summary.constraint) ||
+		typeof summary.whyItMatters !== "string" ||
+		!isNullableString(summary.callToAction) ||
+		typeof summary.closing !== "string"
+	) {
+		return null;
+	}
+
+	const {
+		themes,
+		strengths,
+		constraint,
+		whyItMatters,
+		callToAction,
+		closing,
+	} = summary;
+
+	return {
+		themes: themes as string[],
+		strengths: strengths as string[],
+		constraint: typeof constraint === "undefined" ? null : constraint,
+		whyItMatters: whyItMatters as string,
+		callToAction:
+			typeof callToAction === "undefined" ? null : callToAction,
+		closing: closing as string,
+	};
+}
+
+function extractJsonCandidates(content: string): string[] {
+	const trimmed = content.trim();
+	const candidates = new Set<string>([trimmed]);
+
+	const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+	if (fencedMatch?.[1]) {
+		candidates.add(fencedMatch[1].trim());
+	}
+
+	const firstBrace = trimmed.indexOf("{");
+	const lastBrace = trimmed.lastIndexOf("}");
+	if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+		candidates.add(trimmed.slice(firstBrace, lastBrace + 1));
+	}
+
+	return Array.from(candidates);
+}
+
+function coerceSummaryFromParsed(parsed: unknown): GeneratedSummary | null {
+	const direct = asGeneratedSummary(parsed);
+	if (direct) {
+		return direct;
+	}
+
+	if (parsed && typeof parsed === "object") {
+		const container = parsed as Record<string, unknown>;
+		for (const value of Object.values(container)) {
+			const nested = asGeneratedSummary(value);
+			if (nested) {
+				return nested;
+			}
+		}
+	}
+
+	return null;
+}
+
+export function parseGeneratedSummaryContent(content: string): GeneratedSummary {
+	const candidates = extractJsonCandidates(content);
+
+	for (const candidate of candidates) {
+		try {
+			const parsed = JSON.parse(candidate) as unknown;
+			const summary = coerceSummaryFromParsed(parsed);
+			if (summary) {
+				return summary;
+			}
+		} catch {
+			continue;
+		}
+	}
+
+	const snippet =
+		content.length > 200 ? `${content.slice(0, 200)}…` : content;
+	throw new Error(
+		`Model returned non-JSON content. First snippet: ${snippet}`
+	);
+}
+
 export async function generateExplorationSummary(
 	payload: SummaryRequestPayload,
 	{
@@ -90,10 +198,6 @@ Respond with a single JSON object matching the schema described above. Do not in
 		throw new Error("No content returned from model");
 	}
 
-	try {
-		return JSON.parse(content) as GeneratedSummary;
-	} catch (error) {
-		throw new Error("Model returned non-JSON content");
-	}
+	return parseGeneratedSummaryContent(content);
 }
 

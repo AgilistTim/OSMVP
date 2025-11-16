@@ -1839,7 +1839,7 @@ body {
 
 .signals-grid {
   display: grid;
-  gap: clamp(14px, 3vw, 20px);
+  gap: clamp(12px, 3vw, 18px);
 }
 
 @media (min-width: 768px) {
@@ -1852,8 +1852,8 @@ body {
   border-radius: clamp(14px, 3vw, 20px);
   border: 1px solid rgba(16, 32, 47, 0.12);
   background: #ffffff;
-  padding: clamp(16px, 3vw, 22px);
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+  padding: clamp(12px, 2.6vw, 18px);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.07);
   display: grid;
   gap: 12px;
 }
@@ -1980,14 +1980,85 @@ body {
   gap: clamp(18px, 3vw, 24px);
 }
 
+.idea-stash-toggle {
+  display: grid;
+  gap: 10px;
+  margin-bottom: clamp(12px, 2vw, 18px);
+}
+
+.idea-stash-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  gap: 14px;
+  padding: 14px 18px;
+  border-radius: clamp(12px, 3vw, 16px);
+  border: 1px solid rgba(16, 32, 47, 0.14);
+  background: linear-gradient(140deg, rgba(231, 243, 255, 0.8) 0%, rgba(255, 255, 255, 0.85) 100%);
+  color: rgba(16, 32, 47, 0.9);
+  font-weight: 600;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.idea-stash-toggle-button:hover,
+.idea-stash-toggle-button:focus-visible {
+  border-color: rgba(15, 118, 110, 0.4);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  outline: none;
+}
+
+.idea-stash-toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.idea-stash-summary {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(16, 32, 47, 0.6);
+}
+
+.idea-stash-toggle-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.idea-stash-toggle-icon--open {
+  transform: rotate(180deg);
+}
+
+.idea-stash-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.idea-stash-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(16, 32, 47, 0.75);
+  background: rgba(15, 118, 110, 0.08);
+  border: 1px solid rgba(15, 118, 110, 0.18);
+}
+
 .idea-group {
   border: 1px solid rgba(16, 32, 47, 0.12);
   border-radius: clamp(14px, 3vw, 20px);
   background: #ffffff;
-  padding: clamp(16px, 3vw, 22px);
+  padding: clamp(12px, 2.6vw, 18px);
   display: grid;
   gap: 14px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07);
 }
 
 .idea-group-positive {
@@ -2077,6 +2148,81 @@ body {
   gap: clamp(16px, 4vw, 32px);
 }
 
+.opportunity-summary-grid {
+  display: grid;
+  gap: clamp(16px, 4vw, 28px);
+}
+
+@media (min-width: 920px) {
+  .opportunity-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.opportunity-summary-card {
+  border-radius: clamp(14px, 3vw, 20px);
+  border: 1px solid rgba(16, 32, 47, 0.12);
+  background: #ffffff;
+  padding: clamp(16px, 3vw, 22px);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: clamp(14px, 2.6vw, 18px);
+}
+
+.opportunity-summary-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: rgba(16, 32, 47, 0.92);
+}
+
+.opportunity-summary-header p {
+  margin: 6px 0 0;
+  color: rgba(16, 32, 47, 0.7);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.opportunity-summary-list {
+  list-style: none;
+  display: grid;
+  gap: clamp(12px, 2vw, 16px);
+  padding: 0;
+  margin: 0;
+}
+
+.opportunity-summary-item {
+  display: grid;
+  gap: 6px;
+}
+
+.opportunity-summary-title {
+  font-weight: 600;
+  color: rgba(16, 32, 47, 0.9);
+}
+
+.opportunity-summary-context {
+  margin: 0;
+  font-size: 0.92rem;
+  color: rgba(16, 32, 47, 0.68);
+  line-height: 1.45;
+}
+
+.opportunity-summary-action {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: rgba(15, 118, 110, 0.88);
+}
+
+.opportunity-summary-action span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: rgba(15, 118, 110, 0.7);
+  margin-right: 6px;
+}
+
 .opportunity-column h3 {
   font-size: 1.1rem;
   text-transform: uppercase;
@@ -2156,6 +2302,81 @@ body {
 .market-card.secondary-card {
   background: var(--journey-blue-soft);
   border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.market-summary-grid {
+  display: grid;
+  gap: clamp(16px, 4vw, 28px);
+}
+
+@media (min-width: 900px) {
+  .market-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.market-summary-card {
+  border-radius: clamp(14px, 3vw, 20px);
+  border: 1px solid rgba(16, 32, 47, 0.12);
+  background: #ffffff;
+  padding: clamp(16px, 3vw, 22px);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: clamp(12px, 2.4vw, 18px);
+}
+
+.market-summary-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: rgba(16, 32, 47, 0.92);
+}
+
+.market-summary-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: clamp(12px, 2vw, 16px);
+}
+
+.market-summary-item {
+  display: grid;
+  gap: 6px;
+}
+
+.market-summary-title {
+  font-weight: 600;
+  color: rgba(16, 32, 47, 0.9);
+}
+
+.market-summary-range {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(16, 32, 47, 0.85);
+}
+
+.market-summary-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(16, 32, 47, 0.68);
+  line-height: 1.45;
+}
+
+.market-summary-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.market-summary-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(16, 32, 47, 0.78);
 }
 
 .learning-grid {
@@ -2258,6 +2479,36 @@ body {
   display: grid;
   gap: 10px;
   color: rgba(0, 0, 0, 0.78);
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.timeline-bullet {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: rgba(62, 126, 255, 0.85);
+}
+
+.timeline-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.timeline-action {
+  font-weight: 600;
+  color: rgba(16, 32, 47, 0.92);
+}
+
+.timeline-condition {
+  font-size: 0.85rem;
+  color: rgba(16, 32, 47, 0.62);
 }
 
 .empty-state {
