@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Copy, Download, Map, RefreshCw, Share2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Copy, Download, Map as MapIcon, RefreshCw, Share2 } from "lucide-react";
 import { useSession } from "@/components/session-provider";
 import {
 	buildExplorationSnapshot,
@@ -14,7 +14,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { CareerSuggestion } from "@/components/session-provider";
+import type {
+	CareerSuggestion,
+	ConversationTurn,
+	JourneyVisualAsset,
+	Profile,
+	ProfileInsight,
+} from "@/components/session-provider";
 import { InlineCareerCard } from "@/components/inline-career-card-v2";
 import "@/components/inline-career-card-v2.css";
 import {
@@ -26,7 +32,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import type { JourneyVisualContext } from "@/lib/journey-visual";
-import type { JourneyVisualAsset } from "@/components/session-provider";
+import type { ConversationSummary } from "@/lib/conversation-summary";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -174,6 +180,35 @@ interface JourneyStats {
 	boldMovesMade: number;
 }
 
+interface TopPathway {
+	id: string;
+	title: string;
+	summary: string;
+	nextStep?: string;
+}
+
+interface SignalItem {
+	label: string;
+	evidence?: string | null;
+}
+
+interface SignalBuckets {
+	strengths: SignalItem[];
+	interests: SignalItem[];
+	goals: SignalItem[];
+}
+
+type SummaryStatus = "loading" | "ready" | "error";
+
+interface GeneratedSummary {
+	themes: string[];
+	strengths: string[];
+	constraint: string | null;
+	whyItMatters: string;
+	callToAction?: string | null;
+	closing: string;
+}
+
 interface ExplorationBodyProps {
 	snapshot: ExplorationSnapshot;
 	userName: string;
@@ -181,6 +216,12 @@ interface ExplorationBodyProps {
 	sessionId: string;
 	shareUrl: string;
 	stats: JourneyStats;
+	topPathways: TopPathway[];
+	signalBuckets: SignalBuckets;
+	summaryStatus: SummaryStatus;
+	summaryData: GeneratedSummary | null;
+	summaryError: string | null;
+	onSummaryRetry: () => void;
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
@@ -195,6 +236,12 @@ function ExplorationBody({
 	sessionId,
 	shareUrl,
 	stats,
+	topPathways,
+	signalBuckets,
+	summaryStatus,
+	summaryData,
+	summaryError,
+	onSummaryRetry,
 	suggestions,
 	votesByCareerId,
 	voteCareer,
@@ -218,6 +265,12 @@ function ExplorationBody({
 		router.push("/");
 	};
 
+	const ideaStashRef = useRef<HTMLDivElement | null>(null);
+	const primaryThemeLabel = useMemo(
+		() => formatPrimaryThemeLabel(snapshot.themes, topPathways),
+		[snapshot.themes, topPathways]
+	);
+
 	return (
 		<div className="exploration-container">
 			<div className="exploration-nav">
@@ -238,37 +291,63 @@ function ExplorationBody({
 
 			<JourneyStatsBar stats={stats} />
 
+			<ConversationSummarySection
+				status={summaryStatus}
+				summary={summaryData}
+				error={summaryError}
+				onRetry={onSummaryRetry}
+			/>
+
 			{journeyVisual ? (
 				<JourneyVisualSection visual={journeyVisual} onVisualiseMap={onVisualiseMap} />
 			) : null}
+
+			<TopPathwaysSection
+				pathways={topPathways}
+				onExploreIdeas={() => {
+					if (ideaStashRef.current) {
+						ideaStashRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+					}
+				}}
+			/>
 
 			<IdeaStashSection
 				suggestions={suggestions}
 				votesByCareerId={votesByCareerId}
 				voteCareer={voteCareer}
+				ref={ideaStashRef}
 			/>
 
-			<section className="passion-discovery">
+			<section className="signals-section">
 				<SectionHeader
-					eyebrow="Exploration signals"
-					title="What you're into"
-					description="Celebrating the sparks that cropped up across the conversation."
+					eyebrow="Your core strengths"
+					title="Signals MirAI noticed"
+					description="These are the strengths, sparks, and edges you surfaced while we talked."
 				/>
-				<div className="discovery-grid">
-					{snapshot.discoveryInsights.map((insight) => (
-						<article key={insight.title} className={cn("tilted-card insight-card", insight.tone)}>
-							<h3>{insight.title}</h3>
-							<p>{insight.description}</p>
-						</article>
-					))}
+				<div className="signals-grid">
+					<SignalGroup
+						title="Strengths you keep returning to"
+						items={signalBuckets.strengths}
+						variant="strength"
+					/>
+					<SignalGroup
+						title="Signals from the conversation"
+						items={signalBuckets.interests}
+						variant="interest"
+					/>
+					<SignalGroup
+						title="What you’re hungry to change"
+						items={signalBuckets.goals}
+						variant="goal"
+					/>
 				</div>
 			</section>
 
 			<section className="opportunity-mapping">
 				<SectionHeader
-					eyebrow="Opportunity mapping"
-					title={`Where ${snapshot.themes[0]?.label ?? "this interest"} can take you`}
-					description="Multiple routes we can pursue and remix—no single path required."
+					eyebrow="Opportunities from today’s chat"
+					title={`Where ${primaryThemeLabel} can lead next`}
+					description="Routes to turn this focus into real steps—pick what energises you and we’ll build it together."
 				/>
 				<div className="opportunity-grid">
 					<OpportunityColumn title="Direct roles that fit" lanes={snapshot.opportunities.directPaths} />
@@ -290,7 +369,7 @@ function ExplorationBody({
 			<section className="market-reality">
 				<SectionHeader
 					eyebrow="UK market reality"
-					title="Opportunities, earnings, and proof"
+					title="Proof points to back you up"
 					description="Grounding the exploration in real data to reassure anyone backing the mission."
 				/>
 				{snapshot.marketReality.salaryData.length > 0 ? (
@@ -365,8 +444,8 @@ function ExplorationBody({
 			<section className="next-steps">
 				<SectionHeader
 					eyebrow="Stay in motion"
-					title="What to try next"
-					description="Tiny experiments stack up. Treat these as prompts you can remix."
+					title="What to do now, next, later"
+					description="Tiny experiments stack up—treat these as prompts you can remix."
 				/>
 				<div className="timeline-grid">
 					<TimelineColumn title="This week" items={snapshot.nextSteps.immediate} emptyMessage="Complete a card reaction to unlock quick experiments." />
@@ -405,7 +484,8 @@ function JourneyHeader({
 				<ShareControls shareUrl={shareUrl} userName={userName} />
 				<div className="journey-header-actions">
 					<Button type="button" className="visualise-button" onClick={onVisualiseMap}>
-						<Map className="size-4" aria-hidden />
+						<MapIcon className="size-4" aria-hidden />
+							<MapIcon className="size-4" aria-hidden />
 						<span>Visualise your map</span>
 					</Button>
 					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
@@ -415,22 +495,143 @@ function JourneyHeader({
 	);
 }
 
+function ConversationSummarySection({
+	summary,
+	status,
+	error,
+	onRetry,
+}: {
+	summary: GeneratedSummary | null;
+	status: SummaryStatus;
+	error: string | null;
+	onRetry: () => void;
+}) {
+	const baseHeader = (
+		<SectionHeader
+			eyebrow="What this really means"
+			title="MirAI’s take on your session"
+			description="Short, grounded reflections you can hand to a mentor, teacher, or mate."
+		/>
+	);
+
+	if (status === "loading") {
+		return (
+			<section className="conversation-summary-section">
+				{baseHeader}
+				<div className="conversation-summary-card conversation-summary-card--loading">
+					<p className="conversation-summary-message">Crafting your recap…</p>
+				</div>
+			</section>
+		);
+	}
+
+	if (status === "error") {
+		return (
+			<section className="conversation-summary-section">
+				{baseHeader}
+				<div className="conversation-summary-card conversation-summary-card--error">
+					<p className="conversation-summary-message">
+						{error ?? "We couldn’t generate your summary just now."}
+					</p>
+					<Button type="button" variant="outline" size="sm" onClick={onRetry}>
+						Try again
+					</Button>
+				</div>
+			</section>
+		);
+	}
+
+	if (!summary) {
+		return null;
+	}
+
+	return (
+		<section className="conversation-summary-section">
+			{baseHeader}
+			<div className="conversation-summary-card">
+				<div className="conversation-summary-copy">
+					<p>Here’s what I’m holding onto from today’s chat.</p>
+					<p>{summary.whyItMatters}</p>
+					{summary.callToAction ? (
+						<p className="conversation-summary-cta">{summary.callToAction}</p>
+					) : null}
+				</div>
+				<div className="conversation-summary-highlights">
+					{summary.themes.length > 0 ? (
+						<div>
+							<h3>Core sparks</h3>
+							<ul>
+								{summary.themes.map((theme) => (
+									<li key={`theme-${theme.toLowerCase()}`}>{theme}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{summary.strengths.length > 0 ? (
+						<div>
+							<h3>Strengths in play</h3>
+							<ul>
+								{summary.strengths.map((strength) => (
+									<li key={`strength-${strength.toLowerCase()}`}>{strength}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{summary.constraint ? (
+						<div>
+							<h3>Reality check</h3>
+							<p>{summary.constraint}</p>
+						</div>
+					) : null}
+				</div>
+				<p className="conversation-summary-closing">{summary.closing}</p>
+			</div>
+		</section>
+	);
+}
+
 function JourneyStatsBar({ stats }: { stats: JourneyStats }) {
 	const items = [
-		{ label: "Insights unlocked", value: stats.insightsUnlocked },
-		{ label: "Pathways explored", value: stats.pathwaysExplored },
-		{ label: "Paths I’m amped about", value: stats.pathsAmpedAbout },
-		{ label: "Bold moves logged", value: stats.boldMovesMade },
+		{
+			label: "Insights unlocked",
+			value: stats.insightsUnlocked,
+			helper: "Live strengths, interests, and boundaries we captured together.",
+		},
+		{
+			label: "Pathways explored",
+			value: stats.pathwaysExplored,
+			helper: "Distinct ideas we surfaced and pressure-tested in the chat.",
+		},
+		{
+			label: "Paths I’m amped about",
+			value: stats.pathsAmpedAbout,
+			helper: "Directions you saved or reacted to with 👍 during the session.",
+		},
+		{
+			label: "Bold moves logged",
+			value: stats.boldMovesMade,
+			helper: "Next actions, experiments, or commitments you voiced out loud.",
+		},
 	];
 
 	return (
-		<section className="journey-stats">
-			{items.map((item) => (
-				<div key={item.label} className="journey-stat-card">
-					<div className="journey-stat-value">{item.value}</div>
-					<div className="journey-stat-label">{item.label}</div>
-				</div>
-			))}
+		<section className="journey-stats-section">
+			<SectionHeader
+				eyebrow="Progress snapshot"
+				title="What MirAI picked up today"
+				description="These numbers update as you keep chatting—think of them as your session heartbeat."
+			/>
+			<div className="journey-stats">
+				{items.map((item) => (
+					<div key={item.label} className="journey-stat-card" role="group" aria-label={item.label}>
+						<div className="journey-stat-value" aria-hidden>
+							{item.value}
+						</div>
+						<div className="journey-stat-label">{item.label}</div>
+						<p className="journey-stat-helper">{item.helper}</p>
+					</div>
+				))}
+			</div>
 		</section>
 	);
 }
@@ -481,45 +682,42 @@ function JourneyVisualSection({
 	);
 }
 
-function IdeaStashSection({
-	suggestions,
-	votesByCareerId,
-	voteCareer,
-}: {
+const IdeaStashSection = forwardRef<HTMLDivElement, {
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
-}) {
+}>(
+({ suggestions, votesByCareerId, voteCareer }, ref) => {
 	const savedCards = suggestions.filter((s) => votesByCareerId[s.id] === 1);
 	const maybeCards = suggestions.filter((s) => votesByCareerId[s.id] === 0);
 	const skippedCards = suggestions.filter((s) => votesByCareerId[s.id] === -1);
 	const hasVotedCards = savedCards.length > 0 || maybeCards.length > 0 || skippedCards.length > 0;
 
 	return (
-		<section className="voted-cards-section">
+		<section className="voted-cards-section" ref={ref}>
 			<SectionHeader
-				eyebrow="Your reactions"
-				title="Idea stash"
-				description="Saved cards stay front and centre. Maybe and skipped cards are parked for when you want to review."
+				eyebrow="Ideas to explore"
+				title="What you bookmarked during the chat"
+				description="Saved ideas stay front and centre. Maybe and skipped cards wait here until you’re ready to revisit."
 			/>
 			{hasVotedCards ? (
 				<div className="idea-stash">
 					<IdeaGroup
-						title={`✅ Saved (${savedCards.length})`}
+						title={`Saved (${savedCards.length})`}
 						emphasis="positive"
 						cards={savedCards}
 						votesByCareerId={votesByCareerId}
 						voteCareer={voteCareer}
 					/>
 					<IdeaGroup
-						title={`🤔 Maybe (${maybeCards.length})`}
+						title={`Maybe (${maybeCards.length})`}
 						emphasis="neutral"
 						cards={maybeCards}
 						votesByCareerId={votesByCareerId}
 						voteCareer={voteCareer}
 					/>
 					<IdeaGroup
-						title={`👎 Skipped (${skippedCards.length})`}
+						title={`Parked (${skippedCards.length})`}
 						emphasis="muted"
 						cards={skippedCards}
 						votesByCareerId={votesByCareerId}
@@ -534,6 +732,87 @@ function IdeaStashSection({
 				</div>
 			)}
 		</section>
+	);
+});
+IdeaStashSection.displayName = "IdeaStashSection";
+
+function TopPathwaysSection({
+	pathways,
+	onExploreIdeas,
+}: {
+	pathways: TopPathway[];
+	onExploreIdeas: () => void;
+}) {
+	if (pathways.length === 0) return null;
+
+	return (
+		<section className="top-pathways-section">
+			<SectionHeader
+				eyebrow="Where your aptitudes could lead"
+				title="Top paths to explore next"
+				description="Quick snapshot of the routes that stood out. Jump into the ideas list for full details."
+			/>
+			<div className="top-pathways-grid">
+				{pathways.map((pathway, index) => (
+					<article key={pathway.id} className="top-pathway-card">
+						<header>
+							<span className="top-pathway-index">{index + 1}</span>
+							<h3>{pathway.title}</h3>
+						</header>
+						<p className="top-pathway-description">{pathway.summary}</p>
+						{pathway.nextStep ? <p className="top-pathway-step">{pathway.nextStep}</p> : null}
+					</article>
+				))}
+			</div>
+			<div>
+				<Button type="button" variant="outline" onClick={onExploreIdeas}>
+					Explore full idea stash
+				</Button>
+			</div>
+		</section>
+	);
+}
+
+function SignalGroup({
+	title,
+	items,
+	variant,
+}: {
+	title: string;
+	items: SignalItem[];
+	variant: "strength" | "interest" | "goal";
+}) {
+	const colorClass =
+		variant === "strength"
+			? "signal-icon--strength"
+			: variant === "interest"
+			? "signal-icon--interest"
+			: "signal-icon--goal";
+
+	if (items.length === 0) {
+		return (
+			<article className="signal-group signal-group--empty">
+				<h3>{title}</h3>
+				<p className="signal-empty-state">We’ll add more here as you share new details.</p>
+			</article>
+		);
+	}
+
+	return (
+		<article className="signal-group">
+			<h3>{title}</h3>
+			<ul>
+				{items.map((item, index) => (
+					<li key={`${variant}-${index}`}>
+						<span className={cn("signal-icon", colorClass)} aria-hidden />
+						<div>
+							<span className="signal-label">{item.label}</span>
+							{item.evidence ? <span className="signal-evidence">{item.evidence}</span> : null}
+						</div>
+					</li>
+				))}
+			</ul>
+		</article>
 	);
 }
 
@@ -596,6 +875,7 @@ export function ExplorationView() {
 		voteCareer,
 		journeyVisual,
 		setJourneyVisual,
+		turns,
 	} = useSession();
 
 	const snapshot = useMemo(() => buildExplorationSnapshot(profile, suggestions, votesByCareerId), [
@@ -634,6 +914,76 @@ export function ExplorationView() {
 
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
+	const topPathways = useMemo(
+		() => buildTopPathways(profile, suggestions, votesByCareerId),
+		[profile, suggestions, votesByCareerId]
+	);
+	const signalBuckets = useMemo(() => buildSignalBuckets(profile), [profile]);
+
+const summaryPayload = useMemo(
+	() =>
+		buildSummaryRequestPayload({
+			userName,
+			signalBuckets,
+			topPathways,
+			stats,
+			turns,
+			profile,
+		}),
+	[userName, signalBuckets, topPathways, stats, turns, profile]
+);
+const summaryPayloadJson = useMemo(() => JSON.stringify(summaryPayload), [summaryPayload]);
+
+const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("loading");
+const [summaryError, setSummaryError] = useState<string | null>(null);
+const [aiSummary, setAiSummary] = useState<GeneratedSummary | null>(null);
+const [summaryVersion, setSummaryVersion] = useState(0);
+useEffect(() => {
+	let cancelled = false;
+	const controller = new AbortController();
+
+	async function generateSummary() {
+		try {
+			setSummaryStatus("loading");
+			setSummaryError(null);
+			setAiSummary(null);
+
+			const res = await fetch("/api/exploration/summary", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: summaryPayloadJson,
+				signal: controller.signal,
+			});
+
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				throw new Error(body.error ?? res.statusText);
+			}
+
+			const data = (await res.json()) as { summary: GeneratedSummary };
+			if (!cancelled) {
+				setAiSummary(data.summary);
+				setSummaryStatus("ready");
+			}
+		} catch (err) {
+			if (cancelled) return;
+			const message = err instanceof Error ? err.message : "Failed to generate summary";
+			setSummaryStatus("error");
+			setSummaryError(message);
+		}
+	}
+
+	generateSummary();
+
+	return () => {
+		cancelled = true;
+		controller.abort();
+	};
+}, [summaryPayloadJson, summaryVersion]);
+
+const handleSummaryRetry = useCallback(() => {
+	setSummaryVersion((version) => version + 1);
+}, []);
 
 	type VisualStatus = "idle" | "loading" | "error" | "ready";
 	const [visualOpen, setVisualOpen] = useState(false);
@@ -785,6 +1135,12 @@ const triggerGeneration = async () => {
 				sessionId={sessionId}
 				shareUrl={shareUrl}
 				stats={stats}
+				topPathways={topPathways}
+				signalBuckets={signalBuckets}
+				summaryStatus={summaryStatus}
+				summaryData={aiSummary}
+				summaryError={summaryError}
+				onSummaryRetry={handleSummaryRetry}
 				suggestions={suggestions}
 				votesByCareerId={votesByCareerId}
 				voteCareer={voteCareer}
@@ -877,4 +1233,362 @@ const triggerGeneration = async () => {
 			</Dialog>
 		</>
 	);
+}
+
+function buildTopPathways(
+	profile: Profile,
+	suggestions: CareerSuggestion[],
+	votesByCareerId: Record<string, 1 | 0 | -1>
+): TopPathway[] {
+	const saved = suggestions.filter((card) => votesByCareerId[card.id] === 1);
+	const maybe = suggestions.filter((card) => votesByCareerId[card.id] === 0);
+	const remaining = suggestions.filter((card) => votesByCareerId[card.id] === undefined);
+
+	const rankedCards = [...saved, ...maybe, ...remaining];
+	const seenIds = new Set<string>();
+	const pathways: TopPathway[] = [];
+
+	for (const card of rankedCards) {
+		if (seenIds.has(card.id)) continue;
+		seenIds.add(card.id);
+		const summary =
+			card.summary ||
+			card.whyItFits.find((line) => line.trim().length > 0) ||
+			"Let’s explore how this direction lines up with what you shared.";
+		const nextStep =
+			card.nextSteps.find((step) => step.trim().length > 0) ??
+			card.whyItFits.find((line) => line.trim().length > 0);
+
+		pathways.push({
+			id: card.id,
+			title: card.title,
+			summary,
+			nextStep,
+		});
+		if (pathways.length >= 3) break;
+	}
+
+	if (pathways.length < 3) {
+		const goalFallbacks = [...profile.goals, ...profile.hopes]
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0);
+		for (let i = 0; i < goalFallbacks.length && pathways.length < 3; i += 1) {
+			const goal = goalFallbacks[i];
+			pathways.push({
+				id: `goal-${i}`,
+				title: goal,
+				summary: "Use this as a north star. We’ll translate it into concrete experiments together.",
+				nextStep: "Add more detail or examples so we can shape the next steps.",
+			});
+		}
+	}
+
+	return pathways.slice(0, 3);
+}
+
+function buildSignalBuckets(profile: Profile): SignalBuckets {
+	const fromInsights = (kind: ProfileInsight["kind"][]): SignalItem[] => {
+		const seen = new Set<string>();
+		const items: SignalItem[] = [];
+		profile.insights
+			.filter((insight) => kind.includes(insight.kind))
+			.forEach((insight) => {
+				const label = insight.value.trim();
+				if (!label) return;
+				const key = tokenKey(label);
+				if (seen.has(key)) return;
+				seen.add(key);
+				items.push({
+					label,
+					evidence: insight.evidence ? shortenEvidence(insight.evidence) : null,
+				});
+			});
+		return items;
+	};
+
+	const strengths = dedupeSignalItems(fromInsights(["strength"]), 5);
+
+	const interests = dedupeSignalItems(
+		[
+			...fromInsights(["interest"]),
+			...profile.interests.map((label) => ({ label, evidence: null })),
+		],
+		5
+	);
+
+	const goals = dedupeSignalItems(
+		[
+			...fromInsights(["goal", "hope"]),
+			...profile.goals.map((label) => ({ label, evidence: null })),
+		],
+		5
+	);
+
+	return {
+		strengths,
+		interests,
+		goals,
+	};
+}
+
+function shortenEvidence(text: string, wordLimit = 16): string {
+	const words = text.trim().split(/\s+/);
+	if (words.length <= wordLimit) return text.trim();
+	return `${words.slice(0, wordLimit).join(" ")}…`;
+}
+
+function capitalize(word: string): string {
+	if (!word) return word;
+	return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+function tokenKey(value: string): string {
+	const stopWords = new Set([
+		"a",
+		"an",
+		"and",
+		"the",
+		"to",
+		"for",
+		"of",
+		"into",
+		"with",
+		"about",
+		"thing",
+		"gig",
+		"paid",
+		"your",
+		"my",
+		"our",
+		"their",
+	]);
+	const tokens = value
+		.toLowerCase()
+		.replace(/[^a-z0-9\s]/g, " ")
+		.split(/\s+/)
+		.filter((token) => token.length > 2 && !stopWords.has(token));
+	const unique = Array.from(new Set(tokens)).sort();
+	return unique.join("-");
+}
+
+function dedupeSignalItems(items: SignalItem[], limit: number): SignalItem[] {
+	const map = new Map<string, SignalItem>();
+	items.forEach((item) => {
+		const label = item.label.trim();
+		if (!label) return;
+		const key = tokenKey(label);
+		if (map.has(key)) return;
+		map.set(key, { label, evidence: item.evidence ?? null });
+	});
+	return Array.from(map.values()).slice(0, limit);
+}
+
+function formatPrimaryThemeLabel(
+	themes: Array<{ label: string }>,
+	pathways: TopPathway[]
+): string {
+	const themeCandidate =
+		themes.find((theme) => theme.label && theme.label.trim().length > 0)?.label ??
+		pathways[0]?.title ??
+		"your next chapter";
+	return humaniseTheme(themeCandidate);
+}
+
+function humaniseTheme(raw: string): string {
+	let text = raw.trim();
+	if (!text) return "your next chapter";
+
+	text = text.replace(/\s+/g, " ");
+	text = text.replace(/\bAI\b/gi, "AI");
+	text = text.replace(/^(my own|my|our)\s+/i, "");
+	text = text.replace(/^(the|a|an)\s+/i, "");
+	text = text.replace(/\s+/g, " ").trim();
+
+	const words = text.split(" ");
+	if (words.length === 0) {
+		return "your next chapter";
+	}
+
+	const verbMap: Record<string, string> = {
+		help: "Helping",
+		helping: "Helping",
+		build: "Building",
+		building: "Building",
+		create: "Creating",
+		creating: "Creating",
+		turn: "Turning",
+		turning: "Turning",
+		launch: "Launching",
+		launching: "Launching",
+		support: "Supporting",
+		supporting: "Supporting",
+		develop: "Developing",
+		developing: "Developing",
+		make: "Making",
+		making: "Making",
+		refine: "Refining",
+		refining: "Refining",
+		start: "Starting",
+		starting: "Starting",
+	};
+
+	const firstLower = words[0].toLowerCase();
+	const leadsWithVerb = verbMap[firstLower] !== undefined;
+	if (leadsWithVerb) {
+		words[0] = verbMap[firstLower];
+	} else {
+		words[0] = capitalize(words[0]);
+	}
+
+	for (let i = 1; i < words.length; i += 1) {
+		const lower = words[i].toLowerCase();
+		if (verbMap[lower]) {
+			words[i] = verbMap[lower];
+		} else if (lower === "ai") {
+			words[i] = "AI";
+		} else if (lower === "tool" && i > 0 && words[i - 1].toLowerCase() === "ai") {
+			words[i] = "tool";
+		} else {
+			words[i] = words[i].toLowerCase();
+		}
+	}
+
+	let result = words.join(" ").replace(/\s+/g, " ").trim();
+	result = result.replace(/\bai\b/gi, "AI");
+
+	if (leadsWithVerb) {
+		result = result.replace(/with (the )?AI/i, "with your AI");
+		return result;
+	}
+
+	if (!/^Your\b/i.test(result)) {
+		result = `Your ${result}`;
+	}
+
+	return result.charAt(0).toUpperCase() + result.slice(1);
+}
+
+interface SummaryRequestPayload {
+	userName: string;
+	themes: string[];
+	goals: string[];
+	strengths: Array<{ label: string; evidence?: string | null }>;
+	constraint: string | null;
+	metrics: JourneyStats;
+	topPathways: Array<{ title: string; summary: string; nextStep?: string | null }>;
+	anchorQuotes: string[];
+	notes: string[];
+}
+
+function buildSummaryRequestPayload({
+	userName,
+	signalBuckets,
+	topPathways,
+	stats,
+	turns,
+	profile,
+}: {
+	userName: string;
+	signalBuckets: SignalBuckets;
+	topPathways: TopPathway[];
+	stats: JourneyStats;
+	turns: ConversationTurn[];
+	profile: Profile;
+}): SummaryRequestPayload {
+	const themeCandidates = [
+		...topPathways.map((path) => path.title),
+		...signalBuckets.interests.map((item) => item.label),
+		...profile.interests,
+	];
+
+	const themes = uniqueStrings(themeCandidates, 5, humaniseTheme);
+	const goals = uniqueStrings(
+		[
+			...signalBuckets.goals.map((item) => item.label),
+			...profile.goals,
+			...profile.hopes,
+		],
+		5,
+		humaniseTheme
+	);
+
+	const strengths = signalBuckets.strengths.slice(0, 5).map((item) => ({
+		label: humaniseTheme(item.label),
+		evidence: item.evidence ? normaliseEvidence(item.evidence) : null,
+	}));
+
+	const constraintCandidate =
+		profile.constraints[0] ?? profile.frustrations[0] ?? profile.boundaries[0] ?? null;
+
+	const anchorQuotes = pickAnchorQuotes(turns);
+	const notes = uniqueStrings(
+		[...profile.highlights, ...profile.mutualMoments.map((moment) => moment.text)],
+		5,
+		(value) => value.trim()
+	);
+
+	return {
+		userName,
+		themes,
+		goals,
+		strengths,
+		constraint: constraintCandidate ? humaniseConstraint(constraintCandidate) : null,
+		metrics: stats,
+		topPathways: topPathways.slice(0, 3).map((path) => ({
+			title: humaniseTheme(path.title),
+			summary: path.summary,
+			nextStep: path.nextStep ?? null,
+		})),
+		anchorQuotes,
+		notes,
+	};
+}
+
+function normaliseEvidence(text: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return trimmed;
+	return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function humaniseConstraint(raw: string): string {
+	let text = raw.trim();
+	if (!text) return text;
+	text = text.replace(/\bmy\b/gi, "your");
+	text = text.replace(/\bI\b/g, "you");
+	text = text.replace(/^need to\s+/i, "");
+	text = text.replace(/^got to\s+/i, "");
+	if (!text.toLowerCase().startsWith("balancing") && !text.toLowerCase().startsWith("keeping")) {
+		text = `Balancing ${text}`;
+	}
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function uniqueStrings(
+	values: string[],
+	limit: number,
+	transform: (value: string) => string = (value) => value
+): string[] {
+	const map = new Map<string, string>();
+	values.forEach((value) => {
+		const trimmed = value.trim();
+		if (!trimmed) return;
+		const key = tokenKey(trimmed);
+		if (map.has(key)) return;
+		map.set(key, transform(trimmed));
+	});
+	return Array.from(map.values()).slice(0, limit);
+}
+
+function pickAnchorQuotes(turns: ConversationTurn[], limit = 3): string[] {
+	const anchors: string[] = [];
+	for (let i = turns.length - 1; i >= 0; i -= 1) {
+		const turn = turns[i];
+		if (turn.role !== "user") continue;
+		const text = turn.text?.trim();
+		if (!text || text.length < 30) continue;
+		const snippet = text.length > 220 ? `${text.slice(0, 217)}…` : text;
+		anchors.unshift(snippet);
+		if (anchors.length >= limit) break;
+	}
+	return anchors;
 }

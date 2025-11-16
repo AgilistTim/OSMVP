@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
 				aptitudes?: unknown;
 				workStyles?: unknown;
 			};
+			userName?: string;
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
         const focusStatement = typeof body.focusStatement === "string" && body.focusStatement.trim().length > 0
             ? body.focusStatement.trim()
             : undefined;
+
+        const userName = typeof body.userName === "string" && body.userName.trim().length > 0 ? body.userName.trim() : undefined;
 
         const previousSuggestions = Array.isArray(body.previousSuggestions)
             ? body.previousSuggestions
@@ -129,6 +132,7 @@ export async function POST(req: NextRequest) {
             focusStatement,
 			previousSuggestions,
             attributes,
+            userName,
 		});
 
 		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {

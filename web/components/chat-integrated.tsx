@@ -103,11 +103,24 @@ const SHOULD_EAGER_CONNECT =
 const UNREVIEWED_CARD_THRESHOLD = 3;
 const CARD_BACKLOG_TIMEOUT_MS = 90_000;
 const CARD_BACKLOG_NUDGE =
-  "I’ve resurfaced your current cards—give them a quick 👍 or 👎 and I’ll pull fresh directions right after.";
+  "I've resurfaced your current cards—give them a quick 👍 or 👎 and I'll pull fresh directions right after.";
 const MIN_INSIGHTS_FOR_SUGGESTIONS = 4;
 const MIN_USER_TURNS_FOR_SUGGESTIONS = 5;
 const POSITIVE_RESPONSE_REGEX = /\b(yes|yeah|yep|sure|definitely|absolutely|of course|i guess|i suppose|sounds right|i think so)\b/i;
-const NEGATIVE_RESPONSE_REGEX = /\b(no|nah|nope|not really|don['’]t think|do not)\b/i;
+const NEGATIVE_RESPONSES = [
+  'no',
+  'nah',
+  'nope',
+  'not really',
+  "don't think",
+  'do not',
+];
+const NEGATIVE_RESPONSE_REGEX = new RegExp(
+  `\\b(${NEGATIVE_RESPONSES.map((phrase) =>
+    phrase.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')
+  ).join('|')})\\b`,
+  'i'
+);
 const formatReadableList = (items: string[]): string => {
   if (items.length === 0) {
     return '';
@@ -679,7 +692,7 @@ const hasAutoCollapsedReadyRef = useRef(false);
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
-      "That sparks a few possibilities. These aren’t recommendations yet—vote them up or down so I can narrow in. Give me a second to line them up.",
+      "That sparks a few possibilities. These aren't recommendations yet—vote them up or down so I can narrow in. Give me a second to line them up.",
     []
   );
 
@@ -1564,7 +1577,26 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         });
 
         if (!response.ok) {
-          throw new Error(`Suggestions request failed: ${response.status}`);
+          const errorClone = response.clone();
+          let message = `Suggestions request failed: ${response.status}`;
+          try {
+            const payload = await errorClone.json();
+            if (payload?.details) {
+              message = `Suggestions request failed: ${payload.details}`;
+            } else if (payload?.error) {
+              message = `Suggestions request failed: ${payload.error}`;
+            }
+          } catch {
+            try {
+              const text = await response.text();
+              if (text.trim().length > 0) {
+                message = `Suggestions request failed: ${text}`;
+              }
+            } catch {
+              // ignore parsing failure
+            }
+          }
+          throw new Error(message);
         }
 
         const data = (await response.json()) as {
@@ -2289,7 +2321,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
         {progressPercent < 100 ? (
           <div className="header-status-row" role="status" aria-live="polite">
-            <div className="progress-hint">Keep talking and I’ll keep shaping your page in real time.</div>
+            <div className="progress-hint">Keep talking and I'll keep shaping your page in real time.</div>
           </div>
         ) : null}
 
@@ -2365,7 +2397,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             <div className="ready-toast-copy">
               <p className="ready-toast-title">MirAI is ready.</p>
               <p className="ready-toast-message">
-                Your starter page’s live. Open the insights to see what I’ve packed in and tweak anything before you share it.
+                Your starter page's live. Open the insights to see what I've packed in and tweak anything before you share it.
               </p>
             </div>
             <div className="ready-toast-actions">
@@ -2506,7 +2538,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
               <p className="voice-mode-eyebrow">MirAI voice</p>
               <h2 className="voice-mode-title">Talk to MirAI</h2>
               <p className="voice-mode-description">
-                Share what you’re into and hear real ideas for what to do next—jobs, side hustles, or sparks you’ve never considered.
+                Share what you're into and hear real ideas for what to do next—jobs, side hustles, or sparks you've never considered.
               </p>
             </div>
             <Button
@@ -2576,7 +2608,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           {loadingSuggestions ? (
             <section className="voice-mode-panel voice-mode-panel--loading" aria-live="polite">
               <div className="voice-mode-spinner" aria-hidden />
-              <p>I’m lining up tailored paths based on what you’re sharing…</p>
+              <p>I'm lining up tailored paths based on what you're sharing…</p>
             </section>
           ) : null}
 
@@ -2627,7 +2659,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           {voiceSessionStarted && !loadingSuggestions && voiceSuggestions.length === 0 ? (
             <section className="voice-mode-panel voice-mode-panel--hint">
-              <p>Keep talking and I’ll surface live ideas you can save or skip.</p>
+              <p>Keep talking and I'll surface live ideas you can save or skip.</p>
             </section>
           ) : null}
         </div>

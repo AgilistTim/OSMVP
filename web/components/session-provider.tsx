@@ -10,6 +10,7 @@ import {
 import { computeRubricScores } from "@/lib/conversation-phases";
 import { extractConversationInsights } from "@/lib/conversation-engagement";
 import type { JourneyVisualPlan } from "@/lib/journey-visual";
+import { buildConversationSummary, type ConversationSummary } from "@/lib/conversation-summary";
 import { STORAGE_KEYS } from "@/lib/storage-keys";
 
 const isDevEnvironment = process.env.NODE_ENV !== "production";
@@ -166,6 +167,7 @@ interface SessionState {
 	votesByCareerId: Record<string, 1 | -1 | 0>;
 	suggestions: CareerSuggestion[];
 	summary?: string;
+	conversationSummary: ConversationSummary | null;
 	started: boolean;
 	sessionId: string;
 	lastCardInteractionAt: number | null;
@@ -296,6 +298,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		return [];
 	});
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
+	const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(() => {
+		if (typeof window === "undefined") return null;
+		try {
+			const stored = sessionStorage.getItem(STORAGE_KEYS.conversationSummary);
+			if (stored) {
+				return JSON.parse(stored) as ConversationSummary;
+			}
+		} catch (error) {
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to restore conversation summary:", error);
+			}
+		}
+		return null;
+	});
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
 	const [lastCardInteractionAt, setLastCardInteractionAt] = useState<number | null>(null);
@@ -645,6 +661,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setVotes({});
     updateSuggestions([]);
     setSummaryState(undefined);
+		setConversationSummary(null);
 		updateOnboardingStep(0);
 		setVoiceState({ status: "idle", microphone: "inactive" });
 		setTurnsState([]);
@@ -839,6 +856,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 				setLastCardInteractionAt(Date.now());
 			},
 			setSummary: (s) => setSummaryState(s),
+			conversationSummary,
 			beginSession,
 			setVoice,
 			setOnboardingStep: (value) =>
@@ -864,6 +882,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		votesByCareerId,
 		suggestions,
 		summary,
+		conversationSummary,
+		conversationSummary,
 		started,
 		sessionId,
 		voice,
@@ -969,6 +989,49 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log("Turns", turns);
 		console.groupEnd();
 	}, [profile, sessionId, suggestions, turns]);
+
+	// Persist conversation summary to sessionStorage
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		if (!conversationSummary) {
+			try {
+				sessionStorage.removeItem(STORAGE_KEYS.conversationSummary);
+			} catch (error) {
+				if (isDevEnvironment) {
+					console.error("[SessionProvider] Failed to remove conversation summary:", error);
+				}
+			}
+			return;
+		}
+		try {
+			sessionStorage.setItem(
+				STORAGE_KEYS.conversationSummary,
+				JSON.stringify(conversationSummary)
+			);
+		} catch (error) {
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to persist conversation summary:", error);
+			}
+		}
+	}, [conversationSummary]);
+
+	// Derive conversation summary when turns or insights change
+	useEffect(() => {
+		if (turns.length === 0) {
+			return;
+		}
+		const hasSignal =
+			profile.insights.length > 0 ||
+			profile.strengths.length > 0 ||
+			profile.interests.length > 0 ||
+			profile.goals.length > 0 ||
+			profile.hopes.length > 0;
+		if (!hasSignal) {
+			return;
+		}
+		const nextSummary = buildConversationSummary(profile, turns);
+		setConversationSummary(nextSummary);
+	}, [profile, turns]);
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
