@@ -12,6 +12,7 @@ import { extractConversationInsights } from "@/lib/conversation-engagement";
 import type { JourneyVisualPlan } from "@/lib/journey-visual";
 import { buildConversationSummary, type ConversationSummary } from "@/lib/conversation-summary";
 import { STORAGE_KEYS } from "@/lib/storage-keys";
+import { DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/chat-mode";
 
 const isDevEnvironment = process.env.NODE_ENV !== "production";
 
@@ -240,7 +241,22 @@ export function useSession(): SessionState & SessionActions {
 }
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
-	const [mode, setModeState] = useState<SessionMode>(null);
+	const [mode, setModeState] = useState<SessionMode>(() => {
+		if (typeof window === "undefined") {
+			return null;
+		}
+
+		try {
+			const stored = sessionStorage.getItem(STORAGE_KEYS.chatMode);
+			if (stored === "text" || stored === "voice") {
+				return stored;
+			}
+		} catch {
+			// ignore
+		}
+
+		return DEFAULT_CHAT_MODE;
+	});
 	const [profile, updateProfile] = useState<Profile>(() => createEmptyProfile());
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
 	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>(() => {
@@ -341,6 +357,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setStarted(true);
     }
   }, [started, turnCount]);
+
+	const persistChatMode = useCallback((nextMode: SessionMode) => {
+		if (typeof window === "undefined") return;
+		if (!nextMode) {
+			sessionStorage.removeItem(STORAGE_KEYS.chatMode);
+			return;
+		}
+		sessionStorage.setItem(STORAGE_KEYS.chatMode, nextMode);
+	}, []);
+
+	const setSessionMode = useCallback(
+		(nextMode: SessionMode) => {
+			setModeState((prev) => {
+				if (prev === nextMode) {
+					return prev;
+				}
+				return nextMode;
+			});
+			persistChatMode(nextMode);
+		},
+		[persistChatMode]
+	);
 
 	const setVoice = useCallback(
 		(nextVoice: SessionState["voice"]) => {
@@ -695,7 +733,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const beginSession = useCallback(() => {
     setSessionId(crypto.randomUUID());
     resetProfile();
-    setModeState(null);
+    setSessionMode(null);
     setStarted(true);
     if (typeof window !== 'undefined') {
       try {
@@ -704,7 +742,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // ignore
       }
     }
-  }, [resetProfile, setModeState, setSessionId, setStarted]);
+  }, [resetProfile, setSessionMode, setSessionId, setStarted]);
 
 	useEffect(() => {
 		if (turns.length === 0) {
@@ -822,7 +860,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			conversationRubric,
 			shouldSeedTeaserCard,
 			journeyVisual,
-			setMode: (m) => setModeState(m),
+			setMode: setSessionMode,
 			setProfile,
 			appendProfileInsights,
 			appendInferredAttributes,
@@ -892,7 +930,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		conversationRubric,
 		shouldSeedTeaserCard,
 		journeyVisual,
-		setModeState,
+		setSessionMode,
 		setProfile,
 		appendProfileInsights,
 		appendInferredAttributes,
