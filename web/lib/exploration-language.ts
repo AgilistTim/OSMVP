@@ -158,28 +158,7 @@ export function formatGoalLabel(raw: string): string {
 }
 
 export function formatInterestLabel(raw: string): string {
-	let text = stripLeadingPossessive(humaniseTheme(raw)).replace(/\.+$/, "");
-	if (!text) return text;
-
-	text = text.replace(/\bYoutube\b/gi, "YouTube");
-
-	const lotMatch = text.match(/^Lot of (.+)$/i);
-	if (lotMatch) {
-		text = `Immersed in ${capitalizeSentence(lotMatch[1])}`;
-	}
-
-	const ideaMatch = text.match(/^Idea of (being able to\s+)?(.+)$/i);
-	if (ideaMatch) {
-		text = capitalizeSentence(ideaMatch[2]);
-	}
-
-	text = text.replace(/^Being able to\s+/i, "Building toward ");
-
-	if (!/^[A-Z]/.test(text)) {
-		text = text.charAt(0).toUpperCase() + text.slice(1);
-	}
-
-	return text;
+	return summariseInterestLabel(raw);
 }
 
 export function formatHeroSummary(
@@ -218,5 +197,80 @@ export function formatHeroSummary(
 	}
 
 	return "Exploring new pathways and building momentum.";
+}
+
+function summariseInterestLabel(raw: string): string {
+	const cleaned = cleanConversationFragment(raw);
+	if (!cleaned) return "";
+
+	const lower = cleaned.toLowerCase();
+	if (lower.includes("culinary")) {
+		return "Culinary arts inspire your ideas";
+}
+	if (lower.includes("youtube")) {
+		return "Immersed in YouTube inspiration";
+}
+	if (lower.includes("italian")) {
+		return "Exploring Italian cuisine";
+}
+	if (lower.includes("travel")) {
+		return "Dreaming about travelling the world";
+}
+	if (lower.includes("challenge")) {
+		return "Preparing for new challenges";
+}
+	if (/there'?s not much else.*have to do it/i.test(cleaned)) {
+		return "Stepping up when others can't";
+}
+	if (/have to do it/i.test(cleaned) && /space/.test(lower)) {
+		return "Owning the space when it matters";
+}
+
+	const words = cleaned.split(/\s+/).filter(Boolean);
+	if (words.length > 12) {
+		return words.slice(0, 12).join(" ") + "…";
+}
+	const sentence = capitalizeSentence(cleaned).replace(/\bAi\b/g, "AI");
+	return sentence;
+}
+
+function cleanConversationFragment(raw: string): string {
+	let text = raw.trim();
+	if (!text) return "";
+
+	text = text.replace(/[“”"']/g, "");
+	text = text.replace(/\s+/g, " ");
+
+	const sentenceMatch = text.split(/[.?!]/).map((part) => part.trim()).filter(Boolean);
+	if (sentenceMatch.length > 0) {
+		text = sentenceMatch[0];
+}
+
+	text = text.replace(/\s*,?\s*and then\b.*$/i, "");
+	text = text.replace(/\s*,?\s*and\b\s*$/i, "");
+	const commaSplit = text.split(/,/);
+	if (commaSplit.length > 0) {
+		text = commaSplit[0];
+}
+
+	text = text.replace(/^(and|so|but|then)\s+/i, "");
+	text = text.replace(/\bare going to\b/gi, "will");
+	text = text.replace(/\bmom\b/gi, "mum");
+	text = text.replace(/\bthey\b/gi, "you");
+	text = text.replace(/\bi'm\b/gi, "you're");
+	text = text.replace(/\bi am\b/gi, "you are");
+	text = text.replace(/\bi've\b/gi, "you have");
+	text = text.replace(/\bi\b/gi, "you");
+	text = text.replace(/\bmy\b/gi, "your");
+	text = text.replace(/\bme\b/gi, "you");
+	text = text.replace(/\bgoing to\b/gi, "planning to");
+
+	text = text.replace(/\s+/g, " ").trim();
+	if (text.length < 4) return "";
+
+	const stopWords = new Set(["out", "also", "yeah", "ok", "okay", "yep", "nope", "well"]);
+	if (stopWords.has(text.toLowerCase())) return "";
+
+	return text;
 }
 

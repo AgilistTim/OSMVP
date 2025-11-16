@@ -222,6 +222,8 @@ interface GeneratedSummary {
 	closing: string;
 }
 
+type ResourceStatus = "idle" | "loading" | "ready" | "error";
+
 interface ExplorationBodyProps {
 	snapshot: ExplorationSnapshot;
 	userName: string;
@@ -240,6 +242,10 @@ interface ExplorationBodyProps {
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
 	journeyVisual: JourneyVisualAsset | null;
 	onVisualiseMap: () => void;
+	learningResources: LearningPathwayGroup[];
+	resourcesStatus: ResourceStatus;
+	resourcesError: string | null;
+	onResourcesRetry: () => void;
 }
 
 function ExplorationBody({
@@ -260,6 +266,10 @@ function ExplorationBody({
 	voteCareer,
 	journeyVisual,
 	onVisualiseMap,
+	learningResources,
+	resourcesStatus,
+	resourcesError,
+	onResourcesRetry,
 }: ExplorationBodyProps) {
 	const router = useRouter();
 	const handleBack = () => {
@@ -507,11 +517,29 @@ function ExplorationBody({
 					title={`Build your craft around ${craftFocus}`}
 					description="Mix formal, community, and experimental routes pulled from your saved ideas."
 				/>
-				<div className="learning-grid">
-					{snapshot.learningPathways.map((group) => (
-						<LearningPathway key={group.title} group={group} />
-					))}
-				</div>
+				{resourcesStatus === "loading" ? (
+					<p className="resource-status">Gathering fresh resources…</p>
+				) : null}
+				{resourcesStatus === "error" ? (
+					<div className="resource-error">
+						<p>{resourcesError ?? "We couldn’t load resources right now."}</p>
+						<Button type="button" variant="outline" size="sm" onClick={onResourcesRetry}>
+							Try again
+						</Button>
+					</div>
+				) : null}
+				{resourcesStatus === "ready" && learningResources.length > 0 ? (
+					<div className="learning-grid">
+						{learningResources.map((group) => (
+							<LearningPathway key={group.title} group={group} />
+						))}
+					</div>
+				) : null}
+				{resourcesStatus === "ready" && learningResources.length === 0 ? (
+					<p className="empty-state">
+						No craft resources yet. React to a few ideas or try again in a moment.
+					</p>
+				) : null}
 			</section>
 		</div>
 	);
@@ -1002,6 +1030,33 @@ const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("loading");
 const [summaryError, setSummaryError] = useState<string | null>(null);
 const [aiSummary, setAiSummary] = useState<GeneratedSummary | null>(null);
 const [summaryVersion, setSummaryVersion] = useState(0);
+
+const resourcePayload = useMemo(
+	() => ({
+		strengths: signalBuckets.strengths.map((item) => ({
+			label: item.label,
+			evidence: item.evidence ?? null,
+		})),
+		goals: signalBuckets.goals.map((item) => ({
+			label: item.label,
+			evidence: item.evidence ?? null,
+		})),
+		themes: snapshot.themes.map((theme) => ({ label: theme.label })),
+	}),
+	[signalBuckets.strengths, signalBuckets.goals, snapshot.themes]
+);
+
+const hasResourceContext =
+	resourcePayload.strengths.length > 0 ||
+	resourcePayload.goals.length > 0 ||
+	resourcePayload.themes.length > 0;
+
+const resourceRequestBody = useMemo(() => JSON.stringify(resourcePayload), [resourcePayload]);
+
+const [resourceStatus, setResourceStatus] = useState<ResourceStatus>("idle");
+const [resourceError, setResourceError] = useState<string | null>(null);
+const [learningResources, setLearningResources] = useState<LearningPathwayGroup[]>([]);
+const [resourceVersion, setResourceVersion] = useState(0);
 useEffect(() => {
 	let cancelled = false;
 	const controller = new AbortController();
@@ -1047,6 +1102,76 @@ useEffect(() => {
 
 const handleSummaryRetry = useCallback(() => {
 	setSummaryVersion((version) => version + 1);
+}, []);
+
+useEffect(() => {
+	let cancelled = false;
+	const controller = new AbortController();
+
+	if (!hasResourceContext) {
+		setLearningResources([]);
+		setResourceStatus("ready");
+		setResourceError(null);
+		return () => {
+			cancelled = true;
+			controller.abort();
+		};
+	}
+
+	async function loadResources() {
+		try {
+			setResourceStatus("loading");
+			setResourceError(null);
+
+			const response = await fetch("/api/exploration/resources", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: resourceRequestBody,
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				let message = "Unable to fetch exploration resources right now.";
+				try {
+					const errorBody = (await response.json()) as { error?: string };
+					if (typeof errorBody?.error === "string" && errorBody.error.trim().length > 0) {
+						message = errorBody.error.trim();
+					}
+				} catch {
+					// ignore
+				}
+				if (!cancelled) {
+					setResourceStatus("error");
+					setResourceError(message);
+				}
+				return;
+			}
+
+			const data = (await response.json()) as { groups?: LearningPathwayGroup[] };
+			if (!cancelled) {
+				setLearningResources(Array.isArray(data.groups) ? data.groups : []);
+				setResourceStatus("ready");
+			}
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			console.error("[ExplorationView] failed to load build-your-craft resources", error);
+			if (!cancelled) {
+				setResourceStatus("error");
+				setResourceError("Unable to fetch exploration resources right now.");
+			}
+		}
+	}
+
+	void loadResources();
+
+	return () => {
+		cancelled = true;
+		controller.abort();
+	};
+}, [resourceRequestBody, hasResourceContext, resourceVersion]);
+
+const handleResourcesRetry = useCallback(() => {
+	setResourceVersion((version) => version + 1);
 }, []);
 
 	type VisualStatus = "idle" | "loading" | "error" | "ready";
@@ -1190,6 +1315,13 @@ const triggerGeneration = async () => {
 		}
 	};
 
+	const normalizedResourceStatus: ResourceStatus =
+		resourceStatus === "idle"
+			? hasResourceContext
+				? "loading"
+				: "ready"
+			: resourceStatus;
+
 	return (
 		<>
 			<ExplorationBody
@@ -1210,6 +1342,10 @@ const triggerGeneration = async () => {
 				voteCareer={voteCareer}
 				journeyVisual={journeyVisual}
 				onVisualiseMap={handleVisualiseMap}
+				learningResources={learningResources}
+				resourcesStatus={normalizedResourceStatus}
+				resourcesError={resourceError}
+				onResourcesRetry={handleResourcesRetry}
 			/>
 			<Dialog open={visualOpen} onOpenChange={handleOpenChange}>
 				<DialogContent className="max-w-4xl">
@@ -1502,13 +1638,21 @@ function buildSignalBuckets(profile: Profile): SignalBuckets {
 		profile.insights
 			.filter((insight) => kinds.includes(insight.kind))
 			.forEach((insight) => {
-				const formattedLabel = labelFormatter(insight.value);
-				if (!formattedLabel) return;
+			const formattedLabel = labelFormatter(insight.value);
+			const candidate =
+				formattedLabel && formattedLabel.trim().length >= 4
+					? formattedLabel.trim()
+					: insight.evidence
+					? shortenEvidence(normaliseEvidence(insight.evidence))
+					: "";
+			if (!candidate || candidate.trim().length < 4) {
+				return;
+			}
 				items.push({
-					label: formattedLabel,
+				label: candidate,
 					evidence: insight.evidence
 						? shortenEvidence(normaliseEvidence(insight.evidence))
-						: defaultSignalEvidence(evidenceKind, formattedLabel),
+					: defaultSignalEvidence(evidenceKind, candidate),
 				});
 			});
 		return items;
@@ -1531,10 +1675,13 @@ function buildSignalBuckets(profile: Profile): SignalBuckets {
 	const interests = dedupeSignalItems(
 		[
 			...fromInsights(["interest"], formatInterestLabel, "interest"),
-			...profile.interests.map((value) => {
-				const label = formatInterestLabel(value);
-				return { label, evidence: defaultSignalEvidence("interest", label) };
-			}),
+			...profile.interests
+				.map((value) => formatInterestLabel(value))
+				.filter((label): label is string => !!label && label.trim().length >= 4)
+				.map((label) => ({
+					label,
+					evidence: defaultSignalEvidence("interest", label),
+				})),
 		],
 		3,
 		["lot", "watching", "watch", "videos", "video", "idea", "able"]
@@ -1621,7 +1768,7 @@ function defaultSignalEvidence(
 		case "strength":
 			return `You kept leaning on ${fragment} as a proven strength.`;
 		case "interest":
-			return formatInterestEvidence(fragment);
+			return formatInterestEvidence(label);
 		case "goal":
 			return `You're aiming to ${fragment}.`;
 		default:
@@ -1629,23 +1776,21 @@ function defaultSignalEvidence(
 	}
 }
 
-function formatInterestEvidence(fragment: string): string {
-	const lower = fragment.toLowerCase();
-
-	if (lower.startsWith("immersed in")) {
-		return `You kept circling back to being ${fragment}.`;
+function formatInterestEvidence(label: string): string {
+	const cleaned = label.replace(/…$/, "").trim();
+	if (!cleaned) {
+		return "You kept coming back to this theme throughout the conversation.";
 	}
 
-	if (lower.startsWith("watching ")) {
-		const focus = capitalizeSentence(fragment.slice("watching ".length));
-		return `You kept circling back to watching ${focus}.`;
+	const lower = cleaned.toLowerCase();
+	if (lower.startsWith("immersed") || lower.startsWith("exploring") || lower.startsWith("dreaming")) {
+		return `You kept coming back to ${lower}.`;
+	}
+	if (lower.startsWith("preparing") || lower.startsWith("building") || lower.startsWith("navigating")) {
+		return `You kept coming back to ${lower}.`;
 	}
 
-	if (lower.startsWith("building toward")) {
-		return `You kept circling back to ${fragment}.`;
-	}
-
-	return `You kept circling back to ${fragment}.`;
+	return `You kept coming back to how ${lower}.`;
 }
 
 function dedupeSignalItems(
