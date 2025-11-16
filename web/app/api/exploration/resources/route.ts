@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsonrepair } from "jsonrepair";
 
 type ResourceRequest = {
 	strengths?: Array<{ label: string; evidence?: string | null }>;
@@ -151,31 +152,37 @@ function buildPrompt({
 }
 
 function extractJson(rawContent: string): string | null {
-	const codeBlockMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+	if (!rawContent) return null;
+
+	const codeBlockMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/i);
 	if (codeBlockMatch?.[1]) {
 		return codeBlockMatch[1].trim();
 	}
-	if (rawContent.trim().startsWith("{")) {
-		return rawContent.trim();
+
+	const trimmed = rawContent.trim();
+	if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+		return trimmed;
 	}
+
+	const firstBrace = rawContent.indexOf("{");
+	const lastBrace = rawContent.lastIndexOf("}");
+	if (firstBrace >= 0 && lastBrace > firstBrace) {
+		return rawContent.slice(firstBrace, lastBrace + 1).trim();
+	}
+
 	return null;
 }
 
 function parseGroups(jsonContent: string): ResourceGroup[] | null {
-	try {
-		const parsed = JSON.parse(jsonContent) as { groups?: ResourceGroup[] };
-		if (!parsed.groups || !Array.isArray(parsed.groups)) {
-			return null;
-		}
-
-		const cleaned = parsed.groups
-			.map((group) => sanitizeGroup(group))
-			.filter((group): group is ResourceGroup => group !== null);
-		return cleaned;
-	} catch (error) {
-		console.error("[exploration/resources] Failed to parse JSON content", error);
+	const parsed = tryParseJson(jsonContent);
+	if (!parsed || !parsed.groups || !Array.isArray(parsed.groups)) {
 		return null;
 	}
+
+	const cleaned = parsed.groups
+		.map((group) => sanitizeGroup(group))
+		.filter((group): group is ResourceGroup => group !== null);
+	return cleaned;
 }
 
 function sanitizeGroup(group: ResourceGroup): ResourceGroup | null {
@@ -251,5 +258,29 @@ function normaliseSource(source: string, host: string): string {
 }
 
 	return "resource";
+}
+
+function tryParseJson(input: string): { groups?: ResourceGroup[] } | null {
+	const trimmed = input.trim();
+	if (!trimmed) return null;
+
+	try {
+		return JSON.parse(trimmed) as { groups?: ResourceGroup[] };
+	} catch (error) {
+		try {
+			const repaired = jsonrepair(trimmed);
+			console.warn("[exploration/resources] JSON repair applied to Perplexity response", {
+				originalError: error instanceof Error ? error.message : "unknown",
+			});
+			return JSON.parse(repaired) as { groups?: ResourceGroup[] };
+		} catch (repairError) {
+			console.error("[exploration/resources] Failed to parse JSON content", {
+				originalError: error instanceof Error ? error.message : "unknown",
+				repairError: repairError instanceof Error ? repairError.message : "unknown",
+				snippet: trimmed.slice(0, 400),
+			});
+			return null;
+		}
+	}
 }
 
