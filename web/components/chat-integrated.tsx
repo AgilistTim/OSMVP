@@ -154,6 +154,8 @@ export function ChatIntegrated() {
     lastCardInteractionAt,
   } = useSession();
 
+  const currentMode: 'text' | 'voice' = mode ?? 'voice';
+
   const capturedInsights = useMemo<CapturedInsights>(() => {
     const summary: CapturedInsights = {
       interests: [],
@@ -215,6 +217,14 @@ export function ChatIntegrated() {
     [suggestions, votesByCareerId]
   );
   const unreviewedCount = unreviewedSuggestions.length;
+
+  const [voiceCardList, setVoiceCardList] = useState<CareerSuggestion[]>([]);
+  const voiceSuggestions = useMemo(() => {
+    if (currentMode !== 'voice') {
+      return suggestions;
+    }
+    return voiceCardList;
+  }, [currentMode, suggestions, voiceCardList]);
 
   useEffect(() => {
     if (unreviewedCount < UNREVIEWED_CARD_THRESHOLD) {
@@ -327,8 +337,6 @@ const hasAutoCollapsedReadyRef = useRef(false);
     setMode(initialMode);
     modeInitializedRef.current = true;
   }, [mode, searchParams, setMode]);
-
-  const currentMode: 'text' | 'voice' = mode ?? 'voice';
 
   const insightCategories = useMemo(() => {
     const categories: Array<{
@@ -460,7 +468,10 @@ const hasAutoCollapsedReadyRef = useRef(false);
   }, [attributeSignals.careerSignalCount, attributeSignals.developingSignalCount]);
 
   useEffect(() => {
-    if (progressPercent < 100) {
+    const suggestionsReady =
+      currentMode === 'voice' ? voiceCardList.length > 0 : suggestions.length > 0;
+
+    if (progressPercent < 100 || !suggestionsReady) {
       hasAutoCollapsedReadyRef.current = false;
       setReadyToastVisible(false);
       if (readyToastDismissed) {
@@ -479,10 +490,19 @@ const hasAutoCollapsedReadyRef = useRef(false);
     } else if (!hasAutoCollapsedReadyRef.current) {
       hasAutoCollapsedReadyRef.current = true;
     }
-  }, [progressPercent, isHeaderExpanded, readyToastDismissed]);
+    if (!hasAutoCollapsedReadyRef.current && isHeaderExpanded) {
+      setIsHeaderExpanded(false);
+      hasAutoCollapsedReadyRef.current = true;
+    } else if (!hasAutoCollapsedReadyRef.current) {
+      hasAutoCollapsedReadyRef.current = true;
+    }
+  }, [progressPercent, currentMode, voiceCardList.length, suggestions.length, isHeaderExpanded, readyToastDismissed]);
 
   useEffect(() => {
-    if (progressPercent < 100) {
+    const suggestionsReady =
+      currentMode === 'voice' ? voiceCardList.length > 0 : suggestions.length > 0;
+
+    if (progressPercent < 100 || !suggestionsReady) {
       hasAnnouncedReadinessRef.current = false;
       return;
     }
@@ -497,7 +517,7 @@ const hasAutoCollapsedReadyRef = useRef(false);
         },
       ]);
     }
-  }, [progressPercent, setTurns]);
+  }, [progressPercent, currentMode, voiceCardList.length, suggestions.length, setTurns]);
 
   // Realtime API session
   const [realtimeState, realtimeControls] = useRealtimeSession({
@@ -613,8 +633,6 @@ const hasAutoCollapsedReadyRef = useRef(false);
   
   // Store card messages separately (not persisted to avoid infinite loop issues)
   const [cardMessages, setCardMessages] = useState<MessageType[]>([]);
-  const [voiceCardList, setVoiceCardList] = useState<CareerSuggestion[]>([]);
-
   const requeueUnreviewedCards = useCallback(() => {
     if (unreviewedSuggestions.length === 0) {
       return;
@@ -960,12 +978,6 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     return combined;
   }, [textMessages, cardMessages]);
 
-  const voiceSuggestions = useMemo(() => {
-    if (currentMode !== 'voice') {
-      return suggestions;
-    }
-    return voiceCardList;
-  }, [currentMode, suggestions, voiceCardList]);
 
   useEffect(() => {
     if (turns.length > lastProcessedTurnCountRef.current) {
