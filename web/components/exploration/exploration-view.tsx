@@ -140,13 +140,7 @@ function ShareControls({
 }) {
 	const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
 
-	const writeToClipboard = async (url: string) => {
-		await navigator.clipboard.writeText(url);
-		setCopyStatus("copied");
-		setTimeout(() => setCopyStatus("idle"), 2000);
-	};
-
-	const handleShare = async () => {
+	const handleOpenShare = async () => {
 		setCopyStatus("idle");
 		const url = await ensureShareLink();
 		if (!url) {
@@ -154,36 +148,17 @@ function ShareControls({
 			setTimeout(() => setCopyStatus("idle"), 2000);
 			return;
 		}
-		const payload = {
-			title: `${userName}’s Exploration Journey`,
-			text: summary || "Discovering the pathways I’m shaping with MirAI.",
-			url,
-		};
+
+		if (typeof window !== "undefined") {
+			window.open(url, "_blank", "noopener,noreferrer");
+		}
 
 		try {
-			if (navigator.share) {
-				await navigator.share(payload);
-				return;
-			}
-			await writeToClipboard(url);
-		} catch (error) {
-			console.error("[ShareControls] failed to share link", error);
-			setCopyStatus("error");
+			await navigator.clipboard.writeText(url);
+			setCopyStatus("copied");
 			setTimeout(() => setCopyStatus("idle"), 2000);
-		}
-	};
-
-	const handleCopy = async () => {
-		const url = await ensureShareLink();
-		if (!url) {
-			setCopyStatus("error");
-			setTimeout(() => setCopyStatus("idle"), 2000);
-			return;
-		}
-		try {
-			await writeToClipboard(url);
 		} catch (error) {
-			console.error("[ShareControls] failed to copy link", error);
+			console.error("[ShareControls] failed to copy share link", error);
 			setCopyStatus("error");
 			setTimeout(() => setCopyStatus("idle"), 2000);
 		}
@@ -193,25 +168,12 @@ function ShareControls({
 
 	return (
 		<div className="share-controls">
-			<Button type="button" className="share-primary" onClick={handleShare} disabled={isGenerating}>
+			<Button type="button" className="share-primary" onClick={handleOpenShare} disabled={isGenerating}>
 				<Share2 className="share-icon" aria-hidden />
-				{isGenerating ? "Preparing link…" : "Share this journey"}
+				{isGenerating ? "Preparing link…" : "Open share page"}
 			</Button>
-			<button
-				type="button"
-				className={cn(
-					"share-fallback",
-					copyStatus === "copied" ? "copied" : "",
-					copyStatus === "error" ? "error" : ""
-				)}
-				onClick={handleCopy}
-				disabled={isGenerating}
-			>
-				<Copy className="share-icon" aria-hidden />
-				<span>
-					{copyStatus === "copied" ? "Link copied" : copyStatus === "error" ? "Could not copy" : "Copy link"}
-				</span>
-			</button>
+			{copyStatus === "copied" ? <p className="share-feedback">Link copied to clipboard</p> : null}
+			{copyStatus === "error" ? <p className="share-error">Could not copy link</p> : null}
 			{shareError ? <p className="share-error">{shareError}</p> : null}
 		</div>
 	);

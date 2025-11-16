@@ -1682,6 +1682,12 @@ body {
   color: #dc2626;
 }
 
+.share-feedback {
+  width: 100%;
+  font-size: 0.85rem;
+  color: #065f46;
+}
+
 .exploration-shared-expired {
   min-height: 100vh;
   display: flex;
