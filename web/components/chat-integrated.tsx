@@ -134,6 +134,8 @@ export function ChatIntegrated() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const {
+    mode,
+    setMode,
     profile,
     turns,
     setTurns,
@@ -282,7 +284,6 @@ export function ChatIntegrated() {
     };
   }, [capturedInsights, conversationRubric, suggestions.length, votesByCareerId]);
 
-  const [mode, setMode] = useState<'text' | 'voice'>('voice');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -312,45 +313,22 @@ const hasAutoCollapsedReadyRef = useRef(false);
 
   const modeInitializedRef = useRef(false);
 
-  const persistChatMode = useCallback((value: 'text' | 'voice') => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    try {
-      sessionStorage.setItem(STORAGE_KEYS.chatMode, value);
-    } catch (error) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('[ChatIntegrated] Failed to persist chat mode', error);
-      }
-    }
-  }, []);
-
   useEffect(() => {
     if (modeInitializedRef.current) {
       return;
     }
 
-    let initialMode: 'text' | 'voice' = 'voice';
+    let initialMode: 'text' | 'voice' = mode ?? 'voice';
     const queryMode = searchParams?.get('mode')?.toLowerCase();
     if (queryMode === 'text' || queryMode === 'voice') {
       initialMode = queryMode;
-    } else if (typeof window !== 'undefined') {
-      try {
-        const storedMode = sessionStorage.getItem(STORAGE_KEYS.chatMode);
-        if (storedMode === 'text' || storedMode === 'voice') {
-          initialMode = storedMode;
-        }
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('[ChatIntegrated] Failed to read stored chat mode', error);
-        }
-      }
     }
 
     setMode(initialMode);
-    persistChatMode(initialMode);
     modeInitializedRef.current = true;
-  }, [searchParams, persistChatMode]);
+  }, [mode, searchParams, setMode]);
+
+  const currentMode: 'text' | 'voice' = mode ?? 'voice';
 
   const insightCategories = useMemo(() => {
     const categories: Array<{
@@ -524,17 +502,16 @@ const hasAutoCollapsedReadyRef = useRef(false);
   // Realtime API session
   const [realtimeState, realtimeControls] = useRealtimeSession({
     sessionId,
-    enableMicrophone: mode === 'voice',
+    enableMicrophone: currentMode === 'voice',
     enableAudioOutput: true,
     voice: REALTIME_VOICE_ID,
   });
 
   const handleModeToggle = useCallback(() => {
-    if (mode === 'text') {
+    if (currentMode === 'text') {
       // Switch to voice UI, do not auto-connect or resume mic yet.
       // VoiceControls will connect/resume mic on Start Voice.
       setVoiceSessionStarted(false);
-      persistChatMode('voice');
       modeInitializedRef.current = true;
       setMode('voice');
     } else {
@@ -542,11 +519,10 @@ const hasAutoCollapsedReadyRef = useRef(false);
       try { realtimeControls.pauseMicrophone(); } catch { /* noop */ }
       setVoiceSessionStarted(false);
       setVoiceCardList([]);
-      persistChatMode('text');
       modeInitializedRef.current = true;
       setMode('text');
     }
-  }, [mode, realtimeControls, persistChatMode]);
+  }, [currentMode, realtimeControls, setMode]);
 
   const handleReadyToastOpenInsights = useCallback(() => {
     setReadyToastVisible(false);
@@ -671,7 +647,7 @@ const hasAutoCollapsedReadyRef = useRef(false);
       return [...kept, ...replayMessages];
     });
 
-    if (mode === 'voice') {
+    if (currentMode === 'voice') {
       setVoiceCardList((prev) => {
         const merged = new Map<string, CareerSuggestion>();
         unreviewedSuggestions.forEach((card) => merged.set(card.id, card));
@@ -683,7 +659,7 @@ const hasAutoCollapsedReadyRef = useRef(false);
         return Array.from(merged.values());
       });
     }
-  }, [mode, setCardMessages, setVoiceCardList, turns.length, unreviewedSuggestions]);
+  }, [currentMode, setCardMessages, setVoiceCardList, turns.length, unreviewedSuggestions]);
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
@@ -810,22 +786,22 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
   }, [CARD_FETCH_ANNOUNCEMENT, setTurns, setCardMessages, turns.length]);
 
   useEffect(() => {
-    if (mode !== 'voice') {
+    if (currentMode !== 'voice') {
       voiceSuggestionBaselineRef.current = new Set();
       voiceBaselineCapturedRef.current = false;
       setVoiceSessionStarted(false);
       setVoiceCardList([]);
     }
-  }, [mode]);
+  }, [currentMode]);
 
   useEffect(() => {
-    if (mode === 'voice' && (realtimeState.status === 'idle' || realtimeState.status === 'error')) {
+    if (currentMode === 'voice' && (realtimeState.status === 'idle' || realtimeState.status === 'error')) {
       setVoiceSessionStarted(false);
       voiceBaselineCapturedRef.current = false;
       voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
       setVoiceCardList([]);
     }
-  }, [mode, realtimeState.status, suggestions]);
+  }, [currentMode, realtimeState.status, suggestions]);
   
   // Initialize allSuggestionsRef with existing suggestions from session
   useEffect(() => {
@@ -921,7 +897,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
-    if (mode !== 'text') {
+    if (currentMode !== 'text') {
       return;
     }
     if (turns.length === 0) {
@@ -931,7 +907,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       };
       setTurns([initialTurn]);
     }
-  }, [mode, setTurns, turns.length]);
+  }, [currentMode, setTurns, turns.length]);
 
   // Convert turns to chat-ui-kit message format
   const textMessages: MessageType[] = useMemo(() => {
@@ -985,11 +961,11 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
   }, [textMessages, cardMessages]);
 
   const voiceSuggestions = useMemo(() => {
-    if (mode !== 'voice') {
+    if (currentMode !== 'voice') {
       return suggestions;
     }
     return voiceCardList;
-  }, [mode, suggestions, voiceCardList]);
+  }, [currentMode, suggestions, voiceCardList]);
 
   useEffect(() => {
     if (turns.length > lastProcessedTurnCountRef.current) {
@@ -1105,7 +1081,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       userTurnsSinceLastSuggestionRef.current = 0;
       lastSuggestionTurnRef.current = currentTurnCount;
 
-      if (mode === 'voice') {
+      if (currentMode === 'voice') {
         setVoiceCardList((prev) => {
           const merged = new Map<string, CareerSuggestion>();
           newSuggestions.forEach((suggestion) => {
@@ -1130,12 +1106,12 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       queue.forEach((fn) => fn());
     };
 
-    if (mode === 'voice' && !realtimeState.activeResponseId) {
+    if (currentMode === 'voice' && !realtimeState.activeResponseId) {
       flushPendingVoiceQueue();
     }
 
     const scheduleCardInjection = () => {
-      if (mode === 'voice' && realtimeState.activeResponseId) {
+      if (currentMode === 'voice' && realtimeState.activeResponseId) {
         console.log('[ChatIntegrated] Deferring card injection until current response finishes', {
           activeResponseId: realtimeState.activeResponseId,
           pendingCount: pendingVoiceCardQueueRef.current.length,
@@ -1167,7 +1143,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       scheduleCardInjection();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions, mode, realtimeState.activeResponseId, realtimeControls]);
+  }, [suggestions, currentMode, realtimeState.activeResponseId, realtimeControls]);
 
   // Derive insights from conversation
 const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
@@ -1509,7 +1485,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       setLoadingSuggestions(true);
 
       if (
-        mode === 'text' &&
+        currentMode === 'text' &&
         reason === 'pre-response' &&
         evalResult.fetchMode === 'normal' &&
         lastCardAnnouncementTurnRef.current === null
@@ -1760,7 +1736,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       evaluateSuggestionFetch,
       profile.insights,
       profile.inferredAttributes,
-      mode,
+      currentMode,
       suggestions,
       turns,
       votesByCareerId,
@@ -1793,7 +1769,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
     const evalResult = evaluateSuggestionFetch({ turnSnapshot: nextTurns, triggerText: trimmed });
     if (evalResult.shouldFetch) {
-      if (mode === 'text') {
+      if (currentMode === 'text') {
         announceCardFetch();
       }
       void fetchSuggestions({
@@ -1813,7 +1789,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         ? 'fallback'
         : 'normal';
 
-    if (mode === 'text') {
+    if (currentMode === 'text') {
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -1827,6 +1803,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             allowCardPrompt,
             cardPromptTone,
             seedTeaserCard: shouldSeedTeaserCard,
+            mode: currentMode,
           }),
         });
 
@@ -1875,7 +1852,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         console.log('[Realtime] Connection not active, connecting...', { status: realtimeState.status });
         await realtimeControls.connect({
           // Text mode connects without mic but with audio sink so we keep one session
-          enableMicrophone: mode === 'voice',
+          enableMicrophone: currentMode === 'voice',
           enableAudioOutput: true,
           voice: REALTIME_VOICE_ID,
           phase: conversationPhase,
@@ -1926,7 +1903,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
       realtimeControls.cancelActiveResponse();
 
-      if (mode === 'voice') {
+      if (currentMode === 'voice') {
         if (shouldSeedTeaserCard) {
           clearTeaserSeed();
         }
@@ -1979,7 +1956,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     deriveInsights,
     realtimeState.status,
     realtimeControls,
-    mode,
+    currentMode,
     conversationPhase,
     conversationRubric,
     shouldSeedTeaserCard,
@@ -2013,7 +1990,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
     }
 
     // In voice mode, add final user voice to transcript so history stays complete
-    if (mode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
+    if (currentMode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
       const transcriptId = latestTranscript.id;
       const userText = latestTranscript.text.trim();
       if (!userText) {
@@ -2151,14 +2128,14 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         }
       }
     }
-  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, mode, voiceSessionStarted, fetchSuggestions, evaluateSuggestionFetch]);
+  }, [realtimeState.transcripts, turns, setTurns, deriveInsights, currentMode, voiceSessionStarted, fetchSuggestions, evaluateSuggestionFetch]);
 
   // Do not auto-connect in text mode; connect on-demand in handleSend, and via Start Voice.
 
   // Make AI speak first when voice mode connects
   const hasGreetedInVoiceRef = useRef(false);
   useEffect(() => {
-    if (mode !== 'voice') {
+    if (currentMode !== 'voice') {
       hasGreetedInVoiceRef.current = false;
       return;
     }
@@ -2229,7 +2206,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
     void runGreeting();
   }, [
-    mode,
+    currentMode,
     voiceSessionStarted,
     realtimeState.status,
     realtimeControls,
@@ -2415,7 +2392,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
       ) : null}
 
       {/* Chat Interface */}
-      {mode === 'text' ? (
+      {currentMode === 'text' ? (
         <>
           <MainContainer>
             <ChatContainer>
@@ -2523,7 +2500,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
               value={input}
               onChange={setInput}
               onSend={handleSend}
-              mode={mode}
+              mode={currentMode}
               onModeToggle={handleModeToggle}
             />
           </div>

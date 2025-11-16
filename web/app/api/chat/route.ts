@@ -4,6 +4,7 @@ import type { ConversationPhase, ConversationFocus, InsightSnapshot } from "@/li
 import { computeRubricScores } from "@/lib/conversation-phases";
 import { buildRealtimeInstructions } from "@/lib/conversation-instructions";
 import { getSystemPrompt } from "@/lib/system-prompt";
+import { DEFAULT_CHAT_MODE, isChatMode, type ChatMode } from "@/lib/chat-mode";
 
 interface ConversationTurn {
   role: "user" | "assistant";
@@ -19,6 +20,7 @@ interface ChatRequestBody {
   allowCardPrompt?: boolean;
   cardPromptTone?: "normal" | "fallback";
   seedTeaserCard?: boolean;
+  mode?: ChatMode;
 }
 
 function isConversationPhase(value: unknown): value is ConversationPhase {
@@ -35,8 +37,9 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as ChatRequestBody;
-  const { turns, profile, suggestions, votes } = body;
+  const { turns, profile, suggestions, votes, mode } = body;
   const phase = isConversationPhase(body.phase) ? body.phase : undefined;
+  const chatMode = isChatMode(mode) ? mode : DEFAULT_CHAT_MODE;
 
   if (!Array.isArray(turns) || turns.length === 0) {
     return NextResponse.json(
@@ -69,7 +72,7 @@ export async function POST(request: Request) {
   };
 
   const effectivePhase = phase ?? focusToPhase[rubric.recommendedFocus] ?? "story-mining";
-  const basePrompt = await getSystemPrompt({ phase: effectivePhase });
+  const basePrompt = await getSystemPrompt({ phase: effectivePhase, mode: chatMode });
   if (!basePrompt) {
     return NextResponse.json({ error: "Unable to load system prompt" }, { status: 500 });
   }
@@ -100,12 +103,23 @@ export async function POST(request: Request) {
   if (guidanceText && guidanceText.trim().length > 0) {
     systemSections.push(`## Phase Guidance\n${guidanceText.trim()}`);
   }
+  if (chatMode === "text") {
+    systemSections.push(
+      [
+        "## Text Delivery Reminders",
+        "Write up to four short paragraphs (or tight bullets) that hit the four-beat blueprint:",
+        "1) behavioural inference, 2) named skill/resource + where it helps, 3) bridge to a paid/apprenticeship lane, 4) forward-driving question that opens a fresh bucket.",
+        "Keep references typed-friendly (no mic/voice cues) and favour scannable sentences.",
+      ].join("\n")
+    );
+  }
 
   const systemMessage = systemSections.join("\n\n");
 
   if (process.env.NODE_ENV !== "production") {
     console.info("[api/chat] System prompt payload", {
       phase: effectivePhase,
+      mode: chatMode,
       baseLength: basePrompt.length,
       contextLength: contextInfo.trim().length,
       guidanceLength: guidanceText?.length ?? 0,
@@ -125,12 +139,15 @@ export async function POST(request: Request) {
     });
   }
 
+  const maxTokens = chatMode === "text" ? 360 : 150;
+  const temperature = chatMode === "text" ? 0.65 : 0.7;
+
   try {
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
       messages,
-      temperature: 0.7,
-      max_tokens: 150,
+      temperature,
+      max_tokens: maxTokens,
     });
 
     const reply = completion.choices[0]?.message?.content?.trim() || "Sorry, I didn't catch that. Can you say more?";

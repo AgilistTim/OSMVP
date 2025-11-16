@@ -1,51 +1,71 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import type { ConversationPhase } from "@/lib/conversation-phases";
+import { CHAT_MODES, DEFAULT_CHAT_MODE, type ChatMode } from "@/lib/chat-mode";
 
 const PROMPTS_DIR = path.join(process.cwd(), "prompts");
-const SYSTEM_PROMPT_PATH = path.join(PROMPTS_DIR, "career-coach-system-prompt.md");
+const MODE_PROMPT_PATHS: Record<ChatMode, string> = {
+	voice: path.join(PROMPTS_DIR, "career-coach-system-prompt.md"),
+	text: path.join(PROMPTS_DIR, "career-coach-system-prompt.text.md"),
+};
 const PHASE_PROMPT_PATHS: Partial<Record<ConversationPhase, string>> = {
 	"story-mining": path.join(PROMPTS_DIR, "career-coach-story-mining-addendum.md"),
 };
 
-let cachedSystemPrompt: string | null = null;
-let loadAttempted = false;
-let lastLoggedPrompt: string | null = null;
+const promptCache: Record<
+	ChatMode,
+	{
+		content: string | null;
+		loadAttempted: boolean;
+		lastLoggedPrompt: string | null;
+	}
+> = CHAT_MODES.reduce(
+	(acc, mode) => ({
+		...acc,
+		[mode]: { content: null, loadAttempted: false, lastLoggedPrompt: null },
+	}),
+	{} as Record<ChatMode, { content: string | null; loadAttempted: boolean; lastLoggedPrompt: string | null }>
+);
+
 const phasePromptCache = new Map<ConversationPhase, string | null>();
 const phasePromptAttempts = new Set<ConversationPhase>();
 
-function logPrompt(prompt: string, context: { reason: string }) {
-  if (prompt === lastLoggedPrompt) {
-    return;
-  }
-
-  const preview = prompt.length > 160 ? `${prompt.slice(0, 160)}…` : prompt;
-  console.info("[system-prompt] Updated", {
-    reason: context.reason,
-    length: prompt.length,
-    preview,
-  });
-  console.debug("[system-prompt] Full prompt:\n" + prompt);
-  lastLoggedPrompt = prompt;
-}
-
-async function ensureBasePrompt(): Promise<string | undefined> {
-	if (cachedSystemPrompt !== null) {
-		return cachedSystemPrompt;
+function logPrompt(prompt: string, context: { reason: string; mode: ChatMode }) {
+	const cache = promptCache[context.mode];
+	if (prompt === cache.lastLoggedPrompt) {
+		return;
 	}
 
-	if (loadAttempted) {
+	const preview = prompt.length > 160 ? `${prompt.slice(0, 160)}…` : prompt;
+	console.info("[system-prompt] Updated", {
+		mode: context.mode,
+		reason: context.reason,
+		length: prompt.length,
+		preview,
+	});
+	console.debug("[system-prompt] Full prompt:\n" + prompt);
+	cache.lastLoggedPrompt = prompt;
+}
+
+async function ensureBasePrompt(mode: ChatMode): Promise<string | undefined> {
+	const cache = promptCache[mode];
+	if (cache.content !== null) {
+		return cache.content;
+	}
+
+	if (cache.loadAttempted) {
 		return undefined;
 	}
 
-	loadAttempted = true;
+	cache.loadAttempted = true;
 
 	try {
-		const content = await readFile(SYSTEM_PROMPT_PATH, "utf8");
-		cachedSystemPrompt = content.trim();
-		return cachedSystemPrompt ?? undefined;
+		const filePath = MODE_PROMPT_PATHS[mode];
+		const content = await readFile(filePath, "utf8");
+		cache.content = content.trim();
+		return cache.content ?? undefined;
 	} catch (error) {
-		console.error("[system-prompt] Failed to load prompt", error);
+		console.error(`[system-prompt] Failed to load ${mode} prompt`, error);
 		return undefined;
 	}
 }
@@ -79,8 +99,12 @@ async function loadPhasePrompt(phase: ConversationPhase): Promise<string | undef
 	}
 }
 
-export async function getSystemPrompt(options?: { phase?: ConversationPhase }): Promise<string | undefined> {
-	const basePrompt = await ensureBasePrompt();
+export async function getSystemPrompt(options?: {
+	phase?: ConversationPhase;
+	mode?: ChatMode;
+}): Promise<string | undefined> {
+	const mode = options?.mode ?? DEFAULT_CHAT_MODE;
+	const basePrompt = await ensureBasePrompt(mode);
 	if (!basePrompt) {
 		return undefined;
 	}
@@ -94,18 +118,32 @@ export async function getSystemPrompt(options?: { phase?: ConversationPhase }): 
 		}
 	}
 
-	logPrompt(compositePrompt, { reason: options?.phase ? `phase:${options.phase}` : "base" });
+	const reasonParts: string[] = [];
+	if (options?.phase) {
+		reasonParts.push(`phase:${options.phase}`);
+	}
+	reasonParts.push(`mode:${mode}`);
+
+	logPrompt(compositePrompt, {
+		mode,
+		reason: reasonParts.join("|"),
+	});
 	return compositePrompt;
 }
 
-export function setSystemPromptForTesting(prompt: string | null) {
-	cachedSystemPrompt = prompt;
-	loadAttempted = false;
-	lastLoggedPrompt = null;
+export function setSystemPromptForTesting(prompt: string | null, options?: { mode?: ChatMode }) {
+	const modes: ChatMode[] = options?.mode ? [options.mode] : CHAT_MODES;
+	for (const mode of modes) {
+		promptCache[mode].content = prompt;
+		promptCache[mode].loadAttempted = prompt !== null;
+		promptCache[mode].lastLoggedPrompt = null;
+	}
 	phasePromptCache.clear();
 	phasePromptAttempts.clear();
-	if (prompt !== null) {
-		logPrompt(prompt, { reason: "test-override" });
+	if (prompt !== null && options?.mode) {
+		logPrompt(prompt, { reason: "test-override", mode: options.mode });
+	} else if (prompt !== null) {
+		console.info("[system-prompt] Prompt cache primed for tests across all modes");
 	} else {
 		console.info("[system-prompt] Prompt cache cleared for tests");
 	}

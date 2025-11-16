@@ -55,4 +55,13 @@ describe("system prompt", () => {
 		expect(content).toMatch(/Story-Mining Guardrails/i);
 		expect(content).toMatch(/forced-choice nudges/i);
 	});
+
+	it("loads the text-mode variant when requested", async () => {
+		const prompt = await getSystemPrompt({ mode: "text" });
+		expect(prompt).toBeTruthy();
+		const content = prompt ?? "";
+
+		expect(content).toContain("# Off-Script Text Chat AI Agent System Prompt");
+		expect(content).toMatch(/typed response/i);
+	});
 });
