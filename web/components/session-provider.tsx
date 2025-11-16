@@ -10,6 +10,10 @@ import {
 import { computeRubricScores } from "@/lib/conversation-phases";
 import { extractConversationInsights } from "@/lib/conversation-engagement";
 import type { JourneyVisualPlan } from "@/lib/journey-visual";
+import { buildConversationSummary, type ConversationSummary } from "@/lib/conversation-summary";
+import { STORAGE_KEYS } from "@/lib/storage-keys";
+
+const isDevEnvironment = process.env.NODE_ENV !== "production";
 
 export type SessionMode = "text" | "voice" | null;
 
@@ -28,6 +32,7 @@ export type InsightSource = "user" | "assistant" | "system";
 export interface ConversationTurn {
 	role: "user" | "assistant";
 	text: string;
+	transcriptId?: string;
 }
 
 export interface ProfileInsight {
@@ -162,6 +167,7 @@ interface SessionState {
 	votesByCareerId: Record<string, 1 | -1 | 0>;
 	suggestions: CareerSuggestion[];
 	summary?: string;
+	conversationSummary: ConversationSummary | null;
 	started: boolean;
 	sessionId: string;
 	lastCardInteractionAt: number | null;
@@ -238,48 +244,74 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 	const [profile, updateProfile] = useState<Profile>(() => createEmptyProfile());
 	const [candidates, setCandidates] = useState<CareerCardCandidate[]>([]);
 	const [votesByCareerId, setVotes] = useState<Record<string, 1 | -1 | 0>>(() => {
-		console.log('[SessionProvider] Initializing votesByCareerId');
+		if (isDevEnvironment) {
+			console.log("[SessionProvider] Initializing votesByCareerId");
+		}
 		if (typeof window === 'undefined') return {};
 		try {
 			// Clean up any legacy localStorage entries
-			localStorage.removeItem('osmvp_votes');
+			localStorage.removeItem(STORAGE_KEYS.votes);
 		} catch {
 			// ignore
 		}
 		try {
-			const stored = sessionStorage.getItem('osmvp_votes');
+			const stored = sessionStorage.getItem(STORAGE_KEYS.votes);
 			if (stored) {
 				const parsed = JSON.parse(stored);
-				console.log('[SessionProvider] Restored votes from sessionStorage:', parsed);
+				if (isDevEnvironment) {
+					console.log("[SessionProvider] Restored votes from sessionStorage:", parsed);
+				}
 				return parsed;
 			}
 		} catch (error) {
-			console.error('[SessionProvider] Failed to restore votes:', error);
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to restore votes:", error);
+			}
 		}
 		return {};
 	});
 	const [suggestions, updateSuggestions] = useState<CareerSuggestion[]>(() => {
-		console.log('[SessionProvider] Initializing suggestions');
+		if (isDevEnvironment) {
+			console.log("[SessionProvider] Initializing suggestions");
+		}
 		if (typeof window === 'undefined') return [];
 		try {
 			// Clean up any legacy localStorage entries
-			localStorage.removeItem('osmvp_suggestions');
+			localStorage.removeItem(STORAGE_KEYS.suggestions);
 		} catch {
 			// ignore
 		}
 		try {
-			const stored = sessionStorage.getItem('osmvp_suggestions');
+			const stored = sessionStorage.getItem(STORAGE_KEYS.suggestions);
 			if (stored) {
 				const parsed = JSON.parse(stored);
-				console.log('[SessionProvider] Restored suggestions from sessionStorage:', parsed.length, 'cards');
+				if (isDevEnvironment) {
+					console.log("[SessionProvider] Restored suggestions from sessionStorage:", parsed.length, "cards");
+				}
 				return parsed;
 			}
 		} catch (error) {
-			console.error('[SessionProvider] Failed to restore suggestions:', error);
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to restore suggestions:", error);
+			}
 		}
 		return [];
 	});
 	const [summary, setSummaryState] = useState<string | undefined>(undefined);
+	const [conversationSummary, setConversationSummary] = useState<ConversationSummary | null>(() => {
+		if (typeof window === "undefined") return null;
+		try {
+			const stored = sessionStorage.getItem(STORAGE_KEYS.conversationSummary);
+			if (stored) {
+				return JSON.parse(stored) as ConversationSummary;
+			}
+		} catch (error) {
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to restore conversation summary:", error);
+			}
+		}
+		return null;
+	});
 	const [started, setStarted] = useState<boolean>(false);
 	const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
 	const [lastCardInteractionAt, setLastCardInteractionAt] = useState<number | null>(null);
@@ -304,7 +336,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const storedStarted = typeof window !== 'undefined' ? sessionStorage.getItem('osmvp_session_started') : null;
+    const storedStarted = typeof window !== 'undefined' ? sessionStorage.getItem(STORAGE_KEYS.sessionStarted) : null;
     if (storedStarted === 'true') {
       setStarted(true);
     }
@@ -629,6 +661,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setVotes({});
     updateSuggestions([]);
     setSummaryState(undefined);
+		setConversationSummary(null);
 		updateOnboardingStep(0);
 		setVoiceState({ status: "idle", microphone: "inactive" });
 		setTurnsState([]);
@@ -639,10 +672,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		setJourneyVisualState(null);
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.removeItem('osmvp_session_started');
-        sessionStorage.removeItem('osmvp_suggestions');
-        sessionStorage.removeItem('osmvp_last_insight_count');
-        sessionStorage.removeItem('osmvp_votes');
+        sessionStorage.removeItem(STORAGE_KEYS.sessionStarted);
+        sessionStorage.removeItem(STORAGE_KEYS.suggestions);
+        sessionStorage.removeItem(STORAGE_KEYS.lastInsightCount);
+        sessionStorage.removeItem(STORAGE_KEYS.votes);
       } catch {
         // ignore
       }
@@ -666,7 +699,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setStarted(true);
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.setItem('osmvp_session_started', 'true');
+        sessionStorage.setItem(STORAGE_KEYS.sessionStarted, 'true');
       } catch {
         // ignore
       }
@@ -733,8 +766,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		}
 
 		setConversationRubric(nextRubric);
-		if (process.env.NODE_ENV !== 'production') {
-			console.info('[SessionProvider] Local rubric', {
+		if (isDevEnvironment) {
+			console.info("[SessionProvider] Local rubric", {
 				engagementStyle: nextRubric.engagementStyle,
 				contextDepth: nextRubric.contextDepth,
 				readinessBias: nextRubric.readinessBias,
@@ -799,22 +832,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 			resetProfile,
 			setCandidates,
 			voteCareer: (careerId, value) => {
-				console.log('[voteCareer] Called with:', { careerId, value });
+				if (isDevEnvironment) {
+					console.log("[voteCareer] Called with:", { careerId, value });
+				}
 				setVotes((prev) => {
-					console.log('[voteCareer] Previous votes:', prev);
+					if (isDevEnvironment) {
+						console.log("[voteCareer] Previous votes:", prev);
+					}
 					if (value === null) {
 						const updated = { ...prev };
 						delete updated[careerId];
-						console.log('[voteCareer] Clearing vote, new votes:', updated);
+						if (isDevEnvironment) {
+							console.log("[voteCareer] Clearing vote, new votes:", updated);
+						}
 						return updated;
 					}
 					const newVotes = { ...prev, [careerId]: value };
-					console.log('[voteCareer] Setting vote, new votes:', newVotes);
+					if (isDevEnvironment) {
+						console.log("[voteCareer] Setting vote, new votes:", newVotes);
+					}
 					return newVotes;
 				});
 				setLastCardInteractionAt(Date.now());
 			},
 			setSummary: (s) => setSummaryState(s),
+			conversationSummary,
 			beginSession,
 			setVoice,
 			setOnboardingStep: (value) =>
@@ -840,6 +882,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		votesByCareerId,
 		suggestions,
 		summary,
+		conversationSummary,
 		started,
 		sessionId,
 		voice,
@@ -880,34 +923,50 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 	// Persist votes to sessionStorage
 	useEffect(() => {
-		if (typeof window === 'undefined') return;
+		if (typeof window === "undefined") return;
 		try {
-			sessionStorage.setItem('osmvp_votes', JSON.stringify(votesByCareerId));
-			console.log('[SessionProvider] Saved votes to sessionStorage:', Object.keys(votesByCareerId).length, 'votes');
+			sessionStorage.setItem(STORAGE_KEYS.votes, JSON.stringify(votesByCareerId));
+			if (isDevEnvironment) {
+				console.log(
+					"[SessionProvider] Saved votes to sessionStorage:",
+					Object.keys(votesByCareerId).length,
+					"votes"
+				);
+			}
 		} catch (error) {
-			console.error('[SessionProvider] Failed to save votes to sessionStorage:', error);
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to save votes to sessionStorage:", error);
+			}
 		}
 	}, [votesByCareerId]);
 
 	// Persist suggestions to sessionStorage (with deduplication)
 	const lastSavedSuggestionsRef = useRef<string>('');
 	useEffect(() => {
-		if (typeof window === 'undefined') return;
+		if (typeof window === "undefined") return;
 		try {
 			const serialized = JSON.stringify(suggestions);
 			// Only save if actually changed
 			if (serialized !== lastSavedSuggestionsRef.current) {
-				sessionStorage.setItem('osmvp_suggestions', serialized);
+				sessionStorage.setItem(STORAGE_KEYS.suggestions, serialized);
 				lastSavedSuggestionsRef.current = serialized;
-				console.log('[SessionProvider] Saved suggestions to sessionStorage:', suggestions.length, 'cards');
+				if (isDevEnvironment) {
+					console.log(
+						"[SessionProvider] Saved suggestions to sessionStorage:",
+						suggestions.length,
+						"cards"
+					);
+				}
 			}
 		} catch (error) {
-			console.error('[SessionProvider] Failed to save suggestions to sessionStorage:', error);
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to save suggestions to sessionStorage:", error);
+			}
 		}
 	}, [suggestions]);
 
 	useEffect(() => {
-		if (process.env.NODE_ENV === "production") {
+		if (!isDevEnvironment) {
 			return;
 		}
 		console.groupCollapsed(`[profile] session ${sessionId}`);
@@ -929,6 +988,49 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		console.log("Turns", turns);
 		console.groupEnd();
 	}, [profile, sessionId, suggestions, turns]);
+
+	// Persist conversation summary to sessionStorage
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		if (!conversationSummary) {
+			try {
+				sessionStorage.removeItem(STORAGE_KEYS.conversationSummary);
+			} catch (error) {
+				if (isDevEnvironment) {
+					console.error("[SessionProvider] Failed to remove conversation summary:", error);
+				}
+			}
+			return;
+		}
+		try {
+			sessionStorage.setItem(
+				STORAGE_KEYS.conversationSummary,
+				JSON.stringify(conversationSummary)
+			);
+		} catch (error) {
+			if (isDevEnvironment) {
+				console.error("[SessionProvider] Failed to persist conversation summary:", error);
+			}
+		}
+	}, [conversationSummary]);
+
+	// Derive conversation summary when turns or insights change
+	useEffect(() => {
+		if (turns.length === 0) {
+			return;
+		}
+		const hasSignal =
+			profile.insights.length > 0 ||
+			profile.strengths.length > 0 ||
+			profile.interests.length > 0 ||
+			profile.goals.length > 0 ||
+			profile.hopes.length > 0;
+		if (!hasSignal) {
+			return;
+		}
+		const nextSummary = buildConversationSummary(profile, turns);
+		setConversationSummary(nextSummary);
+	}, [profile, turns]);
 
 	return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

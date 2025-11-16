@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateDynamicSuggestions } from "@/lib/dynamic-suggestions";
 import type { CardDistance } from "@/lib/dynamic-suggestions";
 import type { InsightKind } from "@/components/session-provider";
+import { summariseTranscript } from "@/app/api/suggestions/transcript";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -17,6 +18,7 @@ export async function POST(req: NextRequest) {
 				aptitudes?: unknown;
 				workStyles?: unknown;
 			};
+			userName?: string;
 		};
 
 		const insights = Array.isArray(body.insights)
@@ -42,14 +44,13 @@ export async function POST(req: NextRequest) {
                     typeof item?.role === "string" && typeof item?.text === "string")
             : [];
 
-        const transcriptSummary = transcript
-            .filter((item) => item.text.trim().length > 0)
-            .map((item) => `${item.role}: ${item.text.trim()}`)
-            .join(" \n ");
+        const transcriptSummary = summariseTranscript(transcript);
 
         const focusStatement = typeof body.focusStatement === "string" && body.focusStatement.trim().length > 0
             ? body.focusStatement.trim()
             : undefined;
+
+        const userName = typeof body.userName === "string" && body.userName.trim().length > 0 ? body.userName.trim() : undefined;
 
         const previousSuggestions = Array.isArray(body.previousSuggestions)
             ? body.previousSuggestions
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
             focusStatement,
 			previousSuggestions,
             attributes,
+            userName,
 		});
 
 		if (dynamic.length === 0 && process.env.NODE_ENV !== "production") {

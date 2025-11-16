@@ -1,8 +1,16 @@
 import OpenAI from "openai";
 import type { InsightKind } from "@/components/session-provider";
+import {
+    generateExplorationSummary,
+    type GeneratedSummary,
+    type SummaryRequestPayload,
+    type SummaryStrength,
+} from "@/lib/exploration-summary-engine";
+import { tokenKey } from "@/lib/conversation-summary";
 
-const OPENAI_SUGGESTION_MODEL = process.env.OPENAI_SUGGESTION_MODEL ?? "gpt-4.1-mini";
+const OPENAI_SUGGESTION_MODEL = process.env.OPENAI_SUGGESTION_MODEL ?? "o4-mini";
 const OPENAI_DOMAIN_MODEL = process.env.OPENAI_DOMAIN_MODEL ?? OPENAI_SUGGESTION_MODEL;
+const OPENAI_TITLE_MODEL = process.env.OPENAI_TITLE_MODEL ?? OPENAI_SUGGESTION_MODEL;
 
 type AttributeStage = "established" | "developing" | "hobby";
 
@@ -25,6 +33,7 @@ export interface DynamicSuggestionInput {
         aptitudes?: AttributeInput[];
         workStyles?: AttributeInput[];
     };
+    userName?: string;
 }
 
 export type CardDistance = "core" | "adjacent" | "unexpected";
@@ -60,45 +69,6 @@ type AttributeBuckets = {
     work_styles: string[];
 };
 
-type CanonicalRoleLibraryEntry = {
-    keywords: string[];
-    titles: string[];
-};
-
-const CANONICAL_ROLE_LIBRARY: CanonicalRoleLibraryEntry[] = [
-    {
-        keywords: ["research", "analysis", "insight", "analytics", "data"],
-        titles: ["Research Analyst", "Market Research Associate", "Insights Coordinator", "Field Researcher"],
-    },
-    {
-        keywords: ["content", "writing", "story", "editor", "copy"],
-        titles: ["Content Strategist", "Editorial Researcher", "Content Marketing Specialist", "Editorial Assistant"],
-    },
-    {
-        keywords: ["product", "tech", "technology", "software"],
-        titles: ["Product Research Associate", "Technical Support Specialist", "Customer Insights Analyst", "Implementation Specialist"],
-    },
-    {
-        keywords: ["community", "team", "sports", "athlete"],
-        titles: ["Community Programs Coordinator", "Youth Development Coordinator", "Event Operations Specialist", "Partnerships Associate"],
-    },
-    {
-        keywords: ["travel", "fieldwork", "global", "international"],
-        titles: ["Field Operations Coordinator", "Travel Program Coordinator", "International Programs Associate", "Global Research Analyst"],
-    },
-    {
-        keywords: ["gaming", "esports", "game"],
-        titles: ["Community Manager", "Gameplay Insights Analyst", "User Research Associate", "Engagement Strategist"],
-    },
-    {
-        keywords: ["education", "learning", "training"],
-        titles: ["Learning Experience Designer", "Education Program Coordinator", "Training Content Specialist", "Instructional Associate"],
-    },
-    {
-        keywords: ["operations", "logistics", "planning"],
-        titles: ["Operations Coordinator", "Project Coordinator", "Program Specialist", "Logistics Analyst"],
-    },
-];
 
 type TransferableAttributes = {
     established: AttributeBuckets;
@@ -206,65 +176,6 @@ const STOPWORDS = new Set<string>([
     "the","and","for","with","that","this","from","into","about","your","their","they","you","are","our","use","using","used","build","builds","based","help","guide","create","maker","builder","design","designer","consultant","coach","educator","teacher","content","curator","community","connector","ai","poc","proof","concept","business","startup","founder","small","medium","enterprise","sme","tool","tools","voice","user","assistant","what","when","where","how","why","goal","goals","daily","tasks","task","adds","then","asks","like","just","really","thing","things","pretty","much","lot","stuff","yeah","sure","okay","nothing","really"
 ]);
 
-function deriveCanonicalTitles(
-    insights: DynamicSuggestionInput["insights"],
-    attributes: TransferableAttributes,
-    focusStatement?: string,
-    transcriptSummary?: string
-): string[] {
-    const tokenSource: string[] = [];
-    insights.forEach((item) => tokenSource.push(item.value));
-    if (focusStatement) {
-        tokenSource.push(focusStatement);
-    }
-    if (transcriptSummary) {
-        tokenSource.push(transcriptSummary);
-    }
-
-    const appendAttributes = (entries: string[]) => {
-        entries.forEach((entry) => tokenSource.push(entry));
-    };
-
-    appendAttributes(attributes.established.skills);
-    appendAttributes(attributes.established.aptitudes);
-    appendAttributes(attributes.established.work_styles);
-    appendAttributes(attributes.developing.skills);
-    appendAttributes(attributes.developing.aptitudes);
-    appendAttributes(attributes.developing.work_styles);
-
-    const allTokens = new Set<string>();
-    tokenSource.forEach((text) => tokenize(text).forEach((token) => allTokens.add(token)));
-
-    const hobbyTokens = new Set<string>();
-    [
-        ...attributes.hobby.skills,
-        ...attributes.hobby.aptitudes,
-        ...attributes.hobby.work_styles,
-    ].forEach((entry) => tokenize(entry).forEach((token) => hobbyTokens.add(token)));
-
-    const nonHobbyTokens = new Set(allTokens);
-    hobbyTokens.forEach((token) => nonHobbyTokens.delete(token));
-
-    const tokens = nonHobbyTokens.size > 0 ? nonHobbyTokens : allTokens;
-
-    const titleScores = new Map<string, number>();
-
-    CANONICAL_ROLE_LIBRARY.forEach((entry) => {
-        const matches = entry.keywords.reduce((acc, keyword) => (tokens.has(keyword) ? acc + 1 : acc), 0);
-        if (matches > 0) {
-            entry.titles.forEach((title, index) => {
-                const current = titleScores.get(title) ?? 0;
-                titleScores.set(title, current + matches + (entry.titles.length - index) * 0.1);
-            });
-        }
-    });
-
-    return Array.from(titleScores.entries())
-        .sort((a, b) => b[1] - a[1])
-        .map(([title]) => title)
-        .slice(0, 8);
-}
-
 function jaccard(a: Set<string>, b: Set<string>): number {
     let inter = 0;
     for (const t of a) if (b.has(t)) inter++;
@@ -304,7 +215,6 @@ async function buildMotivationSummary(insights: DynamicSuggestionInput["insights
 
 	const result = await openai.chat.completions.create({
 		model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-		temperature: 0.1,
 		messages: [
 			{ role: "system", content: motivationPrompt },
 			{ role: "user", content: insightSnapshot.join("\n") },
@@ -331,6 +241,7 @@ export async function generateDynamicSuggestions({
     focusStatement,
     previousSuggestions = [],
     attributes,
+    userName,
 }: DynamicSuggestionInput): Promise<DynamicSuggestion[]> {
     if (insights.length === 0) {
         return [];
@@ -446,22 +357,20 @@ export async function generateDynamicSuggestions({
         hobbyExamples,
         establishedExamples,
         developingExamples,
-        canonicalTitles: deriveCanonicalTitles(compositeInsights, transferableBuckets, focusStatement, transcriptSummary),
     };
 
     const grouped = groupInsightsByKind(compositeInsights);
 
     const openaiKey = process.env.OPENAI_API_KEY ?? null;
+    if (!openaiKey) {
+        console.error("[dynamic-suggestions] Missing OPENAI_API_KEY for dynamic title generation");
+        throw new Error("missing_openai_api_key");
+    }
     const perplexityKey = process.env.PERPLEXITY_API_KEY ?? null;
 
-    if (!openaiKey && !perplexityKey) {
-        console.error("[dynamic-suggestions] CRITICAL: Missing both OPENAI_API_KEY and PERPLEXITY_API_KEY");
-        throw new Error("At least one API key is required for card generation");
-    }
+    const useOpenAI = true;
 
-    const useOpenAI = Boolean(openaiKey);
-
-    const profile: ProfileEnvelope = {
+    let profile: ProfileEnvelope = {
         interests: grouped.get("interest") ?? [],
         strengths: grouped.get("strength") ?? [],
         goals: grouped.get("goal") ?? [],
@@ -489,6 +398,62 @@ export async function generateDynamicSuggestions({
     }
 
     const dominantKeywords = computeDominantKeywords(compositeInsights, transcriptSummary);
+
+    const summaryPayload = buildSummaryPayload({
+        userName,
+        profile,
+        groupedInsights: grouped,
+        transferable: transferableBuckets,
+        dominantKeywords,
+        motivationSummary,
+        recentTurns,
+        focusStatement,
+        transcriptSummary,
+        insightCount: compositeInsights.length,
+        previousSuggestionCount: previousSuggestions.length,
+        likeCount: likes.length,
+    });
+
+    let canonicalSummary: GeneratedSummary | null = null;
+    if (openaiKey) {
+        try {
+            canonicalSummary = await generateExplorationSummary(summaryPayload, {
+                apiKey: openaiKey,
+                model: OPENAI_SUGGESTION_MODEL,
+            });
+        } catch (error) {
+            if (process.env.NODE_ENV !== "production") {
+                console.warn("[dynamic-suggestions] exploration summary failed", error);
+            }
+        }
+    }
+
+    if (canonicalSummary) {
+        profile = blendProfileWithSummary(profile, canonicalSummary, summaryPayload);
+        promptHints.canonicalSummary = canonicalSummary;
+    }
+    promptHints.summaryPayload = summaryPayload;
+
+    let canonicalTitles: string[];
+    try {
+        canonicalTitles = await generateCanonicalTitleList({
+            apiKey: openaiKey,
+            summaryPayload,
+            groupedInsights: grouped,
+            transferable: transferableBuckets,
+            dominantKeywords,
+            motivationSummary,
+            focusStatement,
+            recentTurns,
+            transcriptSummary,
+            previousSuggestions,
+        });
+    } catch (error) {
+        console.error("[dynamic-suggestions] title generation failed", error);
+        throw error instanceof Error ? error : new Error("title_generation_failed");
+    }
+
+    promptHints.canonicalTitles = canonicalTitles;
     const avoidTitles = new Set<string>(
         previousSuggestions
             .map((item) => item.title.toLowerCase())
@@ -516,6 +481,8 @@ export async function generateDynamicSuggestions({
             avoidTitles,
             previousSuggestions,
             promptHints,
+            summaryPayload,
+            canonicalSummary,
         });
 
         if (candidate) {
@@ -545,6 +512,8 @@ interface PerplexityContext {
     avoidTitles: Set<string>;
     previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
     promptHints: PromptHints;
+    summaryPayload: SummaryRequestPayload;
+    canonicalSummary: GeneratedSummary | null;
 }
 
 async function generateCardForDistance(context: PerplexityContext): Promise<DynamicSuggestion | null> {
@@ -566,6 +535,8 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
         avoidTitles,
         previousSuggestions,
         promptHints,
+        summaryPayload,
+        canonicalSummary,
     } = context;
 
     const maxAttempts = distance === "unexpected" ? 5 : 3;
@@ -600,10 +571,12 @@ async function generateCardForDistance(context: PerplexityContext): Promise<Dyna
             dominantKeywords,
             distance,
             avoidTitles,
-            existing,
-            previousSuggestions,
+            summaryPayload,
+            canonicalSummary,
+            existing: existing,
             attempt,
             novelDomains,
+            previousSuggestions,
             promptHints,
         });
 
@@ -672,6 +645,8 @@ interface ModelRequestInput {
     dominantKeywords: string[];
     distance: CardDistance;
     avoidTitles: Set<string>;
+    summaryPayload: SummaryRequestPayload;
+    canonicalSummary: GeneratedSummary | null;
     existing: DynamicSuggestion[];
     attempt: number;
     novelDomains?: string[];
@@ -703,6 +678,8 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         novelDomains,
         previousSuggestions,
         promptHints,
+        summaryPayload,
+        canonicalSummary,
     } = params;
 
     if (!openaiKey) {
@@ -756,10 +733,10 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
             .join("\n"),
         dominant_keywords: dominantKeywords,
         target_domains: novelDomains,
+        canonical_summary: canonicalSummary,
+        canonical_payload: summaryPayload,
         attribute_context: promptHints,
     };
-
-    const temperature = distance === "unexpected" ? 0.5 : 0.3;
 
     console.debug("[suggestions] OpenAI prompt", {
         distance,
@@ -776,7 +753,6 @@ async function requestCardFromOpenAI(params: ModelRequestInput): Promise<RawDyna
         },
         body: JSON.stringify({
             model: OPENAI_SUGGESTION_MODEL,
-            temperature,
             input: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: JSON.stringify(payload) },
@@ -836,6 +812,8 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
         novelDomains,
         previousSuggestions,
         promptHints,
+        summaryPayload,
+        canonicalSummary,
     } = params;
 
     const apiKey = perplexityKey;
@@ -890,6 +868,8 @@ async function requestCardFromPerplexity(params: ModelRequestInput): Promise<Raw
             .join("\n"),
         dominant_keywords: dominantKeywords,
         target_domains: novelDomains,
+        canonical_summary: canonicalSummary,
+        canonical_payload: summaryPayload,
         attribute_context: promptHints,
     };
 
@@ -958,6 +938,8 @@ type PromptHints = {
     developingExamples?: string[];
     hobbyExamples?: string[];
     canonicalTitles?: string[];
+    canonicalSummary?: GeneratedSummary | null;
+    summaryPayload?: SummaryRequestPayload;
 };
 
 function buildSystemPrompt(distance: CardDistance, focusStatement?: string, hints?: PromptHints): string {
@@ -1028,6 +1010,31 @@ function buildSystemPrompt(distance: CardDistance, focusStatement?: string, hint
                 "Angles to explore and next steps must reference transferable capabilities, market-facing experiments, or neutral practice reps—not casual fandoms or pickup hobbies."
             );
         }
+
+        if (hints.canonicalSummary) {
+            const { themes, strengths, constraint, whyItMatters, callToAction } = hints.canonicalSummary;
+            if (themes.length > 0) {
+                base.push(`Themes to respect: ${themes.join(", ")}.`);
+            }
+            if (strengths.length > 0) {
+                base.push(`Strength anchors: ${strengths.join(", ")}.`);
+            }
+            if (constraint) {
+                base.push(`Reality check in play: ${constraint}.`);
+            }
+            base.push(`Why this matters: ${whyItMatters}`);
+            if (callToAction) {
+                base.push(`Suggested CTA to echo: ${callToAction}`);
+            }
+        }
+
+        if (hints.summaryPayload?.anchorQuotes && hints.summaryPayload.anchorQuotes.length > 0) {
+            base.push(`Recent user quotes worth weaving in: ${hints.summaryPayload.anchorQuotes.join(" | ")}.`);
+        }
+
+        if (hints.summaryPayload?.notes && hints.summaryPayload.notes.length > 0) {
+            base.push(`Keep notes in mind: ${hints.summaryPayload.notes.join(" | ")}.`);
+        }
     }
 
     if (distance === "core") {
@@ -1055,6 +1062,393 @@ function buildSystemPrompt(distance: CardDistance, focusStatement?: string, hint
     }
 
     return base.join("\n");
+}
+
+function buildSummaryPayload({
+    userName,
+    profile,
+    groupedInsights,
+    transferable,
+    dominantKeywords,
+    motivationSummary,
+    recentTurns,
+    focusStatement,
+    transcriptSummary,
+    insightCount,
+    previousSuggestionCount,
+    likeCount,
+}: {
+    userName?: string;
+    profile: ProfileEnvelope;
+    groupedInsights: Map<InsightKind, string[]>;
+    transferable: TransferableAttributes;
+    dominantKeywords: string[];
+    motivationSummary: string | null;
+    recentTurns: Array<{ role: string; text: string }>;
+    focusStatement?: string;
+    transcriptSummary?: string;
+    insightCount: number;
+    previousSuggestionCount: number;
+    likeCount: number;
+}): SummaryRequestPayload {
+    const safeName = userName && userName.trim().length > 0 ? userName.trim() : "You";
+
+    const goalSeeds = [
+        ...(groupedInsights.get("goal") ?? []),
+        ...(groupedInsights.get("hope") ?? []),
+        ...profile.goals,
+        ...profile.hopes,
+    ];
+    const goals = dedupeOrdered(goalSeeds, 5);
+
+    const themeSeeds = [
+        ...profile.interests,
+        ...goals,
+        ...dominantKeywords.map(beautifyKeyword),
+        ...(focusStatement ? [focusStatement] : []),
+    ];
+    const themes = dedupeOrdered(themeSeeds, 5);
+
+    const constraintSeeds = [
+        ...(groupedInsights.get("constraint") ?? []),
+        ...(groupedInsights.get("frustration") ?? []),
+        ...profile.constraints,
+        ...profile.frustrations,
+    ];
+    const constraint = rewriteConstraintPhrase(dedupeOrdered(constraintSeeds, 1)[0]);
+
+    const strengths = buildStrengthSummaries({ profile, groupedInsights, transferable });
+
+    const transcriptNotes = transcriptSummary
+        ? transcriptSummary
+                .split("\n")
+                .map((line) => line.replace(/^user:\s*/i, "").trim())
+                .filter(Boolean)
+                .slice(0, 3)
+        : [];
+
+    const notes = dedupeOrdered(
+        [
+            ...profile.highlights,
+            ...profile.hopes,
+            ...extractMotivationNotes(motivationSummary),
+            ...transcriptNotes,
+        ],
+        6
+    );
+
+    const anchorQuotes = collectAnchorQuotes(recentTurns, 3);
+
+    return {
+        userName: safeName,
+        themes,
+        goals,
+        strengths,
+        constraint,
+        metrics: {
+            insightsUnlocked: insightCount,
+            pathwaysExplored: previousSuggestionCount,
+            pathsAmpedAbout: likeCount,
+            boldMovesMade: profile.goals.length,
+        },
+        anchorQuotes,
+        notes,
+    };
+}
+
+function blendProfileWithSummary(
+    profile: ProfileEnvelope,
+    summary: GeneratedSummary,
+    payload: SummaryRequestPayload
+): ProfileEnvelope {
+    const interests = dedupeOrdered([...(payload.themes ?? []), ...profile.interests], 8);
+    const strengths = dedupeOrdered([...summary.strengths, ...profile.strengths], 8);
+    const goals = dedupeOrdered([...(payload.goals ?? []), ...profile.goals], 8);
+    const highlights = dedupeOrdered([...(payload.notes ?? []), ...profile.highlights], 8);
+    const constraintSeeds = [
+        ...(summary.constraint ? [summary.constraint] : []),
+        ...(payload.constraint ? [payload.constraint] : []),
+        ...profile.constraints,
+    ];
+    const constraints = dedupeOrdered(constraintSeeds, 3);
+
+    return {
+        ...profile,
+        interests,
+        strengths,
+        goals,
+        highlights,
+        constraints,
+    };
+}
+
+function buildStrengthSummaries({
+    profile,
+    groupedInsights,
+    transferable,
+}: {
+    profile: ProfileEnvelope;
+    groupedInsights: Map<InsightKind, string[]>;
+    transferable: TransferableAttributes;
+}): SummaryStrength[] {
+    const labels: string[] = [];
+    const pushLabel = (label: string, stage?: AttributeStage) => {
+        const formatted = decorateStrength(label, stage);
+        if (formatted) {
+            labels.push(formatted);
+        }
+    };
+
+    profile.strengths.forEach((label) => pushLabel(label));
+    (groupedInsights.get("strength") ?? []).forEach((label) => pushLabel(label));
+
+    const pushStage = (values: string[], stage: AttributeStage) => {
+        values.forEach((label) => pushLabel(label, stage));
+    };
+
+    pushStage(transferable.established.skills, "established");
+    pushStage(transferable.established.aptitudes, "established");
+    pushStage(transferable.established.work_styles, "established");
+
+    pushStage(transferable.developing.skills, "developing");
+    pushStage(transferable.developing.aptitudes, "developing");
+    pushStage(transferable.developing.work_styles, "developing");
+
+    const deduped = dedupeOrdered(labels, 5);
+    return deduped.map((label) => ({ label }));
+}
+
+function decorateStrength(label: string, stage?: AttributeStage): string {
+    const tidy = tidyPhrase(label);
+    if (!tidy) return "";
+    if (!stage) return tidy;
+    if (stage === "established") return `${tidy} (proven)`;
+    if (stage === "developing") return `${tidy} (building)`;
+    return `${tidy} (practice)`;
+}
+
+function collectAnchorQuotes(turns: Array<{ role: string; text: string }>, limit = 3): string[] {
+    const anchors: string[] = [];
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+        const turn = turns[i];
+        if (turn.role !== "user") continue;
+        const text = tidyPhrase(turn.text);
+        if (!text || text.length < 30) continue;
+        const snippet = text.length > 220 ? `${text.slice(0, 217)}…` : text;
+        anchors.unshift(snippet);
+        if (anchors.length >= limit) break;
+    }
+    return anchors;
+}
+
+function extractMotivationNotes(summary: string | null): string[] {
+    if (!summary) return [];
+    return summary
+        .replace(/[•◆●]/g, "\n")
+        .split(/\n+/)
+        .map((line) => line.replace(/^[-*]\s*/, "").trim())
+        .map(tidyPhrase)
+        .filter(Boolean)
+        .slice(0, 6);
+}
+
+function dedupeOrdered(values: string[], limit: number): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    values.forEach((raw) => {
+        const tidy = tidyPhrase(raw);
+        if (!tidy) return;
+        const key = tokenKey(tidy);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        result.push(tidy);
+    });
+    return result.slice(0, limit);
+}
+
+function tidyPhrase(value: string | undefined): string {
+    if (!value) return "";
+    const compact = value.replace(/\s+/g, " ").trim();
+    if (!compact) return "";
+    const first = compact.charAt(0);
+    if (first === first.toUpperCase()) {
+        return compact;
+    }
+    return `${first.toUpperCase()}${compact.slice(1)}`;
+}
+
+function beautifyKeyword(token: string): string {
+    const tidy = tidyPhrase(token);
+    if (!tidy) return "";
+    if (/^[a-z]{1,3}$/i.test(tidy)) {
+        return tidy.toUpperCase();
+    }
+    return tidy;
+}
+
+function rewriteConstraintPhrase(value?: string): string | null {
+    if (!value) return null;
+    let phrase = tidyPhrase(value);
+    if (!phrase) return null;
+    phrase = phrase
+        .replace(/\bmy\b/gi, "your")
+        .replace(/\bI\b/g, "you")
+        .replace(/\bI'm\b/gi, "you're")
+        .replace(/\bI am\b/gi, "you are");
+    if (!/^(Balancing|Managing|Keeping|Covering|Funding|Finding)/i.test(phrase)) {
+        const lower = phrase.charAt(0).toLowerCase() + phrase.slice(1);
+        phrase = `Balancing ${lower}`;
+    }
+    return phrase;
+}
+
+async function generateCanonicalTitleList({
+    apiKey,
+    model = OPENAI_TITLE_MODEL,
+    summaryPayload,
+    groupedInsights,
+    transferable,
+    dominantKeywords,
+    motivationSummary,
+    focusStatement,
+    recentTurns,
+    transcriptSummary,
+    previousSuggestions,
+    limit = 12,
+}: {
+    apiKey: string;
+    model?: string;
+    summaryPayload: SummaryRequestPayload;
+    groupedInsights: Map<InsightKind, string[]>;
+    transferable: TransferableAttributes;
+    dominantKeywords: string[];
+    motivationSummary: string | null;
+    focusStatement?: string;
+    recentTurns: Array<{ role: string; text: string }>;
+    transcriptSummary?: string;
+    previousSuggestions: Array<{ title: string; summary?: string; distance?: CardDistance }>;
+    limit?: number;
+}): Promise<string[]> {
+    const openai = new OpenAI({ apiKey });
+
+    const insightClusters: Record<string, string[]> = {};
+    groupedInsights.forEach((values, kind) => {
+        insightClusters[kind] = values.slice(0, 12);
+    });
+
+    const transferableSnapshot = {
+        established: {
+            skills: transferable.established.skills.slice(0, 8),
+            aptitudes: transferable.established.aptitudes.slice(0, 8),
+            work_styles: transferable.established.work_styles.slice(0, 8),
+        },
+        developing: {
+            skills: transferable.developing.skills.slice(0, 8),
+            aptitudes: transferable.developing.aptitudes.slice(0, 8),
+            work_styles: transferable.developing.work_styles.slice(0, 8),
+        },
+        hobby: {
+            skills: transferable.hobby.skills.slice(0, 8),
+            aptitudes: transferable.hobby.aptitudes.slice(0, 8),
+            work_styles: transferable.hobby.work_styles.slice(0, 8),
+        },
+    };
+
+    const previousTitles = previousSuggestions
+        .map((item) => item.title)
+        .filter((title): title is string => typeof title === "string" && title.trim().length > 0)
+        .map((title) => title.trim());
+
+    const payload = {
+        summary: summaryPayload,
+        insight_clusters: insightClusters,
+        transferable_attributes: transferableSnapshot,
+        dominant_keywords: dominantKeywords.slice(0, 16),
+        motivation_summary: motivationSummary,
+        focus_statement: focusStatement ?? null,
+        recent_turns: recentTurns.slice(-4),
+        transcript_summary: transcriptSummary ?? null,
+        previous_titles: previousTitles,
+    };
+
+    const systemPrompt = [
+        "You are MirAI's role-family curator for UK & global teens exploring careers.",
+        "Return JSON: { \"titles\": [ { \"title\": string, \"kind\": \"core|adjacent|experimental\", \"domain\": string } ] }.",
+        "Titles must be recognisable on job boards (2-5 words max) and celebrate exploration over prescriptions.",
+        "Blend proven anchors, stretch roles, and at least one experimental/entrepreneurial direction when the signals support it.",
+        "Avoid reusing anything in previous_titles.",
+    ].join("\n");
+
+    const completion = await openai.chat.completions.create({
+        model,
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: JSON.stringify(payload, null, 2) },
+        ],
+    });
+
+    const content = completion.choices[0]?.message?.content?.trim();
+    if (!content) {
+        throw new Error("title_generation_empty_response");
+    }
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(content);
+    } catch {
+        throw new Error("title_generation_non_json_response");
+    }
+
+    const rawTitles: string[] = [];
+    if (Array.isArray((parsed as { titles?: unknown }).titles)) {
+        (parsed as { titles: unknown[] }).titles.forEach((entry) => {
+            if (typeof entry === "string") {
+                rawTitles.push(entry);
+            } else if (
+                entry &&
+                typeof entry === "object" &&
+                typeof (entry as { title?: unknown }).title === "string"
+            ) {
+                rawTitles.push((entry as { title: string }).title);
+            }
+        });
+    } else if (Array.isArray(parsed)) {
+        (parsed as unknown[]).forEach((entry) => {
+            if (typeof entry === "string") {
+                rawTitles.push(entry);
+            } else if (
+                entry &&
+                typeof entry === "object" &&
+                typeof (entry as { title?: unknown }).title === "string"
+            ) {
+                rawTitles.push((entry as { title: string }).title);
+            }
+        });
+    }
+
+    const filtered = filterAndNormaliseTitles(rawTitles, previousTitles, limit);
+    if (filtered.length === 0) {
+        throw new Error("title_generation_empty_list");
+    }
+    return filtered;
+}
+
+function filterAndNormaliseTitles(values: string[], previousTitles: string[], limit: number): string[] {
+    const seen = new Set<string>();
+    const previousKeys = new Set(previousTitles.map((title) => tokenKey(title)));
+    const results: string[] = [];
+
+    values.forEach((raw) => {
+        if (typeof raw !== "string") return;
+        const trimmed = raw.replace(/\s+/g, " ").trim();
+        if (!trimmed) return;
+        const key = tokenKey(trimmed);
+        if (previousKeys.has(key) || seen.has(key)) return;
+        seen.add(key);
+        results.push(trimmed);
+    });
+
+    return results.slice(0, limit);
 }
 
 function mapRawSuggestion(card: RawDynamicSuggestion, distance: CardDistance): DynamicSuggestion | null {
@@ -1176,21 +1570,20 @@ async function fetchNovelDomains(params: NovelDomainParams): Promise<string[]> {
 
     try {
         if (useOpenAI && openaiKey) {
-            const response = await fetch("https://api.openai.com/v1/responses", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${openaiKey}`,
-                },
-                body: JSON.stringify({
-                    model: OPENAI_DOMAIN_MODEL,
-                    temperature: 0.6,
-                    input: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: JSON.stringify(userPayload) },
-                    ],
-                }),
-            });
+    const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+            model: OPENAI_DOMAIN_MODEL,
+            input: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: JSON.stringify(userPayload) },
+            ],
+        }),
+    });
 
             if (!response.ok) {
                 return [];

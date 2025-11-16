@@ -69,16 +69,14 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
   const responseStartTimesRef = useRef<Map<string, number>>(new Map());
   const onResponseCompletedRef = useRef<(() => void) | null>(null);
   const activeResponseIdRef = useRef<string | null>(null);
+  const pendingUserSpeechRef = useRef(false);
+  const speechStartTimestampRef = useRef<number | null>(null);
+  const cancelDebounceTimerRef = useRef<number | null>(null);
   const statusRef = useRef<RealtimeStatus>("idle");
   const pendingEventsRef = useRef<unknown[]>([]);
   const pendingItemResolversRef = useRef<
     Map<string, (status: "added" | "closed") => void>
   >(new Map());
-  const pendingUserSpeechRef = useRef<boolean>(false);
-  const speechStartTimestampRef = useRef<number | null>(null);
-  // Debounce timer for cancelling active response after user speech begins
-  const cancelDebounceTimerRef = useRef<number | null>(null);
-
   const enableMicrophoneDefault = baseConfig.enableMicrophone ?? true;
   const enableAudioOutputDefault = baseConfig.enableAudioOutput ?? true;
 
@@ -117,13 +115,13 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     pendingEventsRef.current = [];
     pendingItemResolversRef.current.forEach((resolve) => resolve("closed"));
     pendingItemResolversRef.current.clear();
+    setMicrophoneState("inactive");
     pendingUserSpeechRef.current = false;
     speechStartTimestampRef.current = null;
     if (cancelDebounceTimerRef.current !== null) {
       clearTimeout(cancelDebounceTimerRef.current);
       cancelDebounceTimerRef.current = null;
     }
-    setMicrophoneState("inactive");
     activeResponseIdRef.current = null;
     setActiveResponseIdSnapshot(null);
   }, []);
@@ -153,14 +151,26 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     []
   );
 
+  const debugRealtime = useCallback(
+    (label: string, details?: Record<string, unknown>) => {
+      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
+        console.info(label, details ?? {});
+      }
+    },
+    []
+  );
+
   const handleServerEvent = useCallback((raw: MessageEvent<string>) => {
     try {
       const event = JSON.parse(raw.data);
       const type: string | undefined = event.type;
 
-      if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-        console.info("[realtime:event]", event);
-      }
+      debugRealtime("[realtime:event]", {
+        type,
+        itemRole: typeof event.item === "object" ? (event.item?.role as string | undefined) : undefined,
+        responseId: event.response_id,
+        itemId: event.item_id,
+      });
 
       if (!type) return;
 
@@ -325,8 +335,11 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           }
           break;
         }
+        case "response.done":
         case "response.completed": {
-          const responseId = event.response?.id;
+          const responseId =
+            (event.response?.id as string | undefined) ??
+            (event.response_id as string | undefined);
           if (responseId && responseStartTimesRef.current.has(responseId)) {
             const start = responseStartTimesRef.current.get(responseId)!;
             setLastLatencyMs(Date.now() - start);
@@ -407,45 +420,73 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
           }
           break;
         }
-        case "input_audio_buffer.speech_started": {
-          pendingUserSpeechRef.current = true;
-          speechStartTimestampRef.current = Date.now();
-          // Reset any in-flight cancel debounce when a new speech segment starts
-          if (cancelDebounceTimerRef.current !== null) {
-            clearTimeout(cancelDebounceTimerRef.current);
-            cancelDebounceTimerRef.current = null;
-          }
-          break;
+      case "input_audio_buffer.speech_started": {
+        debugRealtime("[realtime:user-speech-started]", {
+          responseId: activeResponseIdRef.current,
+        });
+        pendingUserSpeechRef.current = true;
+        speechStartTimestampRef.current = Date.now();
+        if (cancelDebounceTimerRef.current !== null) {
+          clearTimeout(cancelDebounceTimerRef.current);
+          cancelDebounceTimerRef.current = null;
         }
+        break;
+      }
+      case "input_audio_buffer.speech_stopped": {
+        debugRealtime("[realtime:user-speech-stopped]", {
+          activeResponseId: activeResponseIdRef.current,
+        });
+        pendingUserSpeechRef.current = false;
+        speechStartTimestampRef.current = null;
+        if (cancelDebounceTimerRef.current !== null) {
+          clearTimeout(cancelDebounceTimerRef.current);
+          cancelDebounceTimerRef.current = null;
+        }
+        break;
+      }
         case "conversation.item.input_audio_transcription.delta": {
           const id = extractTranscriptId();
           const text = coerceTranscriptText(event.delta, event.text, event.transcript);
           handleTranscriptDelta(id, text, "user");
-          if (pendingUserSpeechRef.current && cancelDebounceTimerRef.current === null) {
-            const scheduledResponseId = activeResponseIdRef.current ?? null;
-            cancelDebounceTimerRef.current = window.setTimeout(() => {
-              cancelDebounceTimerRef.current = null;
-              if (!pendingUserSpeechRef.current) return;
-              const responseId = activeResponseIdRef.current;
-              if (responseId && responseId === scheduledResponseId) {
-                const elapsed = speechStartTimestampRef.current
-                  ? Date.now() - speechStartTimestampRef.current
-                  : undefined;
-                if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-                  console.info("[realtime:user-speech-cancelling]", { responseId, elapsed, debounced: true });
+          debugRealtime("[realtime:user-transcript-delta]", {
+            text: text ? text.slice(0, 80) : undefined,
+            activeResponseId: activeResponseIdRef.current,
+          });
+          if (text && text.trim().length > 0 && activeResponseIdRef.current) {
+            if (!pendingUserSpeechRef.current) {
+              pendingUserSpeechRef.current = true;
+              speechStartTimestampRef.current = Date.now();
+            }
+            if (cancelDebounceTimerRef.current === null) {
+              const scheduledResponseId = activeResponseIdRef.current;
+              cancelDebounceTimerRef.current = window.setTimeout(() => {
+                cancelDebounceTimerRef.current = null;
+                if (!pendingUserSpeechRef.current) {
+                  return;
                 }
+                const responseId = activeResponseIdRef.current;
+                if (!responseId || responseId !== scheduledResponseId) {
+                  return;
+                }
+                debugRealtime("[realtime:user-speech-cancelling]", {
+                  responseId,
+                  elapsed:
+                    speechStartTimestampRef.current !== null
+                      ? Date.now() - speechStartTimestampRef.current
+                      : undefined,
+                  textSnippet: text.slice(0, 80),
+                });
                 sendEvent({ type: "response.cancel", response_id: responseId });
                 activeResponseIdRef.current = null;
                 setActiveResponseIdSnapshot(null);
+                pendingUserSpeechRef.current = false;
+                speechStartTimestampRef.current = null;
                 if (audioRef.current) {
                   audioRef.current.muted = true;
                   audioRef.current.pause();
-                  // Avoid resetting currentTime to preserve next buffer continuity
                 }
-              }
-              pendingUserSpeechRef.current = false;
-              speechStartTimestampRef.current = null;
-            }, 200);
+              }, 160);
+            }
           }
           break;
         }
@@ -462,16 +503,13 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
               typeof event.item === "object" ? (event.item as Record<string, unknown>) : undefined
             );
           }
-          if (process.env.NODE_ENV !== "production" && VERBOSE_REALTIME_LOGS) {
-            console.info("[realtime:user-final]", {
-              id,
-              clientId: (event as { client_id?: string }).client_id,
-            });
-          }
-          if (event.response_id && activeResponseIdRef.current === event.response_id) {
-            activeResponseIdRef.current = null;
-            setActiveResponseIdSnapshot(null);
-          }
+          debugRealtime("[realtime:user-transcript-final]", {
+            id,
+            clientId: (event as { client_id?: string }).client_id,
+            text: text ? text.slice(0, 80) : undefined,
+            activeResponseId: activeResponseIdRef.current,
+            responseId: event.response_id,
+          });
           if (cancelDebounceTimerRef.current !== null) {
             clearTimeout(cancelDebounceTimerRef.current);
             cancelDebounceTimerRef.current = null;
@@ -486,7 +524,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     } catch (err) {
       console.error("Failed to parse realtime event", err);
     }
-  }, [sendEvent]);
+  }, [debugRealtime, sendEvent]);
 
   const flushPendingEvents = useCallback(() => {
     const channel = dataChannelRef.current;

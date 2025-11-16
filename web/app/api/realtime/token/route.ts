@@ -21,7 +21,7 @@ interface OpenAIRealtimeResponse {
   [key: string]: unknown;
 }
 
-const REALTIME_MODEL = "gpt-realtime";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;

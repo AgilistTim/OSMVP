@@ -1,20 +1,42 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUpRight, Copy, Download, Map, RefreshCw, Share2 } from "lucide-react";
+import {
+	ArrowLeft,
+	ArrowUpRight,
+	ChevronDown,
+	Copy,
+	Download,
+	Map as MapIcon,
+	RefreshCw,
+	Share2,
+} from "lucide-react";
 import { useSession } from "@/components/session-provider";
 import {
 	buildExplorationSnapshot,
 	type ExplorationSnapshot,
 	type OpportunityLane,
-	type StakeholderMessage,
+	type OpportunityMap,
 	type LearningPathwayGroup,
 } from "@/lib/exploration";
+import {
+	formatGoalLabel,
+	formatHeroSummary,
+	formatInterestLabel,
+	formatStrengthLabel,
+	humaniseTheme,
+} from "@/lib/exploration-language";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { CareerSuggestion } from "@/components/session-provider";
+import type {
+	CareerSuggestion,
+	ConversationTurn,
+	JourneyVisualAsset,
+	Profile,
+	ProfileInsight,
+} from "@/components/session-provider";
 import { InlineCareerCard } from "@/components/inline-career-card-v2";
 import "@/components/inline-career-card-v2.css";
 import {
@@ -26,7 +48,6 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import type { JourneyVisualContext } from "@/lib/journey-visual";
-import type { JourneyVisualAsset } from "@/components/session-provider";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -54,51 +75,30 @@ function SectionHeader({ eyebrow, title, description }: { eyebrow?: string; titl
 	);
 }
 
-function OpportunityColumn({ title, lanes }: { title: string; lanes: OpportunityLane[] }) {
-	if (lanes.length === 0) return null;
+function OpportunitySummaryGroupCard({ group }: { group: OpportunitySummaryGroup }) {
+	if (group.items.length === 0) return null;
 	return (
-		<div className="opportunity-column">
-			<h3>{title}</h3>
-			<div className="opportunity-stack">
-				{lanes.map((lane) => (
-					<article key={lane.id} className="tilted-card opportunity-card">
-						<h4>{lane.title}</h4>
-						<p>{lane.description}</p>
-						<ul>
-							{lane.highlights.map((highlight) => (
-								<li key={highlight}>{highlight}</li>
-							))}
-						</ul>
-						{lane.callToAction ? (
-							<p className="opportunity-cta">
-								<span>Try:</span> {lane.callToAction}
-							</p>
-						) : null}
-					</article>
-				))}
-			</div>
-		</div>
-	);
-}
-
-function StakeholderColumn({ message }: { message: StakeholderMessage }) {
-	const labels: Record<StakeholderMessage["audience"], string> = {
-		parents: "Parents & Guardians",
-		teachers: "Teachers & Advisors",
-		mentors: "Mentors & Sponsors",
-	};
-	return (
-		<div className="stakeholder-card tilted-card">
-			<Badge variant="secondary" className="stakeholder-badge">
-				{labels[message.audience]}
-			</Badge>
-			<h3>{message.headline}</h3>
-			<ul>
-				{message.points.map((point) => (
-					<li key={point}>{point}</li>
+		<article className="opportunity-summary-card">
+			<header className="opportunity-summary-header">
+				<h3>{group.title}</h3>
+				<p>{group.description}</p>
+			</header>
+			<ul className="opportunity-summary-list">
+				{group.items.map((item) => (
+					<li key={item.id}>
+						<div className="opportunity-summary-item">
+							<span className="opportunity-summary-title">{item.title}</span>
+							{item.context ? <p className="opportunity-summary-context">{item.context}</p> : null}
+							{item.action ? (
+								<p className="opportunity-summary-action">
+									<span>Next:</span> {item.action}
+								</p>
+							) : null}
+						</div>
+					</li>
 				))}
 			</ul>
-		</div>
+		</article>
 	);
 }
 
@@ -124,13 +124,13 @@ function LearningPathway({ group }: { group: LearningPathwayGroup }) {
 	);
 }
 
-function ShareControls({ shareUrl, userName }: { shareUrl: string; userName: string }) {
+function ShareControls({ shareUrl, userName, summary }: { shareUrl: string; userName: string; summary: string }) {
 	const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
 
 	const handleShare = async () => {
 		const payload = {
 			title: `${userName}’s Exploration Journey`,
-			text: "Discovering pathways aligned with my interests and passions.",
+			text: summary || "Discovering the pathways I’m shaping with MirAI.",
 			url: shareUrl,
 		};
 
@@ -174,18 +174,77 @@ interface JourneyStats {
 	boldMovesMade: number;
 }
 
+interface TopPathway {
+	id: string;
+	title: string;
+	summary: string;
+	nextStep?: string;
+}
+
+interface SignalItem {
+	label: string;
+	evidence?: string | null;
+}
+
+interface SignalBuckets {
+	strengths: SignalItem[];
+	interests: SignalItem[];
+	goals: SignalItem[];
+}
+
+interface TimelineItem {
+	action: string;
+	condition?: string | null;
+}
+
+interface OpportunitySummaryItem {
+	id: string;
+	title: string;
+	context?: string | null;
+	action?: string | null;
+}
+
+interface OpportunitySummaryGroup {
+	id: string;
+	title: string;
+	description: string;
+	items: OpportunitySummaryItem[];
+}
+
+type SummaryStatus = "loading" | "ready" | "error";
+
+interface GeneratedSummary {
+	themes: string[];
+	strengths: string[];
+	constraint: string | null;
+	whyItMatters: string;
+	callToAction?: string | null;
+	closing: string;
+}
+
+type ResourceStatus = "idle" | "loading" | "ready" | "error";
+
 interface ExplorationBodyProps {
 	snapshot: ExplorationSnapshot;
 	userName: string;
 	discoveryDate: string;
 	sessionId: string;
 	shareUrl: string;
-	stats: JourneyStats;
+	topPathways: TopPathway[];
+	signalBuckets: SignalBuckets;
+	summaryStatus: SummaryStatus;
+	summaryData: GeneratedSummary | null;
+	summaryError: string | null;
+	onSummaryRetry: () => void;
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
 	journeyVisual: JourneyVisualAsset | null;
 	onVisualiseMap: () => void;
+	learningResources: LearningPathwayGroup[];
+	resourcesStatus: ResourceStatus;
+	resourcesError: string | null;
+	onResourcesRetry: () => void;
 }
 
 function ExplorationBody({
@@ -194,22 +253,23 @@ function ExplorationBody({
 	discoveryDate,
 	sessionId,
 	shareUrl,
-	stats,
+	topPathways,
+	signalBuckets,
+	summaryStatus,
+	summaryData,
+	summaryError,
+	onSummaryRetry,
 	suggestions,
 	votesByCareerId,
 	voteCareer,
 	journeyVisual,
 	onVisualiseMap,
+	learningResources,
+	resourcesStatus,
+	resourcesError,
+	onResourcesRetry,
 }: ExplorationBodyProps) {
 	const router = useRouter();
-	const passionSummary =
-		snapshot.themes.length > 0
-			? snapshot.themes
-					.slice(0, 3)
-					.map((theme) => theme.label)
-					.join(", ")
-			: "documenting sparks as they appear";
-
 	const handleBack = () => {
 		if (typeof window !== "undefined" && window.history.length > 1) {
 			router.back();
@@ -217,6 +277,56 @@ function ExplorationBody({
 		}
 		router.push("/");
 	};
+
+	const ideaStashRef = useRef<HTMLDivElement | null>(null);
+	const primaryThemeLabel = useMemo(
+		() => formatPrimaryThemeLabel(snapshot.themes, topPathways),
+		[snapshot.themes, topPathways]
+	);
+	const heroSummary = useMemo(
+		() => formatHeroSummary(signalBuckets.strengths, signalBuckets.goals, snapshot.themes),
+		[signalBuckets.strengths, signalBuckets.goals, snapshot.themes]
+	);
+	const opportunityGroups = useMemo(
+		() => buildOpportunitySummary(snapshot.opportunities),
+		[snapshot.opportunities]
+	);
+	const timelineItems = useMemo(
+		() => ({
+			immediate: formatTimelineEntries(snapshot.nextSteps.immediate),
+			shortTerm: formatTimelineEntries(snapshot.nextSteps.shortTerm),
+			mediumTerm: formatTimelineEntries(snapshot.nextSteps.mediumTerm),
+		}),
+		[
+			snapshot.nextSteps.immediate,
+			snapshot.nextSteps.shortTerm,
+			snapshot.nextSteps.mediumTerm,
+		]
+	);
+	const salaryHighlights = useMemo(
+		() => snapshot.marketReality.salaryData.slice(0, 3),
+		[snapshot.marketReality.salaryData]
+	);
+	const demandHighlights = useMemo(
+		() => snapshot.marketReality.marketDemand.slice(0, 3),
+		[snapshot.marketReality.marketDemand]
+	);
+	const successHighlights = useMemo(
+		() => snapshot.marketReality.successStories.slice(0, 2),
+		[snapshot.marketReality.successStories]
+	);
+	const craftFocus = useMemo(() => {
+		const strength = signalBuckets.strengths[0]?.label;
+		if (strength) {
+			return formatStrengthLabel(strength);
+		}
+		const goal = signalBuckets.goals[0]?.label;
+		if (goal) {
+			return formatGoalLabel(goal);
+		}
+		const theme = snapshot.themes[0]?.label ?? primaryThemeLabel;
+		return formatInterestLabel(theme);
+	}, [signalBuckets.strengths, signalBuckets.goals, snapshot.themes, primaryThemeLabel]);
 
 	return (
 		<div className="exploration-container">
@@ -230,149 +340,204 @@ function ExplorationBody({
 			<JourneyHeader
 				userName={userName}
 				discoveryDate={discoveryDate}
-				passions={passionSummary}
+				heroSummary={heroSummary}
 				shareUrl={shareUrl}
 				sessionId={sessionId}
 				onVisualiseMap={onVisualiseMap}
 			/>
 
-			<JourneyStatsBar stats={stats} />
+			<ConversationSummarySection
+				status={summaryStatus}
+				summary={summaryData}
+				error={summaryError}
+				onRetry={onSummaryRetry}
+			/>
+
+			<section className="next-steps">
+				<SectionHeader
+					eyebrow="Stay in motion"
+					title="What to do this week, this month, and next"
+					description="Use the quick experiments up top to keep momentum while bigger plays take shape."
+				/>
+				<div className="timeline-grid">
+					<TimelineColumn title="This week" items={timelineItems.immediate} emptyMessage="Complete a card reaction to unlock quick experiments." />
+					<TimelineColumn title="This month" items={timelineItems.shortTerm} emptyMessage="We’ll add deeper projects once a few directions stand out." />
+					<TimelineColumn title="Next quarter" items={timelineItems.mediumTerm} emptyMessage="Big plays appear here once we’ve stress-tested a few sparks." />
+				</div>
+			</section>
 
 			{journeyVisual ? (
 				<JourneyVisualSection visual={journeyVisual} onVisualiseMap={onVisualiseMap} />
 			) : null}
 
+			<TopPathwaysSection
+				pathways={topPathways}
+				onExploreIdeas={() => {
+					if (ideaStashRef.current) {
+						ideaStashRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+					}
+				}}
+			/>
+
 			<IdeaStashSection
 				suggestions={suggestions}
 				votesByCareerId={votesByCareerId}
 				voteCareer={voteCareer}
+				ref={ideaStashRef}
 			/>
 
-			<section className="passion-discovery">
+			<section className="signals-section">
 				<SectionHeader
-					eyebrow="Exploration signals"
-					title="What you're into"
-					description="Celebrating the sparks that cropped up across the conversation."
+					eyebrow="Your core strengths"
+					title="Signals MirAI noticed"
+					description="These are the strengths, sparks, and edges you surfaced while we talked."
 				/>
-				<div className="discovery-grid">
-					{snapshot.discoveryInsights.map((insight) => (
-						<article key={insight.title} className={cn("tilted-card insight-card", insight.tone)}>
-							<h3>{insight.title}</h3>
-							<p>{insight.description}</p>
-						</article>
-					))}
+				<div className="signals-grid">
+					<SignalGroup
+						title="Strengths you keep returning to"
+						items={signalBuckets.strengths}
+						variant="strength"
+					/>
+					<SignalGroup
+						title="Signals from the conversation"
+						items={signalBuckets.interests}
+						variant="interest"
+					/>
+					<SignalGroup
+						title="What you’re hungry to change"
+						items={signalBuckets.goals}
+						variant="goal"
+					/>
 				</div>
 			</section>
 
 			<section className="opportunity-mapping">
 				<SectionHeader
-					eyebrow="Opportunity mapping"
-					title={`Where ${snapshot.themes[0]?.label ?? "this interest"} can take you`}
-					description="Multiple routes we can pursue and remix—no single path required."
+					eyebrow="Opportunities from today’s chat"
+					title="Where your strengths can take you next"
+					description="Clusters blend your saved cards with nearby plays—pick one to pressure-test next."
 				/>
-				<div className="opportunity-grid">
-					<OpportunityColumn title="Direct roles that fit" lanes={snapshot.opportunities.directPaths} />
-					<OpportunityColumn
-						title="Adjacent missions worth exploring"
-						lanes={snapshot.opportunities.adjacentOpportunities}
-					/>
-					<OpportunityColumn
-						title="Transferable skills you’re building"
-						lanes={snapshot.opportunities.transferableSkills}
-					/>
-					<OpportunityColumn
-						title="Innovation and entrepreneurial plays"
-						lanes={snapshot.opportunities.innovationPotential}
-					/>
-				</div>
+				{opportunityGroups.length > 0 ? (
+					<div className="opportunity-summary-grid">
+						{opportunityGroups.map((group) => (
+							<OpportunitySummaryGroupCard key={group.id} group={group} />
+						))}
+					</div>
+				) : (
+					<p className="empty-state">We’ll surface opportunity clusters once you react to a few cards.</p>
+				)}
 			</section>
 
 			<section className="market-reality">
 				<SectionHeader
-					eyebrow="UK market reality"
-					title="Opportunities, earnings, and proof"
-					description="Grounding the exploration in real data to reassure anyone backing the mission."
+					eyebrow="Evidence to back you up"
+					title="Proof points for your shortlist"
+					description="Use these benchmarks and live searches when you brief mentors or sponsors."
 				/>
-				{snapshot.marketReality.salaryData.length > 0 ? (
-					<div className="market-cards">
-						{snapshot.marketReality.salaryData.map((item) => (
-							<article key={`salary-${item.title}`} className="market-card tilted-card">
-								<h3>{item.title}</h3>
-								<p className="market-range">{item.salaryRange}</p>
-								<p className="market-note">{item.opportunitySignal}</p>
-								<ul>
-									{item.sources.map((source) => (
-										<li key={source.url}>
-											<a href={source.url} target="_blank" rel="noreferrer">
-												{source.label} <ArrowUpRight className="resource-icon" aria-hidden />
-											</a>
+				{salaryHighlights.length + demandHighlights.length + successHighlights.length > 0 ? (
+					<div className="market-summary-grid">
+						{salaryHighlights.length > 0 ? (
+							<article className="market-summary-card">
+								<h3>Salary benchmarks</h3>
+								<ul className="market-summary-list">
+									{salaryHighlights.map((item) => (
+										<li key={`salary-${item.title}`}>
+											<div className="market-summary-item">
+												<span className="market-summary-title">{item.title}</span>
+												<p className="market-summary-range">{item.salaryRange}</p>
+												<p className="market-summary-note">{item.opportunitySignal}</p>
+												<div className="market-summary-links">
+													{item.sources.map((source) => (
+														<a key={source.url} href={source.url} target="_blank" rel="noreferrer">
+															{source.label} <ArrowUpRight className="resource-icon" aria-hidden />
+														</a>
+													))}
+												</div>
+											</div>
 										</li>
 									))}
 								</ul>
 							</article>
-						))}
+						) : null}
+						{demandHighlights.length > 0 ? (
+							<article className="market-summary-card">
+								<h3>Live demand checks</h3>
+								<ul className="market-summary-list">
+									{demandHighlights.map((item) => (
+										<li key={`demand-${item.title}`}>
+											<div className="market-summary-item">
+												<span className="market-summary-title">{item.title}</span>
+												<p className="market-summary-note">{item.opportunitySignal}</p>
+												<div className="market-summary-links">
+													{item.sources.map((source) => (
+														<a key={source.url} href={source.url} target="_blank" rel="noreferrer">
+															{source.label} <ArrowUpRight className="resource-icon" aria-hidden />
+														</a>
+													))}
+												</div>
+											</div>
+										</li>
+									))}
+								</ul>
+							</article>
+						) : null}
+						{successHighlights.length > 0 ? (
+							<article className="market-summary-card">
+								<h3>Signals worth bookmarking</h3>
+								<ul className="market-summary-list">
+									{successHighlights.map((item) => (
+										<li key={`story-${item.title}`}>
+											<div className="market-summary-item">
+												<span className="market-summary-title">{item.title}</span>
+												<p className="market-summary-note">{item.opportunitySignal}</p>
+												<div className="market-summary-links">
+													{item.sources.map((source) => (
+														<a key={source.url} href={source.url} target="_blank" rel="noreferrer">
+															{source.label} <ArrowUpRight className="resource-icon" aria-hidden />
+														</a>
+													))}
+												</div>
+											</div>
+										</li>
+									))}
+								</ul>
+							</article>
+						) : null}
 					</div>
 				) : (
-					<p className="empty-state">Once you react to a few cards, we’ll surface salary benchmarks here.</p>
+					<p className="empty-state">Add a few saves to unlock market benchmarks and live demand scans.</p>
 				)}
-				{snapshot.marketReality.marketDemand.length > 0 ? (
-					<div className="market-cards secondary">
-						{snapshot.marketReality.marketDemand.map((item) => (
-							<article key={`demand-${item.title}`} className="market-card secondary-card">
-								<h3>{item.title}</h3>
-								<p>{item.opportunitySignal}</p>
-								<ul>
-									{item.sources.map((source) => (
-										<li key={source.url}>
-											<a href={source.url} target="_blank" rel="noreferrer">
-												{source.label} <ArrowUpRight className="resource-icon" aria-hidden />
-											</a>
-										</li>
-									))}
-								</ul>
-							</article>
-						))}
-					</div>
-				) : null}
 			</section>
 
 			<section className="learning-pathways">
 				<SectionHeader
 					eyebrow="Build your craft"
-					title={`How to develop your ${snapshot.themes[0]?.label ?? "interest"}`}
-					description="Mix and match routes—formal, informal, and experimental—to keep momentum."
+					title={`Build your craft around ${craftFocus}`}
+					description="Mix formal, community, and experimental routes pulled from your saved ideas."
 				/>
-				<div className="learning-grid">
-					{snapshot.learningPathways.map((group) => (
-						<LearningPathway key={group.title} group={group} />
-					))}
-				</div>
-			</section>
-
-			<section className="stakeholder-guide">
-				<SectionHeader
-					eyebrow="Bring people with you"
-					title="How to talk about your journey"
-					description="Tactical language to get supporters excited and confident."
-				/>
-				<div className="stakeholder-grid">
-					{snapshot.stakeholderMessages.map((message) => (
-						<StakeholderColumn key={message.audience} message={message} />
-					))}
-				</div>
-			</section>
-
-			<section className="next-steps">
-				<SectionHeader
-					eyebrow="Stay in motion"
-					title="What to try next"
-					description="Tiny experiments stack up. Treat these as prompts you can remix."
-				/>
-				<div className="timeline-grid">
-					<TimelineColumn title="This week" items={snapshot.nextSteps.immediate} emptyMessage="Complete a card reaction to unlock quick experiments." />
-					<TimelineColumn title="This month" items={snapshot.nextSteps.shortTerm} emptyMessage="We’ll add deeper projects once a few directions stand out." />
-					<TimelineColumn title="Next quarter" items={snapshot.nextSteps.mediumTerm} emptyMessage="Big plays appear here once we’ve stress-tested a few sparks." />
-				</div>
+				{resourcesStatus === "loading" ? (
+					<p className="resource-status">Gathering fresh resources…</p>
+				) : null}
+				{resourcesStatus === "error" ? (
+					<div className="resource-error">
+						<p>{resourcesError ?? "We couldn’t load resources right now."}</p>
+						<Button type="button" variant="outline" size="sm" onClick={onResourcesRetry}>
+							Try again
+						</Button>
+					</div>
+				) : null}
+				{resourcesStatus === "ready" && learningResources.length > 0 ? (
+					<div className="learning-grid">
+						{learningResources.map((group) => (
+							<LearningPathway key={group.title} group={group} />
+						))}
+					</div>
+				) : null}
+				{resourcesStatus === "ready" && learningResources.length === 0 ? (
+					<p className="empty-state">
+						No craft resources yet. React to a few ideas or try again in a moment.
+					</p>
+				) : null}
 			</section>
 		</div>
 	);
@@ -380,14 +545,14 @@ function ExplorationBody({
 function JourneyHeader({
 	userName,
 	discoveryDate,
-	passions,
+	heroSummary,
 	shareUrl,
 	sessionId,
 	onVisualiseMap,
 }: {
 	userName: string;
 	discoveryDate: string;
-	passions: string;
+	heroSummary: string;
 	shareUrl: string;
 	sessionId: string;
 	onVisualiseMap: () => void;
@@ -398,14 +563,15 @@ function JourneyHeader({
 				<h1>{`${userName}’s Exploration Journey`}</h1>
 				<p className="exploration-date">Discovered: {discoveryDate}</p>
 				<div className="passion-summary">
-					<p>Exploring pathways aligned with interests in {passions}.</p>
+					<p>{heroSummary}</p>
 				</div>
 			</div>
 			<div className="journey-header-sidebar">
-				<ShareControls shareUrl={shareUrl} userName={userName} />
+				<ShareControls shareUrl={shareUrl} userName={userName} summary={heroSummary} />
 				<div className="journey-header-actions">
 					<Button type="button" className="visualise-button" onClick={onVisualiseMap}>
-						<Map className="size-4" aria-hidden />
+						<MapIcon className="size-4" aria-hidden />
+							<MapIcon className="size-4" aria-hidden />
 						<span>Visualise your map</span>
 					</Button>
 					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
@@ -415,22 +581,97 @@ function JourneyHeader({
 	);
 }
 
-function JourneyStatsBar({ stats }: { stats: JourneyStats }) {
-	const items = [
-		{ label: "Insights unlocked", value: stats.insightsUnlocked },
-		{ label: "Pathways explored", value: stats.pathwaysExplored },
-		{ label: "Paths I’m amped about", value: stats.pathsAmpedAbout },
-		{ label: "Bold moves logged", value: stats.boldMovesMade },
-	];
+function ConversationSummarySection({
+	summary,
+	status,
+	error,
+	onRetry,
+}: {
+	summary: GeneratedSummary | null;
+	status: SummaryStatus;
+	error: string | null;
+	onRetry: () => void;
+}) {
+	const baseHeader = (
+		<SectionHeader
+			eyebrow="What this really means"
+			title="MirAI’s take on your session"
+			description="Short, grounded reflections you can hand to a mentor, teacher, or mate."
+		/>
+	);
+
+	if (status === "loading") {
+		return (
+			<section className="conversation-summary-section">
+				{baseHeader}
+				<div className="conversation-summary-card conversation-summary-card--loading">
+					<p className="conversation-summary-message">Crafting your recap…</p>
+				</div>
+			</section>
+		);
+	}
+
+	if (status === "error") {
+		return (
+			<section className="conversation-summary-section">
+				{baseHeader}
+				<div className="conversation-summary-card conversation-summary-card--error">
+					<p className="conversation-summary-message">
+						{error ?? "We couldn’t generate your summary just now."}
+					</p>
+					<Button type="button" variant="outline" size="sm" onClick={onRetry}>
+						Try again
+					</Button>
+				</div>
+			</section>
+		);
+	}
+
+	if (!summary) {
+		return null;
+	}
 
 	return (
-		<section className="journey-stats">
-			{items.map((item) => (
-				<div key={item.label} className="journey-stat-card">
-					<div className="journey-stat-value">{item.value}</div>
-					<div className="journey-stat-label">{item.label}</div>
+		<section className="conversation-summary-section">
+			{baseHeader}
+			<div className="conversation-summary-card">
+				<div className="conversation-summary-copy">
+					<p>Here’s what I’m holding onto from today’s chat.</p>
+					<p>{summary.whyItMatters}</p>
+					{summary.callToAction ? (
+						<p className="conversation-summary-cta">{summary.callToAction}</p>
+					) : null}
 				</div>
-			))}
+				<div className="conversation-summary-highlights">
+					{summary.themes.length > 0 ? (
+						<div>
+							<h3>Core sparks</h3>
+							<ul>
+								{summary.themes.map((theme) => (
+									<li key={`theme-${theme.toLowerCase()}`}>{theme}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{summary.strengths.length > 0 ? (
+						<div>
+							<h3>Strengths in play</h3>
+							<ul>
+								{summary.strengths.map((strength) => (
+									<li key={`strength-${strength.toLowerCase()}`}>{strength}</li>
+								))}
+							</ul>
+						</div>
+					) : null}
+					{summary.constraint ? (
+						<div>
+							<h3>Reality check</h3>
+							<p>{summary.constraint}</p>
+						</div>
+					) : null}
+				</div>
+				<p className="conversation-summary-closing">{summary.closing}</p>
+			</div>
 		</section>
 	);
 }
@@ -481,59 +722,181 @@ function JourneyVisualSection({
 	);
 }
 
-function IdeaStashSection({
-	suggestions,
-	votesByCareerId,
-	voteCareer,
-}: {
+const IdeaStashSection = forwardRef<HTMLDivElement, {
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
-}) {
+}>(
+({ suggestions, votesByCareerId, voteCareer }, ref) => {
+	const [isOpen, setIsOpen] = useState(false);
 	const savedCards = suggestions.filter((s) => votesByCareerId[s.id] === 1);
 	const maybeCards = suggestions.filter((s) => votesByCareerId[s.id] === 0);
 	const skippedCards = suggestions.filter((s) => votesByCareerId[s.id] === -1);
 	const hasVotedCards = savedCards.length > 0 || maybeCards.length > 0 || skippedCards.length > 0;
+	const summaryParts = [
+		{ label: "Saved", count: savedCards.length },
+		{ label: "Maybe", count: maybeCards.length },
+		{ label: "Parked", count: skippedCards.length },
+	]
+		.filter((item) => item.count > 0)
+		.map((item) => `${item.label} ${item.count}`);
+	const summaryText = summaryParts.length > 0 ? summaryParts.join(" · ") : "No reactions logged yet";
+	const highlightTitles = savedCards.slice(0, 2).map((card) => card.title);
 
 	return (
-		<section className="voted-cards-section">
+		<section className="voted-cards-section" ref={ref}>
 			<SectionHeader
-				eyebrow="Your reactions"
-				title="Idea stash"
-				description="Saved cards stay front and centre. Maybe and skipped cards are parked for when you want to review."
+				eyebrow="Ideas to explore"
+				title="Bookmark queue from the chat"
+				description="Your reactions feed this list. Expand when you’re ready to revisit the full cards."
 			/>
+			<div className="idea-stash-toggle">
+				<button
+					type="button"
+					className="idea-stash-toggle-button"
+					onClick={() => setIsOpen((open) => !open)}
+					aria-expanded={isOpen}
+					aria-controls="idea-stash-content"
+				>
+					<div className="idea-stash-toggle-label">
+						<span>{isOpen ? "Hide idea stash" : "Show idea stash"}</span>
+						<span className="idea-stash-summary">{summaryText}</span>
+					</div>
+					<ChevronDown
+						className={cn("idea-stash-toggle-icon", isOpen ? "idea-stash-toggle-icon--open" : "")}
+						aria-hidden
+					/>
+				</button>
+				{highlightTitles.length > 0 ? (
+					<div className="idea-stash-highlights">
+						{highlightTitles.map((title) => (
+							<span key={title} className="idea-stash-chip">
+								{title}
+							</span>
+						))}
+						{savedCards.length > highlightTitles.length ? (
+							<span className="idea-stash-chip">+{savedCards.length - highlightTitles.length} more saved</span>
+						) : null}
+					</div>
+				) : null}
+			</div>
 			{hasVotedCards ? (
-				<div className="idea-stash">
-					<IdeaGroup
-						title={`✅ Saved (${savedCards.length})`}
-						emphasis="positive"
-						cards={savedCards}
-						votesByCareerId={votesByCareerId}
-						voteCareer={voteCareer}
-					/>
-					<IdeaGroup
-						title={`🤔 Maybe (${maybeCards.length})`}
-						emphasis="neutral"
-						cards={maybeCards}
-						votesByCareerId={votesByCareerId}
-						voteCareer={voteCareer}
-					/>
-					<IdeaGroup
-						title={`👎 Skipped (${skippedCards.length})`}
-						emphasis="muted"
-						cards={skippedCards}
-						votesByCareerId={votesByCareerId}
-						voteCareer={voteCareer}
-					/>
-				</div>
+				isOpen ? (
+					<div className="idea-stash" id="idea-stash-content">
+						<IdeaGroup
+							title={`Saved (${savedCards.length})`}
+							emphasis="positive"
+							cards={savedCards}
+							votesByCareerId={votesByCareerId}
+							voteCareer={voteCareer}
+						/>
+						<IdeaGroup
+							title={`Maybe (${maybeCards.length})`}
+							emphasis="neutral"
+							cards={maybeCards}
+							votesByCareerId={votesByCareerId}
+							voteCareer={voteCareer}
+						/>
+						<IdeaGroup
+							title={`Parked (${skippedCards.length})`}
+							emphasis="muted"
+							cards={skippedCards}
+							votesByCareerId={votesByCareerId}
+							voteCareer={voteCareer}
+						/>
+					</div>
+				) : null
 			) : (
-				<div className="voted-cards-placeholder">
-					<p className="text-muted-foreground text-center py-8">
-						Voted cards will appear here once you react to career suggestions in the chat.
-					</p>
-				</div>
+				isOpen ? (
+					<div className="voted-cards-placeholder" id="idea-stash-content">
+						<p className="text-muted-foreground text-center py-8">
+							Voted cards will appear here once you react to career suggestions in the chat.
+						</p>
+					</div>
+				) : null
 			)}
 		</section>
+	);
+});
+IdeaStashSection.displayName = "IdeaStashSection";
+
+function TopPathwaysSection({
+	pathways,
+	onExploreIdeas,
+}: {
+	pathways: TopPathway[];
+	onExploreIdeas: () => void;
+}) {
+	if (pathways.length === 0) return null;
+
+	return (
+		<section className="top-pathways-section">
+			<SectionHeader
+				eyebrow="Where your aptitudes could lead"
+				title="Top paths to explore next"
+				description="Quick snapshot of the routes that stood out. Jump into the ideas list for full details."
+			/>
+			<div className="top-pathways-grid">
+				{pathways.map((pathway, index) => (
+					<article key={pathway.id} className="top-pathway-card">
+						<header>
+							<span className="top-pathway-index">{index + 1}</span>
+							<h3>{pathway.title}</h3>
+						</header>
+						<p className="top-pathway-description">{pathway.summary}</p>
+						{pathway.nextStep ? <p className="top-pathway-step">{pathway.nextStep}</p> : null}
+					</article>
+				))}
+			</div>
+			<div>
+				<Button type="button" variant="outline" onClick={onExploreIdeas}>
+					Explore full idea stash
+				</Button>
+			</div>
+		</section>
+	);
+}
+
+function SignalGroup({
+	title,
+	items,
+	variant,
+}: {
+	title: string;
+	items: SignalItem[];
+	variant: "strength" | "interest" | "goal";
+}) {
+	const colorClass =
+		variant === "strength"
+			? "signal-icon--strength"
+			: variant === "interest"
+			? "signal-icon--interest"
+			: "signal-icon--goal";
+
+	if (items.length === 0) {
+		return (
+			<article className="signal-group signal-group--empty">
+				<h3>{title}</h3>
+				<p className="signal-empty-state">We’ll add more here as you share new details.</p>
+			</article>
+		);
+	}
+
+	return (
+		<article className="signal-group">
+			<h3>{title}</h3>
+			<ul>
+				{items.map((item, index) => (
+					<li key={`${variant}-${index}`}>
+						<span className={cn("signal-icon", colorClass)} aria-hidden />
+						<div>
+							<span className="signal-label">{item.label}</span>
+							{item.evidence ? <span className="signal-evidence">{item.evidence}</span> : null}
+						</div>
+					</li>
+				))}
+			</ul>
+		</article>
 	);
 }
 
@@ -570,14 +933,20 @@ function IdeaGroup({
 	);
 }
 
-function TimelineColumn({ title, items, emptyMessage }: { title: string; items: string[]; emptyMessage: string }) {
+function TimelineColumn({ title, items, emptyMessage }: { title: string; items: TimelineItem[]; emptyMessage: string }) {
 	return (
 		<div className="timeline-column">
 			<h3>{title}</h3>
 			{items.length > 0 ? (
 				<ul>
 					{items.map((item) => (
-						<li key={item}>{item}</li>
+						<li key={`${item.action}-${item.condition ?? ""}`} className="timeline-item">
+							<span className="timeline-bullet" aria-hidden />
+							<div className="timeline-copy">
+								<span className="timeline-action">{item.action}</span>
+								{item.condition ? <span className="timeline-condition">{item.condition}</span> : null}
+							</div>
+						</li>
 					))}
 				</ul>
 			) : (
@@ -596,6 +965,7 @@ export function ExplorationView() {
 		voteCareer,
 		journeyVisual,
 		setJourneyVisual,
+		turns,
 	} = useSession();
 
 	const snapshot = useMemo(() => buildExplorationSnapshot(profile, suggestions, votesByCareerId), [
@@ -634,6 +1004,173 @@ export function ExplorationView() {
 
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
+	const topPathways = useMemo(
+		() => buildTopPathways(profile, suggestions, votesByCareerId),
+		[profile, suggestions, votesByCareerId]
+	);
+	const signalBuckets = useMemo(() => buildSignalBuckets(profile), [profile]);
+
+const summaryPayload = useMemo(
+	() =>
+		buildSummaryRequestPayload({
+			userName,
+			signalBuckets,
+			topPathways,
+			stats,
+			turns,
+			profile,
+		}),
+	[userName, signalBuckets, topPathways, stats, turns, profile]
+);
+const summaryPayloadJson = useMemo(() => JSON.stringify(summaryPayload), [summaryPayload]);
+
+const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("loading");
+const [summaryError, setSummaryError] = useState<string | null>(null);
+const [aiSummary, setAiSummary] = useState<GeneratedSummary | null>(null);
+const [summaryVersion, setSummaryVersion] = useState(0);
+
+const resourcePayload = useMemo(
+	() => ({
+		strengths: signalBuckets.strengths.map((item) => ({
+			label: item.label,
+			evidence: item.evidence ?? null,
+		})),
+		goals: signalBuckets.goals.map((item) => ({
+			label: item.label,
+			evidence: item.evidence ?? null,
+		})),
+		themes: snapshot.themes.map((theme) => ({ label: theme.label })),
+	}),
+	[signalBuckets.strengths, signalBuckets.goals, snapshot.themes]
+);
+
+const hasResourceContext =
+	resourcePayload.strengths.length > 0 ||
+	resourcePayload.goals.length > 0 ||
+	resourcePayload.themes.length > 0;
+
+const resourceRequestBody = useMemo(() => JSON.stringify(resourcePayload), [resourcePayload]);
+
+const [resourceStatus, setResourceStatus] = useState<ResourceStatus>("idle");
+const [resourceError, setResourceError] = useState<string | null>(null);
+const [learningResources, setLearningResources] = useState<LearningPathwayGroup[]>([]);
+const [resourceVersion, setResourceVersion] = useState(0);
+useEffect(() => {
+	let cancelled = false;
+	const controller = new AbortController();
+
+	async function generateSummary() {
+		try {
+			setSummaryStatus("loading");
+			setSummaryError(null);
+			setAiSummary(null);
+
+			const res = await fetch("/api/exploration/summary", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: summaryPayloadJson,
+				signal: controller.signal,
+			});
+
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				throw new Error(body.error ?? res.statusText);
+			}
+
+			const data = (await res.json()) as { summary: GeneratedSummary };
+			if (!cancelled) {
+				setAiSummary(data.summary);
+				setSummaryStatus("ready");
+			}
+		} catch (err) {
+			if (cancelled) return;
+			const message = err instanceof Error ? err.message : "Failed to generate summary";
+			setSummaryStatus("error");
+			setSummaryError(message);
+		}
+	}
+
+	generateSummary();
+
+	return () => {
+		cancelled = true;
+		controller.abort();
+	};
+}, [summaryPayloadJson, summaryVersion]);
+
+const handleSummaryRetry = useCallback(() => {
+	setSummaryVersion((version) => version + 1);
+}, []);
+
+useEffect(() => {
+	let cancelled = false;
+	const controller = new AbortController();
+
+	if (!hasResourceContext) {
+		setLearningResources([]);
+		setResourceStatus("ready");
+		setResourceError(null);
+		return () => {
+			cancelled = true;
+			controller.abort();
+		};
+	}
+
+	async function loadResources() {
+		try {
+			setResourceStatus("loading");
+			setResourceError(null);
+
+			const response = await fetch("/api/exploration/resources", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: resourceRequestBody,
+				signal: controller.signal,
+			});
+
+			if (!response.ok) {
+				let message = "Unable to fetch exploration resources right now.";
+				try {
+					const errorBody = (await response.json()) as { error?: string };
+					if (typeof errorBody?.error === "string" && errorBody.error.trim().length > 0) {
+						message = errorBody.error.trim();
+					}
+				} catch {
+					// ignore
+				}
+				if (!cancelled) {
+					setResourceStatus("error");
+					setResourceError(message);
+				}
+				return;
+			}
+
+			const data = (await response.json()) as { groups?: LearningPathwayGroup[] };
+			if (!cancelled) {
+				setLearningResources(Array.isArray(data.groups) ? data.groups : []);
+				setResourceStatus("ready");
+			}
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			console.error("[ExplorationView] failed to load build-your-craft resources", error);
+			if (!cancelled) {
+				setResourceStatus("error");
+				setResourceError("Unable to fetch exploration resources right now.");
+			}
+		}
+	}
+
+	void loadResources();
+
+	return () => {
+		cancelled = true;
+		controller.abort();
+	};
+}, [resourceRequestBody, hasResourceContext, resourceVersion]);
+
+const handleResourcesRetry = useCallback(() => {
+	setResourceVersion((version) => version + 1);
+}, []);
 
 	type VisualStatus = "idle" | "loading" | "error" | "ready";
 	const [visualOpen, setVisualOpen] = useState(false);
@@ -776,6 +1313,13 @@ const triggerGeneration = async () => {
 		}
 	};
 
+	const normalizedResourceStatus: ResourceStatus =
+		resourceStatus === "idle"
+			? hasResourceContext
+				? "loading"
+				: "ready"
+			: resourceStatus;
+
 	return (
 		<>
 			<ExplorationBody
@@ -784,12 +1328,21 @@ const triggerGeneration = async () => {
 				discoveryDate={discoveryDate}
 				sessionId={sessionId}
 				shareUrl={shareUrl}
-				stats={stats}
+				topPathways={topPathways}
+				signalBuckets={signalBuckets}
+				summaryStatus={summaryStatus}
+				summaryData={aiSummary}
+				summaryError={summaryError}
+				onSummaryRetry={handleSummaryRetry}
 				suggestions={suggestions}
 				votesByCareerId={votesByCareerId}
 				voteCareer={voteCareer}
 				journeyVisual={journeyVisual}
 				onVisualiseMap={handleVisualiseMap}
+				learningResources={learningResources}
+				resourcesStatus={normalizedResourceStatus}
+				resourcesError={resourceError}
+				onResourcesRetry={handleResourcesRetry}
 			/>
 			<Dialog open={visualOpen} onOpenChange={handleOpenChange}>
 				<DialogContent className="max-w-4xl">
@@ -877,4 +1430,514 @@ const triggerGeneration = async () => {
 			</Dialog>
 		</>
 	);
+}
+
+function buildTopPathways(
+	profile: Profile,
+	suggestions: CareerSuggestion[],
+	votesByCareerId: Record<string, 1 | 0 | -1>
+): TopPathway[] {
+	const saved = suggestions.filter((card) => votesByCareerId[card.id] === 1);
+	const maybe = suggestions.filter((card) => votesByCareerId[card.id] === 0);
+	const remaining = suggestions.filter((card) => votesByCareerId[card.id] === undefined);
+
+	const rankedCards = [...saved, ...maybe, ...remaining];
+	const seenIds = new Set<string>();
+	const pathways: TopPathway[] = [];
+
+	for (const card of rankedCards) {
+		if (seenIds.has(card.id)) continue;
+		seenIds.add(card.id);
+		const summary =
+			card.summary ||
+			card.whyItFits.find((line) => line.trim().length > 0) ||
+			"Let’s explore how this direction lines up with what you shared.";
+		const nextStep =
+			card.nextSteps.find((step) => step.trim().length > 0) ??
+			card.whyItFits.find((line) => line.trim().length > 0);
+
+		pathways.push({
+			id: card.id,
+			title: card.title,
+			summary,
+			nextStep,
+		});
+		if (pathways.length >= 3) break;
+	}
+
+	if (pathways.length < 3) {
+		const goalFallbacks = [...profile.goals, ...profile.hopes]
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0);
+		for (let i = 0; i < goalFallbacks.length && pathways.length < 3; i += 1) {
+			const goal = goalFallbacks[i];
+			pathways.push({
+				id: `goal-${i}`,
+				title: goal,
+				summary: "Use this as a north star. We’ll translate it into concrete experiments together.",
+				nextStep: "Add more detail or examples so we can shape the next steps.",
+			});
+		}
+	}
+
+	return pathways.slice(0, 3);
+}
+
+function buildOpportunitySummary(opportunities: OpportunityMap): OpportunitySummaryGroup[] {
+	const summariseLane = (lane: OpportunityLane): OpportunitySummaryItem => {
+		const contextSource = lane.highlights[0] ?? lane.description;
+		return {
+			id: lane.id,
+			title: lane.title,
+			context: contextSource ? shortenEvidence(contextSource, 18) : null,
+			action: lane.callToAction ?? null,
+		};
+	};
+
+	const groups: OpportunitySummaryGroup[] = [];
+
+	const coreItems = opportunities.directPaths.slice(0, 3).map(summariseLane);
+	if (coreItems.length > 0) {
+		groups.push({
+			id: "core-plays",
+			title: "Core plays to double down on",
+			description: "Saved directions that line up cleanly with the strengths you kept highlighting.",
+			items: coreItems,
+		});
+	}
+
+	const adjacentItems = opportunities.adjacentOpportunities.slice(0, 3).map(summariseLane);
+	if (adjacentItems.length > 0) {
+		groups.push({
+			id: "adjacent-missions",
+			title: "Adjacent missions worth sampling",
+			description: "Nearby lanes that stretch your skills without throwing you into the deep end.",
+			items: adjacentItems,
+		});
+	}
+
+	const experimentLanes = [
+		...opportunities.transferableSkills.slice(0, 2),
+		...opportunities.innovationPotential.slice(0, 2),
+	];
+	const experimentItems = experimentLanes.map(summariseLane);
+	if (experimentItems.length > 0) {
+		groups.push({
+			id: "experiments",
+			title: "Experiments to prototype",
+			description: "Use these to test demand, sharpen a skill gap, or package your own offer.",
+			items: experimentItems,
+		});
+	}
+
+	return groups;
+}
+
+function formatTimelineEntries(entries: string[], limit = 3): TimelineItem[] {
+	const seen = new Set<string>();
+	const items: TimelineItem[] = [];
+
+	entries.forEach((entry) => {
+		const parsed = parseTimelineEntry(entry);
+		if (!parsed) {
+			return;
+		}
+		const key = `${parsed.action.toLowerCase()}|${(parsed.condition ?? "").toLowerCase()}`;
+		if (seen.has(key)) {
+			return;
+		}
+		seen.add(key);
+		items.push(parsed);
+	});
+
+	return items.slice(0, limit);
+}
+
+function parseTimelineEntry(entry: string): TimelineItem | null {
+	if (!entry) return null;
+	let working = entry.replace(/^[•\-\u2022]\s*/, "").trim();
+	if (!working) return null;
+
+	working = working.replace(/\s+/g, " ");
+
+	const colonIndex = working.indexOf(":");
+	if (colonIndex !== -1 && colonIndex < working.length - 1) {
+		const head = working.slice(0, colonIndex).trim();
+		const tail = working.slice(colonIndex + 1).trim();
+		if (tail) {
+			working = `${head} ${tail}`;
+		} else {
+			working = head;
+		}
+	}
+
+	let action = working;
+	let condition: string | undefined;
+
+	const ifMatch = action.match(/\bif\b/i);
+	if (ifMatch) {
+		const [before, after] = action.split(/\bif\b/i, 2);
+		if (before?.trim()) {
+			action = before.trim();
+		}
+		if (after?.trim()) {
+			condition = `If ${capitalizeSentence(after.trim())}`;
+		}
+	}
+
+	const connectorPatterns: Array<{ regex: RegExp; label: string }> = [
+		{ regex: /\bso you can\b/i, label: "So you can" },
+		{ regex: /\bso that you can\b/i, label: "So you can" },
+		{ regex: /\bso you\b/i, label: "So you" },
+	];
+
+	for (const { regex, label } of connectorPatterns) {
+		const match = regex.exec(action);
+		if (match && typeof match.index === "number") {
+			const base = action.slice(0, match.index).trim();
+			const tail = action.slice(match.index + match[0].length).trim();
+			if (base) {
+				action = base;
+			}
+			if (tail) {
+				condition = condition ?? `${label} ${capitalizeSentence(tail)}`;
+			}
+			break;
+		}
+	}
+
+	action = capitalizeSentence(action);
+	if (!action) return null;
+
+	if (condition) {
+		condition = condition.replace(/\.$/, "");
+	}
+
+	return {
+		action,
+		condition: condition ?? null,
+	};
+}
+
+function capitalizeSentence(value: string): string {
+	const trimmed = value.trim().replace(/\s+/g, " ").replace(/\.$/, "");
+	if (!trimmed) return "";
+	return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function buildSignalBuckets(profile: Profile): SignalBuckets {
+	const fromInsights = (
+		kinds: ProfileInsight["kind"][],
+		labelFormatter: (value: string) => string,
+		evidenceKind: "strength" | "interest" | "goal"
+	): SignalItem[] => {
+		const items: SignalItem[] = [];
+		profile.insights
+			.filter((insight) => kinds.includes(insight.kind))
+			.forEach((insight) => {
+			const formattedLabel = labelFormatter(insight.value);
+			const candidate =
+				formattedLabel && formattedLabel.trim().length >= 4
+					? formattedLabel.trim()
+					: insight.evidence
+					? shortenEvidence(normaliseEvidence(insight.evidence))
+					: "";
+			if (!candidate || candidate.trim().length < 4) {
+				return;
+			}
+				items.push({
+				label: candidate,
+					evidence: insight.evidence
+						? shortenEvidence(normaliseEvidence(insight.evidence))
+					: defaultSignalEvidence(evidenceKind, candidate),
+				});
+			});
+		return items;
+	};
+
+	const strengths = dedupeSignalItems(
+		[
+			...fromInsights(["strength"], formatStrengthLabel, "strength"),
+			...profile.strengths.map((value) => {
+				const label = formatStrengthLabel(value);
+				return {
+					label,
+					evidence: defaultSignalEvidence("strength", label),
+				};
+			}),
+		],
+		3
+	);
+
+	const interests = dedupeSignalItems(
+		[
+			...fromInsights(["interest"], formatInterestLabel, "interest"),
+			...profile.interests
+				.map((value) => formatInterestLabel(value))
+				.filter((label): label is string => !!label && label.trim().length >= 4)
+				.map((label) => ({
+					label,
+					evidence: defaultSignalEvidence("interest", label),
+				})),
+		],
+		3,
+		["lot", "watching", "watch", "videos", "video", "idea", "able"]
+	);
+
+	const goals = dedupeSignalItems(
+		[
+			...fromInsights(["goal", "hope"], formatGoalLabel, "goal"),
+			...profile.goals.map((value) => {
+				const label = formatGoalLabel(value);
+				return { label, evidence: defaultSignalEvidence("goal", label) };
+			}),
+			...profile.hopes.map((value) => {
+				const label = formatGoalLabel(value);
+				return { label, evidence: defaultSignalEvidence("goal", label) };
+			}),
+		],
+		3
+	);
+
+	return {
+		strengths,
+		interests,
+		goals,
+	};
+}
+
+function shortenEvidence(text: string, wordLimit = 24): string {
+	const words = text.trim().split(/\s+/);
+	if (words.length <= wordLimit) return text.trim();
+	return `${words.slice(0, wordLimit).join(" ")}…`;
+}
+
+function tokenKey(value: string, extraStopWords: string[] = []): string {
+	const baseStopWords = [
+		"a",
+		"an",
+		"and",
+		"the",
+		"to",
+		"for",
+		"of",
+		"into",
+		"with",
+		"about",
+		"thing",
+		"gig",
+		"paid",
+		"your",
+		"my",
+		"our",
+		"their",
+	];
+	const stopWords = new Set([
+		...baseStopWords,
+		...extraStopWords.map((word) => word.toLowerCase()),
+	]);
+	const tokens = value
+		.toLowerCase()
+		.replace(/[^a-z0-9\s]/g, " ")
+		.split(/\s+/)
+		.filter((token) => token.length > 2 && !stopWords.has(token));
+	const unique = Array.from(new Set(tokens)).sort();
+	return unique.join("-");
+}
+
+function toSentenceFragment(label: string): string {
+	const trimmed = label.trim();
+	if (!trimmed) return trimmed;
+	const parts = trimmed.split(/\s+/);
+	const [first, ...rest] = parts;
+	const isAcronym = /^[A-Z]{2,}$/.test(first);
+	const firstWord = isAcronym ? first : first.charAt(0).toLowerCase() + first.slice(1);
+	return [firstWord, ...rest].join(" ");
+}
+
+function defaultSignalEvidence(
+	kind: "strength" | "interest" | "goal",
+	label: string
+): string | null {
+	const fragment = toSentenceFragment(label);
+	if (!fragment) return null;
+	switch (kind) {
+		case "strength":
+			return `You kept leaning on ${fragment} as a proven strength.`;
+		case "interest":
+			return formatInterestEvidence(label);
+		case "goal":
+			return `You're aiming to ${fragment}.`;
+		default:
+			return null;
+	}
+}
+
+function formatInterestEvidence(label: string): string {
+	const cleaned = label.replace(/…$/, "").trim();
+	if (!cleaned) {
+		return "You kept coming back to this theme throughout the conversation.";
+	}
+
+	const lower = cleaned.toLowerCase();
+	if (lower.startsWith("immersed") || lower.startsWith("exploring") || lower.startsWith("dreaming")) {
+		return `You kept coming back to ${lower}.`;
+	}
+	if (lower.startsWith("preparing") || lower.startsWith("building") || lower.startsWith("navigating")) {
+		return `You kept coming back to ${lower}.`;
+	}
+
+	return `You kept coming back to how ${lower}.`;
+}
+
+function dedupeSignalItems(
+	items: SignalItem[],
+	limit: number,
+	extraStopWords: string[] = []
+): SignalItem[] {
+	const map = new Map<string, SignalItem>();
+	items.forEach((item) => {
+		const label = item.label.trim();
+		if (!label) return;
+		const key = tokenKey(label, extraStopWords);
+		if (map.has(key)) return;
+		map.set(key, { label, evidence: item.evidence ?? null });
+	});
+	return Array.from(map.values()).slice(0, limit);
+}
+
+function formatPrimaryThemeLabel(
+	themes: Array<{ label: string }>,
+	pathways: TopPathway[]
+): string {
+	const themeCandidate =
+		themes.find((theme) => theme.label && theme.label.trim().length > 0)?.label ??
+		pathways[0]?.title ??
+		"your next chapter";
+	return humaniseTheme(themeCandidate);
+}
+
+interface SummaryRequestPayload {
+	userName: string;
+	themes: string[];
+	goals: string[];
+	strengths: Array<{ label: string; evidence?: string | null }>;
+	constraint: string | null;
+	metrics: JourneyStats;
+	topPathways: Array<{ title: string; summary: string; nextStep?: string | null }>;
+	anchorQuotes: string[];
+	notes: string[];
+}
+
+function buildSummaryRequestPayload({
+	userName,
+	signalBuckets,
+	topPathways,
+	stats,
+	turns,
+	profile,
+}: {
+	userName: string;
+	signalBuckets: SignalBuckets;
+	topPathways: TopPathway[];
+	stats: JourneyStats;
+	turns: ConversationTurn[];
+	profile: Profile;
+}): SummaryRequestPayload {
+	const themeCandidates = [
+		...topPathways.map((path) => path.title),
+		...signalBuckets.interests.map((item) => item.label),
+		...profile.interests,
+	];
+
+	const themes = uniqueStrings(themeCandidates, 5, humaniseTheme);
+	const goals = uniqueStrings(
+		[
+			...signalBuckets.goals.map((item) => item.label),
+			...profile.goals,
+			...profile.hopes,
+		],
+		5,
+		humaniseTheme
+	);
+
+	const strengths = signalBuckets.strengths.slice(0, 5).map((item) => ({
+		label: humaniseTheme(item.label),
+		evidence: item.evidence ? normaliseEvidence(item.evidence) : null,
+	}));
+
+	const constraintCandidate =
+		profile.constraints[0] ?? profile.frustrations[0] ?? profile.boundaries[0] ?? null;
+
+	const anchorQuotes = pickAnchorQuotes(turns);
+	const notes = uniqueStrings(
+		[...profile.highlights, ...profile.mutualMoments.map((moment) => moment.text)],
+		5,
+		(value) => value.trim()
+	);
+
+	return {
+		userName,
+		themes,
+		goals,
+		strengths,
+		constraint: constraintCandidate ? humaniseConstraint(constraintCandidate) : null,
+		metrics: stats,
+		topPathways: topPathways.slice(0, 3).map((path) => ({
+			title: humaniseTheme(path.title),
+			summary: path.summary,
+			nextStep: path.nextStep ?? null,
+		})),
+		anchorQuotes,
+		notes,
+	};
+}
+
+function normaliseEvidence(text: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return trimmed;
+	return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function humaniseConstraint(raw: string): string {
+	let text = raw.trim();
+	if (!text) return text;
+	text = text.replace(/\bmy\b/gi, "your");
+	text = text.replace(/\bI\b/g, "you");
+	text = text.replace(/^need to\s+/i, "");
+	text = text.replace(/^got to\s+/i, "");
+	if (!text.toLowerCase().startsWith("balancing") && !text.toLowerCase().startsWith("keeping")) {
+		text = `Balancing ${text}`;
+	}
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function uniqueStrings(
+	values: string[],
+	limit: number,
+	transform: (value: string) => string = (value) => value
+): string[] {
+	const map = new Map<string, string>();
+	values.forEach((value) => {
+		const trimmed = value.trim();
+		if (!trimmed) return;
+		const key = tokenKey(trimmed);
+		if (map.has(key)) return;
+		map.set(key, transform(trimmed));
+	});
+	return Array.from(map.values()).slice(0, limit);
+}
+
+function pickAnchorQuotes(turns: ConversationTurn[], limit = 3): string[] {
+	const anchors: string[] = [];
+	for (let i = turns.length - 1; i >= 0; i -= 1) {
+		const turn = turns[i];
+		if (turn.role !== "user") continue;
+		const text = turn.text?.trim();
+		if (!text || text.length < 30) continue;
+		const snippet = text.length > 220 ? `${text.slice(0, 217)}…` : text;
+		anchors.unshift(snippet);
+		if (anchors.length >= limit) break;
+	}
+	return anchors;
 }

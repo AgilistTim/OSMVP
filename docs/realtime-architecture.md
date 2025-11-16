@@ -78,9 +78,9 @@ Participant selects "Voice" mode
 
 ### Turn Detection & Controls
 
-- Default to **server VAD** (`turn_detection: { type: "server_vad" }`) for hands-free flow.
-- Provide manual push-to-talk button; toggling back to manual pauses audio capture and disables automatic turn detection via data channel event.
-- We will surface connection state (connecting, listening, speaking) via the session provider so text UI shows consistent progress percentage.
+- Let OpenAI handle voice activity detection (VAD) via the default realtime transcription pipeline. No extra `turn_detection` block is sent when minting client secrets.
+- Client can still offer a manual push-to-talk override by pausing the microphone track before streaming audio and resuming when the user taps “Hold to talk”.
+- Continue surfacing connection state (connecting, listening, speaking) through the session provider so text and voice share the same progress indicators.
 
 ## Backend Components
 

@@ -19,7 +19,7 @@ import type { ConversationTurn, InsightKind, ActivitySignalCategory } from '@/co
 import type { LucideIcon } from 'lucide-react';
 import { BarChart3, CheckCircle2, ChevronDown, Sparkles, Target, Trophy, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useRealtimeSession } from '@/hooks/use-realtime-session';
 import { VoiceControls } from '@/components/voice-controls';
 import { InlineCareerCard } from '@/components/inline-career-card-v2';
@@ -28,6 +28,7 @@ import '@/components/inline-career-card-v2.css';
 import { REALTIME_VOICE_ID } from '@/lib/realtime-voice';
 import { hasRequiredInsightMix, summarizeAttributeSignals } from '@/lib/suggestion-guards';
 import { buildHobbyDeepeningPrompt } from '@/lib/hobby-prompts';
+import { STORAGE_KEYS } from '@/lib/storage-keys';
 
 type MessageType = {
   message: string;
@@ -95,18 +96,27 @@ const PROGRESS_READY_MESSAGE =
 
 const CARD_REVEAL_DELAY_MS = 3200;
 
-const SHOULD_EAGER_CONNECT =
-  process.env.NEXT_PUBLIC_REALTIME_EAGER === '1' ||
-  (process.env.NEXT_PUBLIC_REALTIME_EAGER !== '0' && process.env.NODE_ENV !== 'production');
-
 const UNREVIEWED_CARD_THRESHOLD = 3;
 const CARD_BACKLOG_TIMEOUT_MS = 90_000;
 const CARD_BACKLOG_NUDGE =
-  "I’ve resurfaced your current cards—give them a quick 👍 or 👎 and I’ll pull fresh directions right after.";
+  "I've resurfaced your current cards—give them a quick 👍 or 👎 and I'll pull fresh directions right after.";
 const MIN_INSIGHTS_FOR_SUGGESTIONS = 4;
 const MIN_USER_TURNS_FOR_SUGGESTIONS = 5;
 const POSITIVE_RESPONSE_REGEX = /\b(yes|yeah|yep|sure|definitely|absolutely|of course|i guess|i suppose|sounds right|i think so)\b/i;
-const NEGATIVE_RESPONSE_REGEX = /\b(no|nah|nope|not really|don['’]t think|do not)\b/i;
+const NEGATIVE_RESPONSES = [
+  'no',
+  'nah',
+  'nope',
+  'not really',
+  "don't think",
+  'do not',
+];
+const NEGATIVE_RESPONSE_REGEX = new RegExp(
+  `\\b(${NEGATIVE_RESPONSES.map((phrase) =>
+    phrase.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')
+  ).join('|')})\\b`,
+  'i'
+);
 const formatReadableList = (items: string[]): string => {
   if (items.length === 0) {
     return '';
@@ -122,6 +132,7 @@ const formatReadableList = (items: string[]): string => {
 
 export function ChatIntegrated() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const {
     profile,
     turns,
@@ -271,21 +282,25 @@ export function ChatIntegrated() {
     };
   }, [capturedInsights, conversationRubric, suggestions.length, votesByCareerId]);
 
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [mode, setMode] = useState<'text' | 'voice'>('voice');
   const [isTyping, setIsTyping] = useState(false);
   const [input, setInput] = useState('');
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [voiceSessionStarted, setVoiceSessionStarted] = useState(false);
-  const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+const [isHeaderExpanded, setIsHeaderExpanded] = useState(false);
+const [readyToastVisible, setReadyToastVisible] = useState(false);
+const [readyToastDismissed, setReadyToastDismissed] = useState(false);
   const [recentlyAddedItem, setRecentlyAddedItem] = useState<string | null>(null);
   const newItemTimerRef = useRef<number | null>(null);
   const previousInsightIdsRef = useRef<Set<string>>(new Set());
   const hasInitializedInsightsRef = useRef(false);
   const hasAnnouncedReadinessRef = useRef(false);
+const hasAutoCollapsedReadyRef = useRef(false);
   const voiceSuggestionBaselineRef = useRef<Set<string>>(new Set());
   const voiceBaselineCapturedRef = useRef(false);
   const cardStatusIdRef = useRef<string | null>(null);
   const cardRevealTimerRef = useRef<number | null>(null);
+  const pendingVoiceCardQueueRef = useRef<Array<() => void>>([]);
   const cardStatusProgressStyle = useMemo(
     () =>
       ({
@@ -294,6 +309,48 @@ export function ChatIntegrated() {
     []
   );
   // Basket drawer removed - voted cards now shown on MY PAGE
+
+  const modeInitializedRef = useRef(false);
+
+  const persistChatMode = useCallback((value: 'text' | 'voice') => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      sessionStorage.setItem(STORAGE_KEYS.chatMode, value);
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[ChatIntegrated] Failed to persist chat mode', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modeInitializedRef.current) {
+      return;
+    }
+
+    let initialMode: 'text' | 'voice' = 'voice';
+    const queryMode = searchParams?.get('mode')?.toLowerCase();
+    if (queryMode === 'text' || queryMode === 'voice') {
+      initialMode = queryMode;
+    } else if (typeof window !== 'undefined') {
+      try {
+        const storedMode = sessionStorage.getItem(STORAGE_KEYS.chatMode);
+        if (storedMode === 'text' || storedMode === 'voice') {
+          initialMode = storedMode;
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[ChatIntegrated] Failed to read stored chat mode', error);
+        }
+      }
+    }
+
+    setMode(initialMode);
+    persistChatMode(initialMode);
+    modeInitializedRef.current = true;
+  }, [searchParams, persistChatMode]);
 
   const insightCategories = useMemo(() => {
     const categories: Array<{
@@ -331,6 +388,10 @@ export function ChatIntegrated() {
 
   const totalInsights = useMemo(
     () => insightCategories.reduce((acc, category) => acc + category.count, 0),
+    [insightCategories]
+  );
+  const canExpandInsights = useMemo(
+    () => insightCategories.some((category) => category.count > 0),
     [insightCategories]
   );
 
@@ -421,10 +482,26 @@ export function ChatIntegrated() {
   }, [attributeSignals.careerSignalCount, attributeSignals.developingSignalCount]);
 
   useEffect(() => {
-    if (progressPercent >= 100 && isHeaderExpanded) {
-      setIsHeaderExpanded(false);
+    if (progressPercent < 100) {
+      hasAutoCollapsedReadyRef.current = false;
+      setReadyToastVisible(false);
+      if (readyToastDismissed) {
+        setReadyToastDismissed(false);
+      }
+      return;
     }
-  }, [progressPercent, isHeaderExpanded]);
+
+    if (!readyToastDismissed) {
+      setReadyToastVisible(true);
+    }
+
+    if (!hasAutoCollapsedReadyRef.current && isHeaderExpanded) {
+      setIsHeaderExpanded(false);
+      hasAutoCollapsedReadyRef.current = true;
+    } else if (!hasAutoCollapsedReadyRef.current) {
+      hasAutoCollapsedReadyRef.current = true;
+    }
+  }, [progressPercent, isHeaderExpanded, readyToastDismissed]);
 
   useEffect(() => {
     if (progressPercent < 100) {
@@ -457,14 +534,39 @@ export function ChatIntegrated() {
       // Switch to voice UI, do not auto-connect or resume mic yet.
       // VoiceControls will connect/resume mic on Start Voice.
       setVoiceSessionStarted(false);
+      persistChatMode('voice');
+      modeInitializedRef.current = true;
       setMode('voice');
     } else {
       // Switch to text: pause mic if connected, keep session alive.
       try { realtimeControls.pauseMicrophone(); } catch { /* noop */ }
       setVoiceSessionStarted(false);
+      setVoiceCardList([]);
+      persistChatMode('text');
+      modeInitializedRef.current = true;
       setMode('text');
     }
-  }, [mode, realtimeControls]);
+  }, [mode, realtimeControls, persistChatMode]);
+
+  const handleReadyToastOpenInsights = useCallback(() => {
+    setReadyToastVisible(false);
+    setReadyToastDismissed(true);
+
+    if (canExpandInsights) {
+      setIsHeaderExpanded(true);
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          const insightsButton = document.querySelector<HTMLButtonElement>('.consolidated-badge');
+          insightsButton?.focus();
+        });
+      }
+    }
+  }, [canExpandInsights]);
+
+  const handleReadyToastDismiss = useCallback(() => {
+    setReadyToastVisible(false);
+    setReadyToastDismissed(true);
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastInsightsTurnCountRef = useRef(0);
@@ -482,7 +584,6 @@ export function ChatIntegrated() {
   const lastProcessedTurnCountRef = useRef(turns.length);
   const lastRubricUpdateAtRef = useRef<number>(0);
   const lastRubricTurnCountRef = useRef<number>(0);
-  const eagerConnectAttemptedRef = useRef(false);
   const backlogNudgeSentRef = useRef(false);
 
   useEffect(() => {
@@ -496,12 +597,12 @@ export function ChatIntegrated() {
   if (suggestionsLastInsightCountRef.current === 0 && typeof window !== 'undefined') {
     try {
       // Clean up any legacy localStorage entry
-      localStorage.removeItem('osmvp_last_insight_count');
+      localStorage.removeItem(STORAGE_KEYS.lastInsightCount);
     } catch {
       // ignore
     }
     try {
-      const stored = sessionStorage.getItem('osmvp_last_insight_count');
+      const stored = sessionStorage.getItem(STORAGE_KEYS.lastInsightCount);
       if (stored) {
         suggestionsLastInsightCountRef.current = parseInt(stored, 10);
         console.log('[ChatIntegrated] Restored last insight count:', suggestionsLastInsightCountRef.current);
@@ -517,12 +618,12 @@ export function ChatIntegrated() {
   if (!hasInitializedShownIds.current && typeof window !== 'undefined') {
     try {
       // Clean up any legacy localStorage entry
-      localStorage.removeItem('osmvp_shown_suggestion_ids');
+      localStorage.removeItem(STORAGE_KEYS.shownSuggestionIds);
     } catch {
       // ignore
     }
     try {
-      const stored = sessionStorage.getItem('osmvp_shown_suggestion_ids');
+      const stored = sessionStorage.getItem(STORAGE_KEYS.shownSuggestionIds);
       if (stored) {
         const ids = JSON.parse(stored) as string[];
         shownSuggestionIdsRef.current = new Set(ids);
@@ -586,7 +687,7 @@ export function ChatIntegrated() {
 
   const CARD_FETCH_ANNOUNCEMENT = useMemo(
     () =>
-      "That sparks a few possibilities. These aren’t recommendations yet—vote them up or down so I can narrow in. Give me a second to line them up.",
+      "That sparks a few possibilities. These aren't recommendations yet—vote them up or down so I can narrow in. Give me a second to line them up.",
     []
   );
 
@@ -747,30 +848,32 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     lastHobbyPromptRef.current = null;
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.removeItem('osmvp_suggestions');
-        sessionStorage.removeItem('osmvp_last_insight_count');
+        sessionStorage.removeItem(STORAGE_KEYS.suggestions);
+        sessionStorage.removeItem(STORAGE_KEYS.lastInsightCount);
       } catch {
         // ignore
       }
     }
   }, [sessionId]);
 
+  const turnCount = turns.length;
+
   useEffect(() => {
     const pending = pendingHobbyPromptRef.current;
     if (!pending) {
       return;
     }
-    if (turns.length === 0) {
+    if (turnCount === 0) {
       return;
     }
-    const lastTurn = turns[turns.length - 1];
+    const lastTurn = turns[turnCount - 1];
     if (!lastTurn || lastTurn.role !== 'user') {
       return;
     }
-    if (lastProcessedTurnRef.current === turns.length) {
+    if (lastProcessedTurnRef.current === turnCount) {
       return;
     }
-    lastProcessedTurnRef.current = turns.length;
+    lastProcessedTurnRef.current = turnCount;
 
     const response = lastTurn.text.toLowerCase();
 
@@ -814,7 +917,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
         },
       ]);
     }
-  }, [appendInferredAttributes, appendProfileInsights, setTurns, turns]);
+  }, [appendInferredAttributes, appendProfileInsights, setTurns, turnCount, turns]);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
@@ -922,7 +1025,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     if (typeof window !== 'undefined') {
       try {
         const idsArray = Array.from(shownSuggestionIdsRef.current);
-        sessionStorage.setItem('osmvp_shown_suggestion_ids', JSON.stringify(idsArray));
+        sessionStorage.setItem(STORAGE_KEYS.shownSuggestionIds, JSON.stringify(idsArray));
         console.log('[ChatIntegrated] Saved shown suggestion IDs to sessionStorage:', idsArray.length);
       } catch (error) {
         console.error('[ChatIntegrated] Failed to save shown suggestion IDs to sessionStorage:', error);
@@ -951,7 +1054,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       revealIndex: index,
     }));
 
-    const applyCardsToTimeline = () => {
+    const runCardInjection = () => {
       setCardMessages(prev => {
         const withUpdatedStatus = prev.map((msg) =>
           msg.type === 'card-status' && msg.statusId === statusId
@@ -1018,19 +1121,53 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
       }
     };
 
+    const flushPendingVoiceQueue = () => {
+      if (pendingVoiceCardQueueRef.current.length === 0) {
+        return;
+      }
+      const queue = pendingVoiceCardQueueRef.current.splice(0);
+      realtimeControls.setOnResponseCompleted(null);
+      queue.forEach((fn) => fn());
+    };
+
+    if (mode === 'voice' && !realtimeState.activeResponseId) {
+      flushPendingVoiceQueue();
+    }
+
+    const scheduleCardInjection = () => {
+      if (mode === 'voice' && realtimeState.activeResponseId) {
+        console.log('[ChatIntegrated] Deferring card injection until current response finishes', {
+          activeResponseId: realtimeState.activeResponseId,
+          pendingCount: pendingVoiceCardQueueRef.current.length,
+        });
+        pendingVoiceCardQueueRef.current.push(() => {
+          console.log('[ChatIntegrated] Running deferred card injection');
+          runCardInjection();
+        });
+        if (pendingVoiceCardQueueRef.current.length === 1) {
+          realtimeControls.setOnResponseCompleted(() => {
+            flushPendingVoiceQueue();
+          });
+        }
+        return;
+      }
+
+      runCardInjection();
+    };
+
     if (typeof window !== 'undefined' && CARD_REVEAL_DELAY_MS > 0) {
       if (cardRevealTimerRef.current !== null) {
         window.clearTimeout(cardRevealTimerRef.current);
       }
       cardRevealTimerRef.current = window.setTimeout(() => {
         cardRevealTimerRef.current = null;
-        applyCardsToTimeline();
+        scheduleCardInjection();
       }, CARD_REVEAL_DELAY_MS);
     } else {
-      applyCardsToTimeline();
+      scheduleCardInjection();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestions, mode]);
+  }, [suggestions, mode, realtimeState.activeResponseId, realtimeControls]);
 
   // Derive insights from conversation
 const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => {
@@ -1437,7 +1574,26 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
         });
 
         if (!response.ok) {
-          throw new Error(`Suggestions request failed: ${response.status}`);
+          const errorClone = response.clone();
+          let message = `Suggestions request failed: ${response.status}`;
+          try {
+            const payload = await errorClone.json();
+            if (payload?.details) {
+              message = `Suggestions request failed: ${payload.details}`;
+            } else if (payload?.error) {
+              message = `Suggestions request failed: ${payload.error}`;
+            }
+          } catch {
+            try {
+              const text = await response.text();
+              if (text.trim().length > 0) {
+                message = `Suggestions request failed: ${text}`;
+              }
+            } catch {
+              // ignore parsing failure
+            }
+          }
+          throw new Error(message);
         }
 
         const data = (await response.json()) as {
@@ -1522,7 +1678,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           if (typeof window !== 'undefined') {
             try {
-              sessionStorage.setItem('osmvp_last_insight_count', insightCount.toString());
+              sessionStorage.setItem(STORAGE_KEYS.lastInsightCount, insightCount.toString());
               console.log('[Suggestions] Saved last insight count to sessionStorage:', insightCount);
             } catch (error) {
               console.error('[Suggestions] Failed to save last insight count to sessionStorage:', error);
@@ -1770,13 +1926,22 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
       realtimeControls.cancelActiveResponse();
 
-      const responseModalities = mode === 'voice' ? ['audio'] : ['text'];
-      const responsePayload: Record<string, unknown> = {
-        output_modalities: responseModalities,
-      };
-      if (responseModalities.includes('audio')) {
-        responsePayload.voice = REALTIME_VOICE_ID;
+      if (mode === 'voice') {
+        if (shouldSeedTeaserCard) {
+          clearTeaserSeed();
+        }
+        if (process.env.NODE_ENV !== 'production') {
+          console.info('[chat-integrated] Voice turn relying on auto response', {
+            phase: conversationPhase,
+            guidanceLength: guidanceText?.length ?? 0,
+          });
+        }
+        return;
       }
+
+      const responsePayload: Record<string, unknown> = {
+        output_modalities: ['text'],
+      };
       if (guidanceText) {
         if (process.env.NODE_ENV !== 'production') {
           console.info('[chat-integrated] Sending phase instructions', {
@@ -1849,57 +2014,127 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
     // In voice mode, add final user voice to transcript so history stays complete
     if (mode === 'voice' && voiceSessionStarted && latestTranscript.role === 'user') {
+      const transcriptId = latestTranscript.id;
       const userText = latestTranscript.text.trim();
       if (!userText) {
         return;
       }
 
-      const exists = turns.some((t) => t.role === 'user' && t.text === userText);
-      if (exists) {
+      let updatedTurns: ConversationTurn[] | null = null;
+      let inserted = false;
+
+      setTurns((prev) => {
+        const existingIndex =
+          transcriptId !== undefined
+            ? prev.findIndex(
+                (turn) => turn.role === 'user' && turn.transcriptId === transcriptId
+              )
+            : -1;
+
+        if (existingIndex >= 0) {
+          if (prev[existingIndex].text === userText) {
+            return prev;
+          }
+          const next = [...prev];
+          next[existingIndex] = { ...next[existingIndex], text: userText };
+          updatedTurns = next;
+          return next;
+        }
+
+        if (prev.some((t) => t.role === 'user' && t.text === userText)) {
+          return prev;
+        }
+
+        const next = [
+          ...prev,
+          {
+            role: 'user' as const,
+            text: userText,
+            transcriptId,
+          },
+        ];
+        updatedTurns = next;
+        inserted = true;
+        return next;
+      });
+
+      if (!updatedTurns) {
         return;
       }
 
-      const userVoiceTurn: ConversationTurn = {
-        role: 'user',
-        text: userText,
-      };
-      const updatedTurns = [...turns, userVoiceTurn];
-
-      setTurns(updatedTurns);
       void deriveInsights(updatedTurns);
 
-      const evalResult = evaluateSuggestionFetch({ turnSnapshot: updatedTurns });
-      if (evalResult.shouldFetch) {
-        void fetchSuggestions({
-          reason: 'voice-pre-response',
-          suppressFollowupMessage: true,
-          evaluation: evalResult,
-        });
+      if (inserted) {
+        const evalResult = evaluateSuggestionFetch({ turnSnapshot: updatedTurns });
+        if (evalResult.shouldFetch) {
+          void fetchSuggestions({
+            reason: 'voice-pre-response',
+            suppressFollowupMessage: true,
+            evaluation: evalResult,
+          });
+        }
       }
       return;
     }
 
     if (latestTranscript.role === 'assistant') {
-      // Check if we already have this message in our turns
-      const alreadyExists = turns.some(
-        (t) => t.role === 'assistant' && t.text === latestTranscript.text
-      );
+      const transcriptId = latestTranscript.id;
+      const assistantText = latestTranscript.text.trim();
+      if (!assistantText) {
+        return;
+      }
 
-      if (!alreadyExists && latestTranscript.text.trim()) {
-        console.log('[Realtime] Adding assistant response:', latestTranscript.text);
+      let updatedTurns: ConversationTurn[] | null = null;
+      let inserted = false;
+      let previousText: string | undefined;
 
-        const assistantTurn: ConversationTurn = {
-          role: 'assistant',
-          text: latestTranscript.text,
-        };
+      setTurns((prev) => {
+        const existingIndex =
+          transcriptId !== undefined
+            ? prev.findIndex(
+                (turn) => turn.role === 'assistant' && turn.transcriptId === transcriptId
+              )
+            : -1;
 
-        setTurns((prev) => [...prev, assistantTurn]);
-        setIsTyping(false);
+        if (existingIndex >= 0) {
+          if (prev[existingIndex].text === assistantText) {
+            return prev;
+          }
+          const next = [...prev];
+          previousText = prev[existingIndex].text;
+          next[existingIndex] = { ...next[existingIndex], text: assistantText };
+          updatedTurns = next;
+          return next;
+        }
 
-        // Derive insights after assistant responds
-        void deriveInsights([...turns, assistantTurn]);
+        const next = [
+          ...prev,
+          {
+            role: 'assistant' as const,
+            text: assistantText,
+            transcriptId,
+          },
+        ];
+        updatedTurns = next;
+        inserted = true;
+        return next;
+      });
 
-        const lower = latestTranscript.text.toLowerCase();
+      if (!updatedTurns) {
+        return;
+      }
+
+      if (inserted) {
+        console.log('[Realtime] Adding assistant response:', assistantText);
+      } else if (previousText !== assistantText) {
+        console.log('[Realtime] Updating assistant response:', assistantText);
+      }
+
+      setIsTyping(false);
+      void deriveInsights(updatedTurns);
+
+      if (inserted) {
+        const lower = assistantText.toLowerCase();
         const requestedCards =
           lower.includes('let me build some cards') ||
           lower.includes('cards just popped') ||
@@ -2037,7 +2272,6 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
   }, [messages]);
 
   const headerState = progressPercent >= 100 ? 'ready' : isHeaderExpanded ? 'expanded' : 'collapsed';
-  const canExpandInsights = insightCategories.some((category) => category.count > 0);
 
   return (
     <div className="chat-integrated-wrapper">
@@ -2082,12 +2316,9 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           {chipText ? <div className="new-item-chip">+ {chipText}</div> : null}
         </div>
 
-        {progressPercent >= 100 ? (
-          <div className="ready-banner">
-            <span className="ready-dot" aria-hidden />
-            <span className="ready-text">
-              We’ve got enough to spin up your starter page. Tap MY PAGE to peek, or keep sharing to sharpen it.
-            </span>
+        {progressPercent < 100 ? (
+          <div className="header-status-row" role="status" aria-live="polite">
+            <div className="progress-hint">Keep talking and I&apos;ll keep shaping your page in real time.</div>
           </div>
         ) : null}
 
@@ -2138,9 +2369,8 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             ) : (
               <div className="progress-section-expanded ready-expanded-note">
                 <div className="progress-title-expanded">Ideas unlocked</div>
-                <div className="progress-subtitle-expanded">
-                  Keep riffing if you want me to fine-tune or chase new angles. Everything new feeds your page live.
-                </div>
+                <div className="progress-subtitle-expanded">Keep riffing if you want me to fine-tune or chase new angles.</div>
+                <div className="progress-subtitle-expanded secondary">Everything new feeds your page live — MY PAGE is good to go.</div>
               </div>
             )}
           </div>
@@ -2157,6 +2387,32 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           </Button>
         </div>
       </div>
+
+      {readyToastVisible ? (
+        <div className="ready-toast" role="status" aria-live="polite" aria-atomic="true">
+          <div className="ready-toast-surface">
+            <div className="ready-toast-copy">
+              <p className="ready-toast-title">MirAI is ready.</p>
+              <p className="ready-toast-message">
+                Your starter page&apos;s live. Open the insights to see what I&apos;ve packed in and tweak anything before you share it.
+              </p>
+            </div>
+            <div className="ready-toast-actions">
+              <Button
+                type="button"
+                size="sm"
+                className="ready-toast-primary"
+                onClick={handleReadyToastOpenInsights}
+              >
+                Open insights
+              </Button>
+              <button type="button" className="ready-toast-dismiss" onClick={handleReadyToastDismiss}>
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Chat Interface */}
       {mode === 'text' ? (
@@ -2273,134 +2529,90 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           </div>
         </>
       ) : (
-        <div className="voice-mode-container" style={{ padding: '2rem', textAlign: 'center' }}>
-          <div style={{ marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: '600', margin: 0 }}>
-                Voice Mode
-              </h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleModeToggle}
-                style={{ gap: '0.5rem' }}
-              >
-                <FileText className="w-4 h-4" />
-                Switch to Text
-              </Button>
+        <div className="voice-mode-container">
+          <header className="voice-mode-header">
+            <div className="voice-mode-intro">
+              <p className="voice-mode-eyebrow">MirAI voice</p>
+              <h2 className="voice-mode-title">Talk to MirAI</h2>
+              <p className="voice-mode-description">
+                Share what you&apos;re into and hear real ideas for what to do next—jobs, side hustles, or sparks you&apos;ve never considered.
+              </p>
             </div>
-            <p style={{ color: '#666', marginBottom: '2rem' }}>
-              Click Start Voice to begin speaking with the AI assistant.
-            </p>
-            <VoiceControls
-              state={realtimeState}
-              controls={realtimeControls}
-              phase={conversationPhase}
-              onStart={() => {
-                if (!voiceBaselineCapturedRef.current) {
-                  voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
-                  voiceBaselineCapturedRef.current = true;
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="voice-mode-text-toggle"
+              onClick={handleModeToggle}
+            >
+              <FileText className="w-4 h-4" aria-hidden />
+              <span>Switch to text</span>
+            </Button>
+          </header>
+
+          <VoiceControls
+            state={realtimeState}
+            controls={realtimeControls}
+            phase={conversationPhase}
+            onStart={() => {
+              if (!voiceBaselineCapturedRef.current) {
+                voiceSuggestionBaselineRef.current = new Set(suggestions.map((s) => s.id));
+                voiceBaselineCapturedRef.current = true;
+              }
+              suggestionsLastInsightCountRef.current = 0;
+              suggestionsFetchInFlightRef.current = false;
+              setVoiceSessionStarted(true);
+              setVoiceCardList((prev) => {
+                if (prev.length === 0) {
+                  return suggestions;
                 }
-                suggestionsLastInsightCountRef.current = 0;
-                suggestionsFetchInFlightRef.current = false;
-                setVoiceSessionStarted(true);
-                setVoiceCardList((prev) => {
-                  if (prev.length === 0) {
-                    return suggestions;
-                  }
-                  const merged = new Map<string, CareerSuggestion>();
-                  suggestions.forEach((card) => {
-                    merged.set(card.id, card);
-                  });
-                  prev.forEach((card) => {
-                    if (!merged.has(card.id)) {
-                      merged.set(card.id, card);
-                    }
-                  });
-                  return Array.from(merged.values());
+                const merged = new Map<string, CareerSuggestion>();
+                suggestions.forEach((card) => {
+                  merged.set(card.id, card);
                 });
-              }}
-            />
-          </div>
-          
-          {/* Show only last assistant message in voice mode */}
-          {(() => {
-            if (!voiceSessionStarted) {
-              return null;
-            }
-            const lastAssistantTurn = turns.filter(t => t.role === 'assistant').slice(-1)[0];
-            return lastAssistantTurn ? (
-              <div style={{ marginTop: '2rem', textAlign: 'center', maxWidth: '600px', margin: '2rem auto 0' }}>
-                <div
-                  style={{
-                    padding: '1.5rem',
-                    backgroundColor: '#d8fdf0',
-                    borderRadius: '12px',
-                    fontSize: '1.1rem',
-                    lineHeight: '1.6',
-                  }}
-                >
-                  {lastAssistantTurn.text}
-                </div>
-              </div>
-            ) : null;
-          })()}
-          
-          {/* Loading indicator for suggestions */}
-          {loadingSuggestions && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <div
-                style={{
-                  padding: '1.5rem',
-                  backgroundColor: '#d8fdf0',
-                  borderRadius: '12px',
-                  fontSize: '1.1rem',
-                  lineHeight: '1.6',
-                  textAlign: 'center',
-                  maxWidth: '600px',
-                  margin: '0 auto',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '20px',
-                      border: '3px solid #10b981',
-                      borderTopColor: 'transparent',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
-                    }}
-                  />
-                  <span>I&apos;m finding some career paths for you based on what you&apos;ve shared. Give me a moment to pull the details together...</span>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Show career cards in voice mode (keep visible while new ones load) */}
-          {voiceSessionStarted && voiceSuggestions.length > 0 && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <h4
-                style={{
-                  fontSize: '1.25rem',
-                  fontWeight: '600',
-                  marginBottom: '1.5rem',
-                  textAlign: 'center',
-                  color: '#111827',
-                }}
-              >
-                Career Paths to Explore
-              </h4>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '1rem',
-                  maxWidth: '800px',
-                  margin: '0 auto',
-                }}
-              >
+                prev.forEach((card) => {
+                  if (!merged.has(card.id)) {
+                    merged.set(card.id, card);
+                  }
+                });
+                return Array.from(merged.values());
+              });
+            }}
+            onStop={() => {
+              setVoiceSessionStarted(false);
+              setVoiceCardList([]);
+            }}
+          />
+
+          <section className="voice-mode-feedback" aria-live="polite">
+            {voiceSessionStarted ? (() => {
+              const lastAssistantTurn = turns.filter((turn) => turn.role === 'assistant').slice(-1)[0];
+              if (!lastAssistantTurn) {
+                return (
+                  <p className="voice-mode-placeholder">
+                    MirAI will speak back and show the transcript here once the conversation starts.
+                  </p>
+                );
+              }
+              return <div className="voice-mode-reply">{lastAssistantTurn.text}</div>;
+            })() : (
+              <p className="voice-mode-placeholder">
+                Start the chat to hear MirAI and see your live transcript.
+              </p>
+            )}
+          </section>
+
+          {loadingSuggestions ? (
+            <section className="voice-mode-panel voice-mode-panel--loading" aria-live="polite">
+              <div className="voice-mode-spinner" aria-hidden />
+              <p>I&apos;m lining up tailored paths based on what you&apos;re sharing…</p>
+            </section>
+          ) : null}
+
+          {voiceSessionStarted && voiceSuggestions.length > 0 ? (
+            <section className="voice-mode-suggestions" aria-live="polite">
+              <h3 className="voice-mode-suggestions-title">Career paths to explore</h3>
+              <div className="voice-mode-suggestions-list">
                 {voiceSuggestions.map((suggestion) => (
                   <InlineCareerCard
                     key={suggestion.id}
@@ -2409,58 +2621,44 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
                     onVote={(value) => {
                       const current = votesByCareerId[suggestion.id];
                       const cardTitle = suggestion.title;
-                      
-                      // Toggle vote: if clicking same value, remove vote
+
                       if (current === value) {
                         voteCareer(suggestion.id, null);
-                      } else {
-                        voteCareer(suggestion.id, value);
-                        
-                        // Add contextual follow-up message after voting
-                        setTimeout(() => {
-                          let followUpText = '';
-                          if (value === 1) {
-                            followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
-                          } else if (value === 0) {
-                            followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
-                          } else if (value === -1) {
-                            followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
-                          }
-                          
-                          if (followUpText) {
-                            const followUpTurn: ConversationTurn = {
-                              role: 'assistant',
-                              text: followUpText,
-                            };
-                            setTurns((prev) => [...prev, followUpTurn]);
-                          }
-                        }, 500);
+                        return;
                       }
+
+                      voteCareer(suggestion.id, value);
+
+                      window.setTimeout(() => {
+                        let followUpText = "";
+                        if (value === 1) {
+                          followUpText = `I see you saved "${cardTitle}"! What excited you most about this path?`;
+                        } else if (value === 0) {
+                          followUpText = `You marked "${cardTitle}" as maybe. What makes you hesitant about it?`;
+                        } else if (value === -1) {
+                          followUpText = `You skipped "${cardTitle}". What about it didn't work well for you?`;
+                        }
+
+                        if (followUpText) {
+                          const followUpTurn: ConversationTurn = {
+                            role: "assistant",
+                            text: followUpText,
+                          };
+                          setTurns((prev) => [...prev, followUpTurn]);
+                        }
+                      }, 500);
                     }}
                   />
                 ))}
               </div>
-            </div>
-          )}
+            </section>
+          ) : null}
 
-          {!loadingSuggestions && voiceSessionStarted && voiceSuggestions.length === 0 && (
-            <div style={{ marginTop: '2rem', padding: '0 1rem' }}>
-              <div
-                style={{
-                  padding: '1.5rem',
-                  backgroundColor: '#eef2ff',
-                  borderRadius: '12px',
-                  fontSize: '1rem',
-                  lineHeight: '1.6',
-                  textAlign: 'center',
-                  maxWidth: '600px',
-                  margin: '0 auto',
-                }}
-              >
-                I’m still listening and gathering more of your story—keep talking and I’ll surface fresh cards as soon as they’re ready.
-              </div>
-            </div>
-          )}
+          {voiceSessionStarted && !loadingSuggestions && voiceSuggestions.length === 0 ? (
+            <section className="voice-mode-panel voice-mode-panel--hint">
+              <p>Keep talking and I&apos;ll surface live ideas you can save or skip.</p>
+            </section>
+          ) : null}
         </div>
       )}
 

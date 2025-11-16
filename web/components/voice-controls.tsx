@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
@@ -13,104 +14,122 @@ interface VoiceControlsProps {
 	state: RealtimeSessionState;
 	controls: RealtimeSessionControls;
 	onStart?: () => void;
+	onStop?: () => void;
 	phase?: ConversationPhase;
 }
 
-export function VoiceControls({ state, controls, onStart, phase }: VoiceControlsProps) {
+export function VoiceControls({ state, controls, onStart, onStop, phase }: VoiceControlsProps) {
+	const [transcriptOpen, setTranscriptOpen] = useState(false);
+
+	const isConnected = state.status === "connected";
+	const isBusy = state.status === "requesting-token" || state.status === "connecting";
+
 	const statusMessage = (() => {
-		switch (state.status) {
-			case "requesting-token":
-				return "Requesting connection…";
-			case "connecting":
-				return "Connecting…";
-			case "connected":
-				return state.microphone === "paused" ? "Paused — we’re not listening right now." : "Listening";
-			case "error":
-				return state.error ?? "Connection error";
-			default:
-				return "Voice idle";
+		if (state.status === "error") {
+			return state.error ?? "Connection error";
 		}
+		if (isBusy) {
+			return "Connecting…";
+		}
+		if (isConnected) {
+			return "Voice chat live";
+		}
+		return "Ready to start";
 	})();
 
-	const canPause = state.status === "connected" && state.microphone === "active";
-	const canResume = state.status === "connected" && state.microphone === "paused";
-	const canStop = state.status === "connected" || state.status === "error";
+	const transcriptItems = useMemo(
+		() =>
+			state.transcripts.filter(
+				(item) => item.isFinal && typeof item.text === "string" && item.text.trim().length > 0
+			),
+		[state.transcripts]
+	);
+	const hasTranscript = transcriptItems.length > 0;
 
-	const handleStart = async () => {
-		if (state.status === "requesting-token" || state.status === "connecting") {
+	useEffect(() => {
+		if (!isConnected && transcriptOpen) {
+			setTranscriptOpen(false);
+		}
+	}, [isConnected, transcriptOpen]);
+
+	const handlePrimaryClick = async () => {
+		if (isConnected) {
+			await controls.disconnect();
+			onStop?.();
 			return;
 		}
-		if (state.status === "connected") {
-			if (state.microphone === "paused") {
-				onStart?.();
-				controls.resumeMicrophone();
-				return;
-			}
-			if (state.microphone === "inactive") {
-				onStart?.();
-				await controls.disconnect();
-				await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID, phase });
-				return;
-			}
-			// Already connected + active mic; nothing to do beyond marking start
-			onStart?.();
+		if (isBusy) {
 			return;
 		}
-
 		onStart?.();
-		await controls.connect({ enableMicrophone: true, enableAudioOutput: true, voice: REALTIME_VOICE_ID, phase });
+		await controls.connect({
+			enableMicrophone: true,
+			enableAudioOutput: true,
+			voice: REALTIME_VOICE_ID,
+			phase,
+		});
 	};
+
+	const primaryLabel = isConnected ? "Stop Voice Chat" : "Start Voice Chat";
 
 	return (
 		<div className="voice-controls-card">
-			<div className="voice-controls-status">{statusMessage}</div>
-			<div className="voice-controls-actions">
+			<p className="voice-controls-status" role="status" aria-live="polite">
+				{statusMessage}
+			</p>
+
+			<div className="voice-controls-primary">
 				<Button
-					variant={state.status === "connected" ? "outline" : "default"}
+					type="button"
 					size="lg"
+					variant="default"
 					className={cn(
 						"voice-control-button",
-						state.status === "connected" ? "voice-control-button--outline" : "voice-control-button--primary"
+						isConnected ? "voice-control-button--stop" : "voice-control-button--start"
 					)}
-					onClick={handleStart}
-					disabled={state.status === "requesting-token" || state.status === "connecting"}
-					type="button"
+					disabled={isBusy}
+					onClick={handlePrimaryClick}
 				>
-					{state.status === "connected" ? "Reconnect" : "Start Voice"}
+					{isBusy ? "Starting…" : primaryLabel}
 				</Button>
-				<Button
-					variant="outline"
-					size="lg"
-					className={cn(
-						"voice-control-button voice-control-button--outline",
-						state.microphone === "paused" ? "voice-control-button--active" : ""
-					)}
-					onClick={() => (canPause ? controls.pauseMicrophone() : controls.resumeMicrophone())}
-					disabled={!canPause && !canResume}
-					type="button"
-				>
-					{state.microphone === "paused" ? "Resume listening" : "Pause listening"}
-				</Button>
-				<Button
-					variant="outline"
-					size="lg"
-					className="voice-control-button voice-control-button--outline voice-control-button--stop"
-					onClick={() => controls.disconnect()}
-					disabled={!canStop}
-					type="button"
-				>
-					Stop
-				</Button>
+				<p className="voice-controls-tagline">Tap to start.</p>
 			</div>
-			{state.microphone === "paused" ? (
-				<div className="voice-controls-hint">While paused, we’re not recording. Resume when you want to keep chatting.</div>
+
+			<button
+				type="button"
+				className="voice-transcript-toggle"
+				onClick={() => setTranscriptOpen((open) => !open)}
+				disabled={!hasTranscript}
+				aria-expanded={transcriptOpen}
+			>
+				{transcriptOpen ? "Hide transcript" : "Show transcript"}
+			</button>
+
+			{transcriptOpen ? (
+				<div className="voice-transcript" role="log" aria-live="polite">
+					{hasTranscript ? (
+						<ul className="voice-transcript-list">
+							{transcriptItems.map((item) => (
+								<li key={item.id} className="voice-transcript-line">
+									<span className="voice-transcript-role">
+										{item.role === "user" ? "You" : "MirAI"}
+									</span>
+									<span className="voice-transcript-text">{item.text}</span>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p className="voice-transcript-placeholder">We’ll surface the transcript once you start chatting.</p>
+					)}
+				</div>
 			) : null}
-			<div className="voice-controls-note">
-				We’re keeping a transcript behind the scenes so you can stay focused on speaking. Let us know if something sounds
-				off.
-			</div>
+
+			<p className="voice-controls-note">
+				We keep a transcript so you can stay present in the conversation and review it later.
+			</p>
+
 			{state.lastLatencyMs !== undefined ? (
-				<div className="voice-controls-meta">Last response latency: {state.lastLatencyMs} ms</div>
+				<p className="voice-controls-meta">Last response latency: {state.lastLatencyMs} ms</p>
 			) : null}
 		</div>
 	);
