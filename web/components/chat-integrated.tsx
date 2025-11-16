@@ -96,10 +96,6 @@ const PROGRESS_READY_MESSAGE =
 
 const CARD_REVEAL_DELAY_MS = 3200;
 
-const SHOULD_EAGER_CONNECT =
-  process.env.NEXT_PUBLIC_REALTIME_EAGER === '1' ||
-  (process.env.NEXT_PUBLIC_REALTIME_EAGER !== '0' && process.env.NODE_ENV !== 'production');
-
 const UNREVIEWED_CARD_THRESHOLD = 3;
 const CARD_BACKLOG_TIMEOUT_MS = 90_000;
 const CARD_BACKLOG_NUDGE =
@@ -588,7 +584,6 @@ const hasAutoCollapsedReadyRef = useRef(false);
   const lastProcessedTurnCountRef = useRef(turns.length);
   const lastRubricUpdateAtRef = useRef<number>(0);
   const lastRubricTurnCountRef = useRef<number>(0);
-  const eagerConnectAttemptedRef = useRef(false);
   const backlogNudgeSentRef = useRef(false);
 
   useEffect(() => {
@@ -861,22 +856,24 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
     }
   }, [sessionId]);
 
+  const turnCount = turns.length;
+
   useEffect(() => {
     const pending = pendingHobbyPromptRef.current;
     if (!pending) {
       return;
     }
-    if (turns.length === 0) {
+    if (turnCount === 0) {
       return;
     }
-    const lastTurn = turns[turns.length - 1];
+    const lastTurn = turns[turnCount - 1];
     if (!lastTurn || lastTurn.role !== 'user') {
       return;
     }
-    if (lastProcessedTurnRef.current === turns.length) {
+    if (lastProcessedTurnRef.current === turnCount) {
       return;
     }
-    lastProcessedTurnRef.current = turns.length;
+    lastProcessedTurnRef.current = turnCount;
 
     const response = lastTurn.text.toLowerCase();
 
@@ -920,7 +917,7 @@ const lastProcessedTurnRef = useRef<number>(turns.length);
         },
       ]);
     }
-  }, [appendInferredAttributes, appendProfileInsights, setTurns, turns]);
+  }, [appendInferredAttributes, appendProfileInsights, setTurns, turnCount, turns]);
 
   // Ensure initial message is added to turns on mount
   useEffect(() => {
@@ -2321,7 +2318,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
         {progressPercent < 100 ? (
           <div className="header-status-row" role="status" aria-live="polite">
-            <div className="progress-hint">Keep talking and I'll keep shaping your page in real time.</div>
+            <div className="progress-hint">Keep talking and I&apos;ll keep shaping your page in real time.</div>
           </div>
         ) : null}
 
@@ -2397,7 +2394,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
             <div className="ready-toast-copy">
               <p className="ready-toast-title">MirAI is ready.</p>
               <p className="ready-toast-message">
-                Your starter page's live. Open the insights to see what I've packed in and tweak anything before you share it.
+                Your starter page&apos;s live. Open the insights to see what I&apos;ve packed in and tweak anything before you share it.
               </p>
             </div>
             <div className="ready-toast-actions">
@@ -2538,7 +2535,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
               <p className="voice-mode-eyebrow">MirAI voice</p>
               <h2 className="voice-mode-title">Talk to MirAI</h2>
               <p className="voice-mode-description">
-                Share what you're into and hear real ideas for what to do next—jobs, side hustles, or sparks you've never considered.
+                Share what you&apos;re into and hear real ideas for what to do next—jobs, side hustles, or sparks you&apos;ve never considered.
               </p>
             </div>
             <Button
@@ -2608,7 +2605,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
           {loadingSuggestions ? (
             <section className="voice-mode-panel voice-mode-panel--loading" aria-live="polite">
               <div className="voice-mode-spinner" aria-hidden />
-              <p>I'm lining up tailored paths based on what you're sharing…</p>
+              <p>I&apos;m lining up tailored paths based on what you&apos;re sharing…</p>
             </section>
           ) : null}
 
@@ -2659,7 +2656,7 @@ const deriveInsights = useCallback(async (turnsSnapshot: ConversationTurn[]) => 
 
           {voiceSessionStarted && !loadingSuggestions && voiceSuggestions.length === 0 ? (
             <section className="voice-mode-panel voice-mode-panel--hint">
-              <p>Keep talking and I'll surface live ideas you can save or skip.</p>
+              <p>Keep talking and I&apos;ll surface live ideas you can save or skip.</p>
             </section>
           ) : null}
         </div>

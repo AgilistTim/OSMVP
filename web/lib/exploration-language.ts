@@ -99,10 +99,6 @@ function formatList(items: string[]): string {
 	return `${items.slice(0, items.length - 1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
-function stripLeadingPossessive(text: string): string {
-	return text.replace(/^(Your|The)\s+/i, "").trim();
-}
-
 export function formatStrengthLabel(raw: string): string {
 	const text = raw.trim();
 	if (!text) return text;

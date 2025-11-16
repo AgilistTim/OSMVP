@@ -524,7 +524,7 @@ export function useRealtimeSession(baseConfig: RealtimeSessionConfig): [
     } catch (err) {
       console.error("Failed to parse realtime event", err);
     }
-  }, [sendEvent]);
+  }, [debugRealtime, sendEvent]);
 
   const flushPendingEvents = useCallback(() => {
     const channel = dataChannelRef.current;

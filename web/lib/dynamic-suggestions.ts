@@ -70,12 +70,6 @@ type AttributeBuckets = {
 };
 
 
-type CanonicalRoleLibraryEntry = {
-    keywords: string[];
-    titles: string[];
-};
-
-
 type TransferableAttributes = {
     established: AttributeBuckets;
     developing: AttributeBuckets;

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-img-element */
 
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -47,7 +48,6 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import type { JourneyVisualContext } from "@/lib/journey-visual";
-import type { ConversationSummary } from "@/lib/conversation-summary";
 
 function formatDisplayDate(date: Date): string {
 	return new Intl.DateTimeFormat("en-GB", {
@@ -230,7 +230,6 @@ interface ExplorationBodyProps {
 	discoveryDate: string;
 	sessionId: string;
 	shareUrl: string;
-	stats: JourneyStats;
 	topPathways: TopPathway[];
 	signalBuckets: SignalBuckets;
 	summaryStatus: SummaryStatus;
@@ -254,7 +253,6 @@ function ExplorationBody({
 	discoveryDate,
 	sessionId,
 	shareUrl,
-	stats,
 	topPathways,
 	signalBuckets,
 	summaryStatus,
@@ -1330,7 +1328,6 @@ const triggerGeneration = async () => {
 				discoveryDate={discoveryDate}
 				sessionId={sessionId}
 				shareUrl={shareUrl}
-				stats={stats}
 				topPathways={topPathways}
 				signalBuckets={signalBuckets}
 				summaryStatus={summaryStatus}

@@ -23,21 +23,6 @@ function normaliseValue(value: string | undefined | null): string | null {
 
 type KeyFn = (value: string) => string;
 
-function dedupe(values: string[], limit: number, keyFn: KeyFn = defaultKeyFn): string[] {
-	const seen = new Set<string>();
-	const ordered: string[] = [];
-	for (const raw of values) {
-		const value = normaliseValue(raw);
-		if (!value) continue;
-		const key = keyFn(value);
-		if (seen.has(key)) continue;
-		seen.add(key);
-		ordered.push(value);
-		if (ordered.length >= limit) break;
-	}
-	return ordered;
-}
-
 function defaultKeyFn(value: string): string {
 	return value.toLowerCase();
 }

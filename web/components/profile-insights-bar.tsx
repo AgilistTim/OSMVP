@@ -55,12 +55,11 @@ export function ProfileInsightsBar({
 		return { interests, strengths, goals };
 	}, [insights]);
 
+	const contentId = useId();
 	const hasAny = summary.interests.length + summary.strengths.length + summary.goals.length > 0;
 	const [expanded, setExpanded] = useState(false);
 
 	if (!hasAny && !actions) return null;
-
-	const contentId = useId();
 
 	return (
 		<div className={cn("profile-insights-bar", expanded ? "profile-insights-bar--expanded" : "")}>

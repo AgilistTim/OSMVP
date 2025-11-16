@@ -883,7 +883,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 		suggestions,
 		summary,
 		conversationSummary,
-		conversationSummary,
 		started,
 		sessionId,
 		voice,

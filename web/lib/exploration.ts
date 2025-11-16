@@ -286,7 +286,7 @@ export function buildMarketReality(
 	};
 }
 
-export function buildLearningPathways(_: ExplorationTheme[]): LearningPathwayGroup[] {
+export function buildLearningPathways(_themes: ExplorationTheme[]): LearningPathwayGroup[] {
 	return [];
 }
 
