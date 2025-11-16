@@ -46,6 +46,14 @@ interface ProfileInsightResponse {
   source?: "assistant" | "user" | "system";
 }
 
+interface InterestResolutionResponse {
+  interests?: Array<{
+    label?: string;
+    evidence?: string;
+    confidence?: InsightConfidence;
+  }>;
+}
+
 type AttributeStage = "established" | "developing" | "hobby";
 
 interface InferredAttribute {
@@ -206,7 +214,7 @@ Guidelines:
     });
   }
 
-  const normalizedInsights: ProfileInsightResponse[] = Array.isArray(parsed.insights)
+  let normalizedInsights: ProfileInsightResponse[] = Array.isArray(parsed.insights)
     ? parsed.insights
         .filter(
           (item): item is ProfileInsightResponse =>
@@ -229,6 +237,19 @@ Guidelines:
               : undefined,
         }))
     : [];
+
+  const refinedInterests = await refineInterestInsights({
+    openai,
+    turns,
+    interestInsights: normalizedInsights.filter((insight) => insight.kind === "interest"),
+  });
+
+  if (refinedInterests.length > 0) {
+    normalizedInsights = [
+      ...normalizedInsights.filter((insight) => insight.kind !== "interest"),
+      ...refinedInterests,
+    ];
+  }
 
   const sanitizeAttributeList = (value: unknown): InferredAttribute[] => {
     if (!Array.isArray(value)) {
@@ -317,4 +338,117 @@ Guidelines:
     inferredAttributes: hasInferredAttributes ? inferredAttributes : null,
     activitySignals: activitySignals.length > 0 ? activitySignals : undefined,
   });
+}
+
+function recentUserStatements(turns: Turn[], limit = 10): string[] {
+  return turns
+    .filter((turn) => turn.role === "user")
+    .map((turn) => sanitizeSentence(turn.text))
+    .filter((sentence) => sentence.length > 0)
+    .slice(-limit);
+}
+
+function sanitizeSentence(text: string | undefined): string {
+  if (!text) {
+    return "";
+  }
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (!collapsed) {
+    return "";
+  }
+  if (collapsed.length <= 320) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, 317)}...`;
+}
+
+async function refineInterestInsights({
+  openai,
+  turns,
+  interestInsights,
+}: {
+  openai: OpenAI;
+  turns: Turn[];
+  interestInsights: ProfileInsightResponse[];
+}): Promise<ProfileInsightResponse[]> {
+  const candidates = interestInsights
+    .map((insight) => insight.value.trim())
+    .filter((value) => value.length > 0);
+
+  if (candidates.length === 0) {
+    return [];
+  }
+
+  const transcript = recentUserStatements(turns);
+  if (transcript.length === 0) {
+    return [];
+  }
+
+  const system = `You revise messy "interest" snippets from a teen career exploration chat into short, polished statements.
+
+Requirements:
+- Combine overlapping ideas (e.g. "football with mates" + "playing football" -> one statement).
+- Output at most four interests ordered by signal strength.
+- Each statement should be descriptive (<= 14 words) and feel like a headline (e.g. "Keeping weekend football rituals alive" or "Cooking thoughtful meals for family").
+- Provide one short evidence clause that nods to the transcript.
+- Use second-person or gerund framing (no "I"/"They").
+
+Return strictly formatted JSON: { "interests": [ { "label": string, "evidence": string, "confidence": "low"|"medium"|"high" } ] }.
+If nothing reliable is present, return { "interests": [] }.`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_INTEREST_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: JSON.stringify({
+            transcript,
+            candidateInterests: candidates,
+          }),
+        },
+      ],
+    });
+
+    const content = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(content) as InterestResolutionResponse;
+    if (!Array.isArray(parsed.interests)) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const refined = parsed.interests
+      .map((item) => ({
+        label: typeof item.label === "string" ? item.label.trim() : "",
+        evidence: typeof item.evidence === "string" ? item.evidence.trim() : undefined,
+        confidence:
+          item.confidence === "low" || item.confidence === "medium" || item.confidence === "high"
+            ? item.confidence
+            : undefined,
+      }))
+      .filter((item) => item.label.length >= 4)
+      .filter((item) => {
+        const key = item.label.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 4);
+
+    return refined.map((item) => ({
+      kind: "interest",
+      value: item.label,
+      evidence: item.evidence,
+      confidence: item.confidence,
+      source: "assistant",
+    }));
+  } catch (error) {
+    console.error("[profile/insights] Failed to refine interests", error);
+    return [];
+  }
 }
