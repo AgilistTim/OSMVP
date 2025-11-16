@@ -28,6 +28,7 @@ import {
 	formatStrengthLabel,
 	humaniseTheme,
 } from "@/lib/exploration-language";
+import { buildSharedExplorationPayload, type SharedExplorationPayload } from "@/lib/exploration-share";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
@@ -124,45 +125,94 @@ function LearningPathway({ group }: { group: LearningPathwayGroup }) {
 	);
 }
 
-function ShareControls({ shareUrl, userName, summary }: { shareUrl: string; userName: string; summary: string }) {
-	const [status, setStatus] = useState<"idle" | "copied" | "error">("idle");
+function ShareControls({
+	userName,
+	summary,
+	ensureShareLink,
+	shareStatus,
+	shareError,
+}: {
+	userName: string;
+	summary: string;
+	ensureShareLink: () => Promise<string | null>;
+	shareStatus: ShareLinkState;
+	shareError: string | null;
+}) {
+	const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">("idle");
+
+	const writeToClipboard = async (url: string) => {
+		await navigator.clipboard.writeText(url);
+		setCopyStatus("copied");
+		setTimeout(() => setCopyStatus("idle"), 2000);
+	};
 
 	const handleShare = async () => {
+		setCopyStatus("idle");
+		const url = await ensureShareLink();
+		if (!url) {
+			setCopyStatus("error");
+			setTimeout(() => setCopyStatus("idle"), 2000);
+			return;
+		}
 		const payload = {
 			title: `${userName}’s Exploration Journey`,
 			text: summary || "Discovering the pathways I’m shaping with MirAI.",
-			url: shareUrl,
+			url,
 		};
 
 		try {
 			if (navigator.share) {
 				await navigator.share(payload);
-				setStatus("idle");
 				return;
 			}
-			await navigator.clipboard.writeText(payload.url);
-			setStatus("copied");
-			setTimeout(() => setStatus("idle"), 2000);
-		} catch {
-			setStatus("error");
-			setTimeout(() => setStatus("idle"), 2000);
+			await writeToClipboard(url);
+		} catch (error) {
+			console.error("[ShareControls] failed to share link", error);
+			setCopyStatus("error");
+			setTimeout(() => setCopyStatus("idle"), 2000);
 		}
 	};
 
+	const handleCopy = async () => {
+		const url = await ensureShareLink();
+		if (!url) {
+			setCopyStatus("error");
+			setTimeout(() => setCopyStatus("idle"), 2000);
+			return;
+		}
+		try {
+			await writeToClipboard(url);
+		} catch (error) {
+			console.error("[ShareControls] failed to copy link", error);
+			setCopyStatus("error");
+			setTimeout(() => setCopyStatus("idle"), 2000);
+		}
+	};
+
+	const isGenerating = shareStatus === "loading";
+
 	return (
 		<div className="share-controls">
-			<Button type="button" className="share-primary" onClick={handleShare}>
+			<Button type="button" className="share-primary" onClick={handleShare} disabled={isGenerating}>
 				<Share2 className="share-icon" aria-hidden />
-				Share this journey
+				{isGenerating ? "Preparing link…" : "Share this journey"}
 			</Button>
 			<button
 				type="button"
-				className={cn("share-fallback", status === "copied" ? "copied" : "", status === "error" ? "error" : "")}
-				onClick={handleShare}
+				className={cn(
+					"share-fallback",
+					copyStatus === "copied" ? "copied" : "",
+					copyStatus === "error" ? "error" : ""
+				)}
+				onClick={handleCopy}
+				disabled={isGenerating}
 			>
 				<Copy className="share-icon" aria-hidden />
-				<span>{status === "copied" ? "Link copied" : status === "error" ? "Could not copy" : "Copy link"}</span>
+				<span>
+					{copyStatus === "copied" ? "Link copied" : copyStatus === "error" ? "Could not copy" : "Copy link"}
+				</span>
 			</button>
+			{shareError ? <p className="share-error">{shareError}</p> : null}
 		</div>
 	);
 }
@@ -223,13 +273,18 @@ interface GeneratedSummary {
 }
 
 type ResourceStatus = "idle" | "loading" | "ready" | "error";
+type ShareLinkState = "idle" | "loading" | "ready" | "error";
+type ExplorationBodyMode = "owner" | "viewer";
 
 interface ExplorationBodyProps {
 	snapshot: ExplorationSnapshot;
 	userName: string;
 	discoveryDate: string;
 	sessionId: string;
-	shareUrl: string;
+	heroSummary: string;
+	shareStatus: ShareLinkState;
+	shareError: string | null;
+	ensureShareLink: () => Promise<string | null>;
 	topPathways: TopPathway[];
 	signalBuckets: SignalBuckets;
 	summaryStatus: SummaryStatus;
@@ -245,6 +300,7 @@ interface ExplorationBodyProps {
 	resourcesStatus: ResourceStatus;
 	resourcesError: string | null;
 	onResourcesRetry: () => void;
+	mode?: ExplorationBodyMode;
 }
 
 function ExplorationBody({
@@ -252,7 +308,10 @@ function ExplorationBody({
 	userName,
 	discoveryDate,
 	sessionId,
-	shareUrl,
+	heroSummary,
+	shareStatus,
+	shareError,
+	ensureShareLink,
 	topPathways,
 	signalBuckets,
 	summaryStatus,
@@ -268,6 +327,7 @@ function ExplorationBody({
 	resourcesStatus,
 	resourcesError,
 	onResourcesRetry,
+	mode = "owner",
 }: ExplorationBodyProps) {
 	const router = useRouter();
 	const handleBack = () => {
@@ -282,10 +342,6 @@ function ExplorationBody({
 	const primaryThemeLabel = useMemo(
 		() => formatPrimaryThemeLabel(snapshot.themes, topPathways),
 		[snapshot.themes, topPathways]
-	);
-	const heroSummary = useMemo(
-		() => formatHeroSummary(signalBuckets.strengths, signalBuckets.goals, snapshot.themes),
-		[signalBuckets.strengths, signalBuckets.goals, snapshot.themes]
 	);
 	const opportunityGroups = useMemo(
 		() => buildOpportunitySummary(snapshot.opportunities),
@@ -330,20 +386,25 @@ function ExplorationBody({
 
 	return (
 		<div className="exploration-container">
-			<div className="exploration-nav">
-				<Button type="button" variant="outline" size="sm" className="exploration-back-button" onClick={handleBack}>
-					<ArrowLeft className="size-4" aria-hidden />
-					<span>Back to chat</span>
-				</Button>
-			</div>
+			{mode === "owner" ? (
+				<div className="exploration-nav">
+					<Button type="button" variant="outline" size="sm" className="exploration-back-button" onClick={handleBack}>
+						<ArrowLeft className="size-4" aria-hidden />
+						<span>Back to chat</span>
+					</Button>
+				</div>
+			) : null}
 
 			<JourneyHeader
 				userName={userName}
 				discoveryDate={discoveryDate}
 				heroSummary={heroSummary}
-				shareUrl={shareUrl}
+				shareStatus={shareStatus}
+				shareError={shareError}
+				ensureShareLink={ensureShareLink}
 				sessionId={sessionId}
 				onVisualiseMap={onVisualiseMap}
+				mode={mode}
 			/>
 
 			<ConversationSummarySection
@@ -383,6 +444,7 @@ function ExplorationBody({
 				suggestions={suggestions}
 				votesByCareerId={votesByCareerId}
 				voteCareer={voteCareer}
+				readOnly={mode === "viewer"}
 				ref={ideaStashRef}
 			/>
 
@@ -546,16 +608,22 @@ function JourneyHeader({
 	userName,
 	discoveryDate,
 	heroSummary,
-	shareUrl,
 	sessionId,
 	onVisualiseMap,
+	shareStatus,
+	shareError,
+	ensureShareLink,
+	mode,
 }: {
 	userName: string;
 	discoveryDate: string;
 	heroSummary: string;
-	shareUrl: string;
 	sessionId: string;
 	onVisualiseMap: () => void;
+	shareStatus: ShareLinkState;
+	shareError: string | null;
+	ensureShareLink: () => Promise<string | null>;
+	mode: ExplorationBodyMode;
 }) {
 	return (
 		<section className="discovery-header journey-header">
@@ -567,14 +635,28 @@ function JourneyHeader({
 				</div>
 			</div>
 			<div className="journey-header-sidebar">
-				<ShareControls shareUrl={shareUrl} userName={userName} summary={heroSummary} />
+				<ShareControls
+					userName={userName}
+					summary={heroSummary}
+					ensureShareLink={ensureShareLink}
+					shareStatus={shareStatus}
+					shareError={shareError}
+				/>
 				<div className="journey-header-actions">
-					<Button type="button" className="visualise-button" onClick={onVisualiseMap}>
-						<MapIcon className="size-4" aria-hidden />
-							<MapIcon className="size-4" aria-hidden />
-						<span>Visualise your map</span>
-					</Button>
-					<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
+					{mode === "owner" ? (
+						<>
+							<Button type="button" className="visualise-button" onClick={onVisualiseMap}>
+								<MapIcon className="size-4" aria-hidden />
+								<MapIcon className="size-4" aria-hidden />
+								<span>Visualise your map</span>
+							</Button>
+							<p className="session-id">Journey ID: {sessionId.slice(0, 8).toUpperCase()}</p>
+						</>
+					) : (
+						<a href="/chat-integrated" className="visualise-button">
+							Start your own journey
+						</a>
+					)}
 				</div>
 			</div>
 		</section>
@@ -726,8 +808,9 @@ const IdeaStashSection = forwardRef<HTMLDivElement, {
 	suggestions: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
+	readOnly?: boolean;
 }>(
-({ suggestions, votesByCareerId, voteCareer }, ref) => {
+({ suggestions, votesByCareerId, voteCareer, readOnly = false }, ref) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const savedCards = suggestions.filter((s) => votesByCareerId[s.id] === 1);
 	const maybeCards = suggestions.filter((s) => votesByCareerId[s.id] === 0);
@@ -789,6 +872,7 @@ const IdeaStashSection = forwardRef<HTMLDivElement, {
 							cards={savedCards}
 							votesByCareerId={votesByCareerId}
 							voteCareer={voteCareer}
+							readOnly={readOnly}
 						/>
 						<IdeaGroup
 							title={`Maybe (${maybeCards.length})`}
@@ -796,6 +880,7 @@ const IdeaStashSection = forwardRef<HTMLDivElement, {
 							cards={maybeCards}
 							votesByCareerId={votesByCareerId}
 							voteCareer={voteCareer}
+							readOnly={readOnly}
 						/>
 						<IdeaGroup
 							title={`Parked (${skippedCards.length})`}
@@ -803,6 +888,7 @@ const IdeaStashSection = forwardRef<HTMLDivElement, {
 							cards={skippedCards}
 							votesByCareerId={votesByCareerId}
 							voteCareer={voteCareer}
+							readOnly={readOnly}
 						/>
 					</div>
 				) : null
@@ -906,12 +992,14 @@ function IdeaGroup({
 	cards,
 	votesByCareerId,
 	voteCareer,
+	readOnly = false,
 }: {
 	title: string;
 	emphasis: "positive" | "neutral" | "muted";
 	cards: CareerSuggestion[];
 	votesByCareerId: Record<string, 1 | 0 | -1>;
 	voteCareer: (careerId: string, value: 1 | -1 | 0 | null) => void;
+	readOnly?: boolean;
 }) {
 	if (cards.length === 0) return null;
 	return (
@@ -925,7 +1013,8 @@ function IdeaGroup({
 						key={card.id}
 						suggestion={card}
 						voteStatus={votesByCareerId[card.id]}
-						onVote={(value) => voteCareer(card.id, value)}
+							onVote={(value) => voteCareer(card.id, value)}
+							readOnly={readOnly}
 					/>
 				))}
 			</div>
@@ -995,13 +1084,6 @@ export function ExplorationView() {
 		]
 	);
 
-	const [shareUrl, setShareUrl] = useState<string>("");
-	useEffect(() => {
-		if (typeof window !== "undefined") {
-			setShareUrl(window.location.href);
-		}
-	}, []);
-
 	const userName = getUserName(profile.demographics);
 	const discoveryDate = formatDisplayDate(new Date());
 	const topPathways = useMemo(
@@ -1009,6 +1091,10 @@ export function ExplorationView() {
 		[profile, suggestions, votesByCareerId]
 	);
 	const signalBuckets = useMemo(() => buildSignalBuckets(profile), [profile]);
+	const heroSummary = useMemo(
+		() => formatHeroSummary(signalBuckets.strengths, signalBuckets.goals, snapshot.themes),
+		[signalBuckets.strengths, signalBuckets.goals, snapshot.themes]
+	);
 
 const summaryPayload = useMemo(
 	() =>
@@ -1022,13 +1108,6 @@ const summaryPayload = useMemo(
 		}),
 	[userName, signalBuckets, topPathways, stats, turns, profile]
 );
-const summaryPayloadJson = useMemo(() => JSON.stringify(summaryPayload), [summaryPayload]);
-
-const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("loading");
-const [summaryError, setSummaryError] = useState<string | null>(null);
-const [aiSummary, setAiSummary] = useState<GeneratedSummary | null>(null);
-const [summaryVersion, setSummaryVersion] = useState(0);
-
 const resourcePayload = useMemo(
 	() => ({
 		strengths: signalBuckets.strengths.map((item) => ({
@@ -1055,6 +1134,91 @@ const [resourceStatus, setResourceStatus] = useState<ResourceStatus>("idle");
 const [resourceError, setResourceError] = useState<string | null>(null);
 const [learningResources, setLearningResources] = useState<LearningPathwayGroup[]>([]);
 const [resourceVersion, setResourceVersion] = useState(0);
+
+const summaryPayloadJson = useMemo(() => JSON.stringify(summaryPayload), [summaryPayload]);
+
+const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("loading");
+const [summaryError, setSummaryError] = useState<string | null>(null);
+const [aiSummary, setAiSummary] = useState<GeneratedSummary | null>(null);
+const [summaryVersion, setSummaryVersion] = useState(0);
+
+const [shareLink, setShareLink] = useState<string | null>(null);
+const [shareLinkState, setShareLinkState] = useState<ShareLinkState>("idle");
+const [shareLinkError, setShareLinkError] = useState<string | null>(null);
+const shareRequestRef = useRef<Promise<string | null> | null>(null);
+
+const ensureShareLink = useCallback(async () => {
+	if (shareLink) {
+		return shareLink;
+	}
+	if (shareRequestRef.current) {
+		return shareRequestRef.current;
+	}
+
+	const pending = (async () => {
+		setShareLinkState("loading");
+		setShareLinkError(null);
+		try {
+			const payload = buildSharedExplorationPayload({
+				userName,
+				heroSummary,
+				discoveryDate,
+				sessionId,
+				snapshot,
+				stats,
+				topPathways,
+				signalBuckets,
+				summary: aiSummary,
+				learningResources,
+				suggestions,
+				votesByCareerId,
+				journeyVisual,
+			});
+			const response = await fetch("/api/exploration/share", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(payload),
+			});
+			const result = (await response.json().catch(() => ({}))) as { slug?: string; error?: string };
+			if (!response.ok) {
+				const message = typeof result?.error === "string" ? result.error : "Unable to create share link.";
+				throw new Error(message);
+			}
+			if (!result.slug) {
+				throw new Error("Share response missing slug.");
+			}
+			const origin = typeof window !== "undefined" ? window.location.origin : "";
+			const url = origin ? `${origin}/exploration/shared/${result.slug}` : `/exploration/shared/${result.slug}`;
+			setShareLink(url);
+			setShareLinkState("ready");
+			return url;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Unable to create share link.";
+			setShareLinkState("error");
+			setShareLinkError(message);
+			return null;
+		} finally {
+			shareRequestRef.current = null;
+		}
+	})();
+
+	shareRequestRef.current = pending;
+	return pending;
+}, [
+	discoveryDate,
+	heroSummary,
+	journeyVisual,
+	learningResources,
+	snapshot,
+	signalBuckets,
+	stats,
+	suggestions,
+	topPathways,
+	userName,
+	votesByCareerId,
+	shareLink,
+	aiSummary,
+]);
 useEffect(() => {
 	let cancelled = false;
 	const controller = new AbortController();
@@ -1327,7 +1491,10 @@ const triggerGeneration = async () => {
 				userName={userName}
 				discoveryDate={discoveryDate}
 				sessionId={sessionId}
-				shareUrl={shareUrl}
+				heroSummary={heroSummary}
+				shareStatus={shareLinkState}
+				shareError={shareLinkError}
+				ensureShareLink={ensureShareLink}
 				topPathways={topPathways}
 				signalBuckets={signalBuckets}
 				summaryStatus={summaryStatus}
@@ -1429,6 +1596,61 @@ const triggerGeneration = async () => {
 				</DialogContent>
 			</Dialog>
 		</>
+	);
+}
+
+interface SharedExplorationViewProps {
+	payload: SharedExplorationPayload;
+	slug: string;
+	canonicalUrl?: string;
+}
+
+export function SharedExplorationView({ payload, slug, canonicalUrl }: SharedExplorationViewProps) {
+	const ensureShareLink = useCallback(async () => {
+		if (typeof window !== "undefined") {
+			return window.location.href;
+		}
+		if (canonicalUrl) {
+			return canonicalUrl;
+		}
+		return `/exploration/shared/${slug}`;
+	}, [canonicalUrl, slug]);
+
+	const summaryStatus: SummaryStatus = payload.summary ? "ready" : "error";
+	const summaryError = payload.summary ? null : "Summary unavailable.";
+
+	const normalizedTopPathways: TopPathway[] = payload.topPathways.map((path) => ({
+		...path,
+		nextStep: path.nextStep ?? undefined,
+	}));
+
+	return (
+		<ExplorationBody
+			mode="viewer"
+			snapshot={payload.snapshot}
+			userName={payload.userName}
+			discoveryDate={payload.discoveryDate}
+			sessionId={payload.sessionId ?? slug}
+			heroSummary={payload.heroSummary}
+			shareStatus="ready"
+			shareError={null}
+			ensureShareLink={ensureShareLink}
+			topPathways={normalizedTopPathways}
+			signalBuckets={payload.signalBuckets}
+			summaryStatus={summaryStatus}
+			summaryData={payload.summary}
+			summaryError={summaryError}
+			onSummaryRetry={() => {}}
+			suggestions={payload.suggestions}
+			votesByCareerId={payload.votesByCareerId}
+			voteCareer={() => {}}
+			journeyVisual={payload.journeyVisual ?? null}
+			onVisualiseMap={() => {}}
+			learningResources={payload.learningResources}
+			resourcesStatus="ready"
+			resourcesError={null}
+			onResourcesRetry={() => {}}
+		/>
 	);
 }
 

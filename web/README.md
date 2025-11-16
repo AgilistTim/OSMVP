@@ -29,6 +29,13 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Environment
+
+The exploration share API persists payloads to Vercel Blob Storage. Ensure the following variables are present before using share links:
+
+- `BLOB_READ_WRITE_TOKEN` – required for `@vercel/blob` writes
+- `EXPLORATION_SHARE_TTL_MS` – optional override for how long share blobs remain valid (defaults to 7 days)
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

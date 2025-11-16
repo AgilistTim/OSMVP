@@ -13,6 +13,7 @@ interface InlineCareerCardProps {
   voteStatus?: 1 | 0 | -1 | null;
   onVote: (value: 1 | 0 | -1) => void;
   className?: string;
+  readOnly?: boolean;
 }
 
 const VOTE_LABELS = {
@@ -27,7 +28,7 @@ const CONFIDENCE_CONFIG = {
   low: { icon: Lightbulb, label: "Loose spark", color: "text-purple-600" },
 };
 
-export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: InlineCareerCardProps) {
+export function InlineCareerCard({ suggestion, voteStatus, onVote, className, readOnly = false }: InlineCareerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   
   const hasVoted = voteStatus !== null && voteStatus !== undefined;
@@ -194,10 +195,9 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
       )}
 
       {/* Action buttons - Improved layout */}
-      <div className="flex items-center gap-2 ml-7">
-        {!hasVoted ? (
-          <>
-            {/* Primary action buttons */}
+      {!readOnly ? (
+        <div className="flex items-center gap-2 ml-7">
+          {!hasVoted ? (
             <div className="flex gap-1.5 flex-1">
               <Button
                 size="sm"
@@ -227,38 +227,58 @@ export function InlineCareerCard({ suggestion, voteStatus, onVote, className }: 
                 Skip
               </Button>
             </div>
-          </>
-        ) : (
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-gray-500 hover:text-gray-700"
+              onClick={() => onVote(voteStatus)}
+            >
+              Remove vote
+            </Button>
+          )}
+          
           <Button
             size="sm"
-            variant="ghost"
-            className="h-8 text-xs text-gray-500 hover:text-gray-700"
-            onClick={() => onVote(voteStatus)}
+            variant="outline"
+            className="h-8 text-xs shrink-0 px-3 min-w-[70px]"
+            onClick={() => setIsExpanded(!isExpanded)}
           >
-            Remove vote
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-3 h-3 mr-1" />
+                <span>Less</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3 h-3 mr-1" />
+                <span>More</span>
+              </>
+            )}
           </Button>
-        )}
-        
-        {/* Explore toggle */}
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 text-xs shrink-0 px-3 min-w-[70px]"
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
-          {isExpanded ? (
-            <>
-              <ChevronUp className="w-3 h-3 mr-1" />
-              <span>Less</span>
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-3 h-3 mr-1" />
-              <span>More</span>
-            </>
-          )}
-        </Button>
-      </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between ml-7">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs shrink-0 px-3 min-w-[70px]"
+            onClick={() => setIsExpanded(!isExpanded)}
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-3 h-3 mr-1" />
+                <span>Less</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3 h-3 mr-1" />
+                <span>More</span>
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Subtle confidence label at bottom */}
       {!isExpanded && (
