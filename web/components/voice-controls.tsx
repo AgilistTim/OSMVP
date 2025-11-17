@@ -34,7 +34,7 @@ export function VoiceControls({ state, controls, onStart, onStop, phase }: Voice
 		if (isConnected) {
 			return "Voice chat live";
 		}
-		return "Ready to start";
+		return null;
 	})();
 
 	const transcriptItems = useMemo(
@@ -74,9 +74,11 @@ export function VoiceControls({ state, controls, onStart, onStop, phase }: Voice
 
 	return (
 		<div className="voice-controls-card">
-			<p className="voice-controls-status" role="status" aria-live="polite">
-				{statusMessage}
-			</p>
+			{statusMessage ? (
+				<p className="voice-controls-status" role="status" aria-live="polite">
+					{statusMessage}
+				</p>
+			) : null}
 
 			<div className="voice-controls-primary">
 				<Button

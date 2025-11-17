@@ -203,16 +203,17 @@ function sanitizeSummary(summary: SharedGeneratedSummary): SharedGeneratedSummar
 
 function sanitizeJourneyVisual(visual?: JourneyVisualAsset | null): JourneyVisualAsset | null | undefined {
 	if (!visual) return visual ?? null;
-	const { imageBase64, plan, model, createdAt, mimeType } = visual;
-	if (typeof imageBase64 !== "string" || typeof plan !== "object") {
+	const hasPlan = visual.plan && typeof visual.plan === "object";
+	const imageUrl = typeof visual.imageUrl === "string" && visual.imageUrl.trim().length > 0 ? visual.imageUrl.trim() : null;
+	if (!hasPlan || !imageUrl) {
 		return null;
 	}
 	return {
-		imageBase64,
-		plan,
-		model,
-		createdAt,
-		mimeType,
+		plan: visual.plan,
+		model: visual.model,
+		createdAt: visual.createdAt,
+		mimeType: visual.mimeType,
+		imageUrl,
 	};
 }
 

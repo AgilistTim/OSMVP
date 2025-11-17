@@ -727,7 +727,13 @@ function JourneyVisualSection({
 	visual: JourneyVisualAsset;
 	onVisualiseMap: () => void;
 }) {
-	const dataUrl = `data:${visual.mimeType ?? "image/png"};base64,${visual.imageBase64}`;
+	const base64Src = visual.imageBase64
+		? `data:${visual.mimeType ?? "image/png"};base64,${visual.imageBase64}`
+		: null;
+	const visualSrc = base64Src ?? visual.imageUrl ?? null;
+	if (!visualSrc) {
+		return null;
+	}
 	return (
 		<section className="journey-visual-section">
 			<SectionHeader
@@ -738,7 +744,7 @@ function JourneyVisualSection({
 			<div className="journey-visual-grid">
 				<figure className="journey-visual-card tilted-card">
 					<img
-						src={dataUrl}
+						src={visualSrc}
 						alt={`Journey visual in a ${visual.plan.themeLabel}`}
 						className="w-full rounded-md border bg-background"
 					/>
@@ -1350,10 +1356,10 @@ const handleResourcesRetry = useCallback(() => {
 		return new Blob([byteArray], { type: mime });
 	};
 
-	const visualPlan = journeyVisual?.plan ?? null;
-	const visualDataUrl = journeyVisual
-		? `data:${journeyVisual.mimeType ?? "image/png"};base64,${journeyVisual.imageBase64}`
-		: null;
+const visualPlan = journeyVisual?.plan ?? null;
+const visualSrc = journeyVisual?.imageBase64
+	? `data:${journeyVisual.mimeType ?? "image/png"};base64,${journeyVisual.imageBase64}`
+	: journeyVisual?.imageUrl ?? null;
 	const visualMeta = journeyVisual
 		? { model: journeyVisual.model, created: journeyVisual.createdAt }
 		: null;
@@ -1381,6 +1387,7 @@ const triggerGeneration = async () => {
 			const createdAt = typeof data.created === "number" ? data.created : Date.now();
 			setJourneyVisual({
 				imageBase64: data.image,
+				imageUrl: typeof data.imageUrl === "string" ? data.imageUrl : null,
 				plan: data.plan,
 				model: data.model,
 				createdAt,
@@ -1413,10 +1420,25 @@ const triggerGeneration = async () => {
 		}
 	};
 
-	const handleDownload = () => {
+	const handleDownload = async () => {
 		if (!journeyVisual) return;
 		try {
-			const blob = base64ToBlob(journeyVisual.imageBase64, journeyVisual.mimeType ?? "image/png");
+			let blob: Blob | null = null;
+			if (journeyVisual.imageBase64) {
+				blob = base64ToBlob(journeyVisual.imageBase64, journeyVisual.mimeType ?? "image/png");
+			} else if (journeyVisual.imageUrl) {
+				const response = await fetch(journeyVisual.imageUrl);
+				if (!response.ok) {
+					throw new Error("Unable to download journey visual.");
+				}
+				const arrayBuffer = await response.arrayBuffer();
+				blob = new Blob([arrayBuffer], {
+					type: journeyVisual.mimeType ?? response.headers.get("content-type") ?? "image/png",
+				});
+			}
+			if (!blob) {
+				return;
+			}
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = url;
@@ -1504,11 +1526,11 @@ const triggerGeneration = async () => {
 								</Button>
 							</div>
 						) : null}
-				{visualStatus === "ready" && visualPlan && visualDataUrl ? (
+				{visualStatus === "ready" && visualPlan && visualSrc ? (
 					<div className="flex flex-col gap-4">
 						<div className="rounded-lg border bg-muted/30 p-4">
 							<img
-								src={visualDataUrl}
+								src={visualSrc}
 								alt={`Journey visual in a ${visualPlan.themeLabel}`}
 								className="w-full rounded-md border bg-background"
 							/>

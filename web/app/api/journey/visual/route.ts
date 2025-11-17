@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { put } from "@vercel/blob";
 import { buildJourneyVisualPlan, type JourneyVisualContext } from "@/lib/journey-visual";
 
 const DEFAULT_IMAGE_MODEL = process.env.JOURNEY_IMAGE_MODEL ?? "gpt-image-1";
-const DEFAULT_IMAGE_SIZE = process.env.JOURNEY_IMAGE_SIZE ?? "1536x1024";
+const DEFAULT_IMAGE_SIZE = process.env.JOURNEY_IMAGE_SIZE ?? "auto";
+const JOURNEY_VISUAL_NAMESPACE = process.env.JOURNEY_VISUAL_NAMESPACE ?? "journey-visuals";
 
 type OpenAIImageResponse = {
 	created?: number;
@@ -119,14 +121,26 @@ export async function POST(req: NextRequest) {
 			);
 		}
 		const createdAt = typeof payload.created === "number" ? payload.created * 1000 : Date.now();
+		const mimeType = "image/png";
+
+		let imageUrl: string | null = null;
+		try {
+			imageUrl = await persistJourneyVisual(image, {
+				mimeType,
+				namespace: JOURNEY_VISUAL_NAMESPACE,
+			});
+		} catch (error) {
+			console.error("[journey/visual] Failed to persist journey visual", error);
+		}
 
 		return NextResponse.json({
 			image,
+			imageUrl,
 			plan,
 			created: createdAt,
 			usage: payload.usage ?? null,
 			model,
-			mimeType: "image/png",
+			mimeType,
 		});
 	} catch (error) {
 		console.error("[journey/visual] Unexpected error", error);
@@ -135,4 +149,28 @@ export async function POST(req: NextRequest) {
 			{ status: 500 }
 		);
 	}
+}
+
+async function persistJourneyVisual(
+	imageBase64: string,
+	{
+		mimeType,
+		namespace,
+	}: {
+		mimeType: string;
+		namespace: string;
+	}
+): Promise<string | null> {
+	if (!process.env.BLOB_READ_WRITE_TOKEN) {
+		throw new Error("BLOB_READ_WRITE_TOKEN is not configured");
+	}
+	const extension = mimeType.split("/")[1] ?? "png";
+	const key = `${namespace}/${Date.now().toString(36)}-${crypto.randomUUID()}.${extension}`;
+	const buffer = Buffer.from(imageBase64, "base64");
+	const result = await put(key, buffer, {
+		access: "public",
+		addRandomSuffix: false,
+		contentType: mimeType,
+	});
+	return result?.url ?? null;
 }
