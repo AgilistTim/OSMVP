@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExplorationSnapshot } from "@/lib/exploration";
-import type { CareerSuggestion } from "@/components/session-provider";
+import type { CareerSuggestion, JourneyVisualAsset } from "@/components/session-provider";
 import {
 	buildSharedExplorationPayload,
 	validateSharedExplorationPayload,
@@ -44,6 +44,15 @@ const baseSignals: SharedSignalBuckets = {
 	strengths: [{ label: "Focus", evidence: "You mentioned it" }],
 	interests: [{ label: "Making things" }],
 	goals: [{ label: "Start a studio" }],
+};
+
+const basePlan: JourneyVisualAsset["plan"] = {
+	themeId: "test-theme",
+	themeLabel: "Test Theme",
+	imagePrompt: "Draw something inspiring.",
+	caption: "A caption",
+	highlights: ["Highlight one"],
+	keywords: ["test"],
 };
 
 function buildSuggestion(id: number): CareerSuggestion {
@@ -111,6 +120,38 @@ describe("exploration-share helpers", () => {
 			heroSummary: "x".repeat(MAX_SHARE_PAYLOAD_BYTES),
 		};
 		expect(() => validateSharedExplorationPayload(JSON.parse(JSON.stringify(inflated)))).toThrow(/exceeds/i);
+	});
+
+	it("omits journey visuals without an image url", () => {
+		const payload = buildSharedExplorationPayload(
+			buildPayloadInput({
+				journeyVisual: {
+					imageBase64: "data",
+					plan: basePlan,
+					model: "gpt-image-1",
+					createdAt: Date.now(),
+					mimeType: "image/png",
+				} as JourneyVisualAsset,
+			})
+		);
+		expect(payload.journeyVisual).toBeNull();
+	});
+
+	it("retains journey visuals with an image url", () => {
+		const payload = buildSharedExplorationPayload(
+			buildPayloadInput({
+				journeyVisual: {
+					imageUrl: "https://example.com/visual.png",
+					plan: basePlan,
+					model: "gpt-image-1",
+					createdAt: Date.now(),
+					mimeType: "image/png",
+				},
+			})
+		);
+		expect(payload.journeyVisual?.imageUrl).toBe("https://example.com/visual.png");
+		expect(payload.journeyVisual?.plan).toEqual(basePlan);
+		expect(payload.journeyVisual?.imageBase64).toBeUndefined();
 	});
 });
 

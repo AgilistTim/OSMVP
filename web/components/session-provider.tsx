@@ -154,7 +154,8 @@ export interface CareerSuggestion {
 }
 
 export interface JourneyVisualAsset {
-	imageBase64: string;
+	imageBase64?: string;
+	imageUrl?: string | null;
 	plan: JourneyVisualPlan;
 	model: string;
 	createdAt: number;
